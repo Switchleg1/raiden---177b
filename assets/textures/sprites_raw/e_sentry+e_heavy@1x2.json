@@ -1,0 +1,17 @@
+{
+  "createdAt": "2026-09-17T13:00:57.531Z",
+  "prompt": "Pixel art spritesheet for a 2D vertical shoot-em-up arcade game. TWO SEPARATE enemy sprites, side by side, left half and right half, each centered in its own half. Direct top-down view of alien war machines, each nose pointing to the BOTTOM of the image with engines at the TOP. Crisp readable pixel clusters, worn gunmetal hull plates, panel lines, rivets, one glowing energy core, hazard stripe accents, same lighting and same pixel density on both. No text, no watermark, no scenery, no drop shadow, nothing else in the image.\nLEFT: \"sentry\" — hexagonal armoured drone, cold cyan and steel-blue hull, thick overlapping shell plates arranged around a single glowing cyan eye in the centre, four short stabiliser fins, looks like a floating bunker.\nRIGHT: \"heavy\" — massive siege gun platform, dark crimson and heavy gunmetal, wide nearly square hull, four multi-barrel turret clusters near the corners, huge bright red reactor core in the middle, brutal industrial girders and warning stripes.",
+  "provider": "openai-codex",
+  "responseModel": "gpt-5.5",
+  "imageModel": "gpt-image-2",
+  "imageId": "ig_0bd88d2388f42333016aabe46bae1087d1825ebbfc3a09c970",
+  "savedPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\sprites_raw\\e_sentry+e_heavy@1x2.png",
+  "metadataPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\sprites_raw\\e_sentry+e_heavy@1x2.json",
+  "mimeType": "image/png",
+  "revisedPrompt": "Pixel art spritesheet for a 2D vertical shoot-em-up arcade game. Canvas split visually into two equal halves but with no divider line. TWO SEPARATE enemy sprites side by side, one centered in left half and one centered in right half. Direct top-down view of alien war machines, each nose pointing to the BOTTOM of the image and engines at the TOP. Crisp readable pixel clusters, consistent pixel density and lighting on both sprites. Worn gunmetal hull plates, visible panel lines, tiny rivets, hazard stripe accents, one glowing energy core per sprite. Transparent or plain empty background, no text, no watermark, no scenery, no drop shadow, nothing else.\n\nLEFT SPRITE: \"sentry\" enemy — hexagonal armoured drone, cold cyan and steel-blue hull, thick overlapping shell plates arranged around a single glowing cyan eye/core in the center, four short stabiliser fins, floating bunker silhouette, compact and heavily armored.\n\nRIGHT SPRITE: \"heavy\" enemy — massive siege gun platform, dark crimson and heavy gunmetal, wide nearly square hull, four multi-barrel turret clusters near the corners, huge bright red reactor core in the middle, brutal industrial girders, warning stripe accents, bulky intimidating war machine.\n\nStyle: high-quality retro pixel art, sharp square pixels, orthographic top-down, arcade shmup enemy spritesheet, no antialiasing blur.",
+  "size": "1536x1024",
+  "quality": "high",
+  "background": "auto",
+  "outputFormat": "png",
+  "thinking": "low"
+}

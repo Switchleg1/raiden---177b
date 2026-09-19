@@ -1,0 +1,17 @@
+{
+  "createdAt": "2026-09-17T03:56:26.627Z",
+  "prompt": "Top-down game debris splat decal, single irregular organic blob of fresh dark scorched ash and soot with glowing dim orange embers in the middle, wispy feathered grey edges fading out to transparency, centered, isolated on a completely flat solid pure magenta background rgb(255,0,255), very dark desaturated palette with limited orange glow, no hard outline, no text, no watermark.",
+  "provider": "openai-codex",
+  "responseModel": "gpt-5.5",
+  "imageModel": "gpt-image-2",
+  "imageId": "ig_003ed4d31790224f016aab64d19c4887d28157079e04c79185",
+  "savedPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\tiles_raw\\splat_scorch.png",
+  "metadataPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\tiles_raw\\splat_scorch.json",
+  "mimeType": "image/png",
+  "revisedPrompt": "Top-down game debris splat decal: a single irregular organic blob of fresh dark scorched ash and soot, with dim glowing orange embers concentrated in the middle. Wispy feathered grey edges fading outward as if to transparency. Centered and isolated on a completely flat solid pure magenta background RGB(255,0,255). Very dark desaturated palette with limited orange glow. No hard outline, no text, no watermark.",
+  "size": "1024x1024",
+  "quality": "medium",
+  "background": "auto",
+  "outputFormat": "png",
+  "thinking": "low"
+}

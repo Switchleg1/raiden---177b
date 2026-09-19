@@ -1,0 +1,17 @@
+{
+  "createdAt": "2026-09-17T14:03:57.150Z",
+  "prompt": "Pixel art sprite for a 2D vertical shoot-em-up arcade game. ONE boss enemy, centered, filling the frame edge to edge. Direct top-down view of an alien war machine, nose pointing to the BOTTOM of the image with engines at the TOP. Wide boss silhouette, about 3:2 wider than tall. Crisp readable pixel clusters, worn gunmetal hull plates, panel lines, rivets, one glowing energy core, hazard stripe accents. No text, no watermark, no scenery, no drop shadow, nothing else in the image.\n\nBOSS: command tower crawler for a ruined city sector. Tall gunmetal citadel hull with a stepped tower block in the centre, antenna mast, blinking aerial warning lights, wide crawler tread pods left and right, slabs of shattered concrete bolted on as extra armour, one cold white energy core in the middle.",
+  "provider": "openai-codex",
+  "responseModel": "gpt-5.5",
+  "imageModel": "gpt-image-2",
+  "imageId": "ig_09a578398bfe1d70016aabf3208d6087d18720f47b9377334b",
+  "savedPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\sprites_raw\\e_boss3.png",
+  "metadataPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\sprites_raw\\e_boss3.json",
+  "mimeType": "image/png",
+  "revisedPrompt": "Pixel art sprite for a 2D vertical shoot-em-up arcade game. Single boss enemy only, centered, filling the frame edge to edge. Direct top-down view, nose/front pointing to the BOTTOM of the image, engines/rear at the TOP. Wide silhouette roughly 3:2 wider than tall. A command tower crawler for a ruined city sector: tall gunmetal citadel-like hull with a stepped tower block in the center, antenna mast, tiny blinking aerial warning lights, wide crawler tread pods on left and right, slabs of shattered concrete bolted on as extra armor, worn gunmetal hull plates, crisp readable pixel clusters, visible panel lines and rivets, one cold white glowing energy core in the middle, small hazard stripe accents. Transparent/empty background, no scenery, no text, no watermark, no drop shadow, nothing else in the image. Retro arcade pixel art, sharp hard edges, limited palette, detailed sprite sheet style.",
+  "size": "1536x1024",
+  "quality": "high",
+  "background": "auto",
+  "outputFormat": "png",
+  "thinking": "low"
+}

@@ -1,0 +1,17 @@
+{
+  "createdAt": "2026-09-17T03:24:18.960Z",
+  "prompt": "Top-down game terrain material swatch, PERFECTLY SEAMLESS tileable on all four edges (opposite edges must match exactly, like photographic noise), flat orthographic top-down view, uniform soft lighting, no directional shading, no shadows, no vignette, no bevels, no borders, no distinct landmarks. Subject: cooled black basalt lava crust broken into plates with glowing orange-red molten cracks glowing between the crust plates, ropey pahoehoe folds, thin smoke haze. Mostly very dark black rock with limited molten glow so it stays readable as ground.",
+  "provider": "openai-codex",
+  "responseModel": "gpt-5.5",
+  "imageModel": "gpt-image-2",
+  "imageId": "ig_0d734c5bd8ba0e13016aab5d47404c87d2a13a7e3e0ab50d4f",
+  "savedPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\tiles\\lava_crust.png",
+  "metadataPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\tiles\\lava_crust.json",
+  "mimeType": "image/png",
+  "revisedPrompt": "Top-down game terrain material swatch, perfectly seamless tileable on all four edges with opposite edges matching exactly like photographic noise. Flat orthographic top-down view, uniform soft lighting, no directional shading, no shadows, no vignette, no bevels, no borders, no distinct landmarks. Cooled black basalt lava crust broken into irregular plates, ropey pahoehoe folds and wrinkled basalt texture. Glowing orange-red molten cracks between crust plates, limited molten glow, mostly very dark black rock so it remains readable as ground. Subtle thin smoke haze integrated into the surface texture. High-detail PBR-style terrain texture, square tile.",
+  "size": "1024x1024",
+  "quality": "medium",
+  "background": "auto",
+  "outputFormat": "png",
+  "thinking": "low"
+}

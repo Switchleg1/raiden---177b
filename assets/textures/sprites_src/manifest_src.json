@@ -1,0 +1,195 @@
+{
+ "px": 384,
+ "sprites": {
+  "e_bomber": {
+   "kind": "sprite_src",
+   "px": 384,
+   "mode": "chroma",
+   "coverage": 0.34,
+   "rim_lum": 37.4,
+   "rim_lum_raw": 29.7,
+   "bytes": 136990,
+   "sha1": "9bed53b7e1b4"
+  },
+  "e_splitter": {
+   "kind": "sprite_src",
+   "px": 384,
+   "mode": "chroma",
+   "coverage": 0.44,
+   "rim_lum": 34.3,
+   "rim_lum_raw": 77.7,
+   "bytes": 189244,
+   "sha1": "4dba82f003b5"
+  },
+  "e_rammer": {
+   "kind": "sprite_src",
+   "px": 384,
+   "mode": "chroma",
+   "coverage": 0.254,
+   "rim_lum": 21.2,
+   "rim_lum_raw": 34.9,
+   "bytes": 107771,
+   "sha1": "4147926562b6"
+  },
+  "e_boss1": {
+   "kind": "sprite_src",
+   "px": 384,
+   "mode": "alpha",
+   "coverage": 0.262,
+   "rim_lum": 61.4,
+   "rim_lum_raw": 39.0,
+   "bytes": 117211,
+   "sha1": "da95da6ecde0"
+  },
+  "e_boss2": {
+   "kind": "sprite_src",
+   "px": 384,
+   "mode": "alpha",
+   "coverage": 0.271,
+   "rim_lum": 48.3,
+   "rim_lum_raw": 32.9,
+   "bytes": 124456,
+   "sha1": "2fbac2cc9d03"
+  },
+  "e_boss3": {
+   "kind": "sprite_src",
+   "px": 384,
+   "mode": "alpha",
+   "coverage": 0.347,
+   "rim_lum": 41.3,
+   "rim_lum_raw": 24.2,
+   "bytes": 139691,
+   "sha1": "c0dad369c98d"
+  },
+  "e_boss4": {
+   "kind": "sprite_src",
+   "px": 384,
+   "mode": "alpha",
+   "coverage": 0.292,
+   "rim_lum": 102.2,
+   "rim_lum_raw": 75.7,
+   "bytes": 142971,
+   "sha1": "6c0efb893385"
+  },
+  "e_boss5": {
+   "kind": "sprite_src",
+   "px": 384,
+   "mode": "alpha",
+   "coverage": 0.266,
+   "rim_lum": 65.8,
+   "rim_lum_raw": 48.1,
+   "bytes": 128628,
+   "sha1": "570ef87267c2"
+  },
+  "e_boss6": {
+   "kind": "sprite_src",
+   "px": 384,
+   "mode": "alpha",
+   "coverage": 0.273,
+   "rim_lum": 37.9,
+   "rim_lum_raw": 25.6,
+   "bytes": 118720,
+   "sha1": "e92216958406"
+  },
+  "e_boss7": {
+   "kind": "sprite_src",
+   "px": 384,
+   "mode": "alpha",
+   "coverage": 0.249,
+   "rim_lum": 40.5,
+   "rim_lum_raw": 25.4,
+   "bytes": 107098,
+   "sha1": "c4d11eb5a219"
+  },
+  "e_boss8": {
+   "kind": "sprite_src",
+   "px": 384,
+   "mode": "alpha",
+   "coverage": 0.28,
+   "rim_lum": 43.3,
+   "rim_lum_raw": 34.6,
+   "bytes": 122073,
+   "sha1": "7da6c3e977b2"
+  },
+  "e_boss9": {
+   "kind": "sprite_src",
+   "px": 384,
+   "mode": "alpha",
+   "coverage": 0.336,
+   "rim_lum": 102.6,
+   "rim_lum_raw": 61.1,
+   "bytes": 164614,
+   "sha1": "09094b743b63"
+  },
+  "e_grunt": {
+   "kind": "sprite_src",
+   "px": 384,
+   "mode": "alpha",
+   "coverage": 0.242,
+   "rim_lum": 38.7,
+   "rim_lum_raw": 14.2,
+   "bytes": 96963,
+   "sha1": "8603b89305c0"
+  },
+  "e_sentry": {
+   "kind": "sprite_src",
+   "px": 384,
+   "mode": "alpha",
+   "coverage": 0.423,
+   "rim_lum": 29.7,
+   "rim_lum_raw": 24.7,
+   "bytes": 153619,
+   "sha1": "8f87ff8c3c08"
+  },
+  "e_heavy": {
+   "kind": "sprite_src",
+   "px": 384,
+   "mode": "alpha",
+   "coverage": 0.476,
+   "rim_lum": 28.9,
+   "rim_lum_raw": 18.7,
+   "bytes": 165843,
+   "sha1": "1eaa24e869b2"
+  },
+  "e_weaver": {
+   "kind": "sprite_src",
+   "px": 384,
+   "mode": "alpha",
+   "coverage": 0.266,
+   "rim_lum": 68.3,
+   "rim_lum_raw": 119.0,
+   "bytes": 120900,
+   "sha1": "3e92cec5e921"
+  },
+  "e_darter": {
+   "kind": "sprite_src",
+   "px": 384,
+   "mode": "alpha",
+   "coverage": 0.103,
+   "rim_lum": 67.5,
+   "rim_lum_raw": 147.3,
+   "bytes": 47635,
+   "sha1": "3ea0479835ff"
+  },
+  "e_gunner": {
+   "kind": "sprite_src",
+   "px": 384,
+   "mode": "alpha",
+   "coverage": 0.398,
+   "rim_lum": 22.0,
+   "rim_lum_raw": 23.8,
+   "bytes": 160502,
+   "sha1": "4fde11a02b01"
+  },
+  "p_ship": {
+   "kind": "sprite_src",
+   "px": 384,
+   "mode": "chroma",
+   "coverage": 0.237,
+   "rim_lum": 48.3,
+   "rim_lum_raw": 39.2,
+   "bytes": 93450,
+   "sha1": "074ab742a5b2"
+  }
+ }
+}

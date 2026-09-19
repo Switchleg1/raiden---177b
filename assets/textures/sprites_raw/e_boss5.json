@@ -1,0 +1,17 @@
+{
+  "createdAt": "2026-09-17T14:06:31.166Z",
+  "prompt": "Pixel art sprite for a 2D vertical shoot-em-up arcade game. ONE boss enemy, centered, filling the frame edge to edge. Direct top-down view of an alien war machine, nose pointing to the BOTTOM of the image with engines at the TOP. Wide boss silhouette, about 3:2 wider than tall. Crisp readable pixel clusters, worn gunmetal hull plates, panel lines, rivets, one glowing energy core, hazard stripe accents. No text, no watermark, no scenery, no drop shadow, nothing else in the image.\n\nBOSS: gothic cathedral biomech for a ruined citadel sector. Ancient weathered stone and dull gold hull shaped like a flying cathedral, flying-buttress wings spreading wide, gargoyle gun nests at the corners, cracked stained-glass panels glowing red, rose window housing one enormous crimson energy core in the middle.",
+  "provider": "openai-codex",
+  "responseModel": "gpt-5.5",
+  "imageModel": "gpt-image-2",
+  "imageId": "ig_02c8eb510a2e0d98016aabf3c8d78c87d181877992223764ff",
+  "savedPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\sprites_raw\\e_boss5.png",
+  "metadataPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\sprites_raw\\e_boss5.json",
+  "mimeType": "image/png",
+  "revisedPrompt": "Pixel art sprite for a 2D vertical shoot-em-up arcade game. Single boss enemy only, centered, filling the frame edge to edge. Direct top-down orthographic view, nose pointing to the bottom of the image, engines at the top. Wide boss silhouette about 3:2 wider than tall. Gothic cathedral biomech for a ruined citadel sector: ancient weathered stone and dull gold hull shaped like a flying cathedral, flying-buttress wings spreading wide, gargoyle gun nests at the four corners, cracked stained-glass panels glowing red, a rose window in the center housing one enormous crimson energy core. Crisp readable pixel clusters, worn gunmetal hull plates, panel lines, rivets, subtle hazard stripe accents. Transparent/backgroundless sprite feel: no text, no watermark, no scenery, no drop shadow, nothing else in the image.",
+  "size": "1536x1024",
+  "quality": "high",
+  "background": "auto",
+  "outputFormat": "png",
+  "thinking": "low"
+}

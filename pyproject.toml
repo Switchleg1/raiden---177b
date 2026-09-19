@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "raiden_shadow"
+version = "1.0.0"
+description = "Raiden Shadow: an original vertical arcade shooter built on pygame-ce (all assets procedural)."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "raiden_shadow" }]
+dependencies = [
+    "pygame-ce>=2.5",
+    "numpy>=1.26",  # terrain texture passes (graceful no-op fallback if absent)
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-cov>=4",
+    "ruff>=0.6",
+    "mypy>=1.8",
+]
+build = [
+    "pyinstaller>=6",
+]
+
+# The game runs straight from the repo (`python main.py`); source lives in
+# src/ as plain modules, deliberately NOT installed as importable packages.
+# `pip install -e .` therefore only pulls the runtime dependencies.
+[tool.setuptools]
+py-modules = []
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "C4"]
+ignore = ["B008"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true

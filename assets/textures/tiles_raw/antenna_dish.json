@@ -1,0 +1,17 @@
+{
+  "createdAt": "2026-09-17T03:54:06.757Z",
+  "prompt": "Video game map sprite, single industrial radar antenna dish seen directly from above (top-down orthographic), large shallow circular white-grey parabolic dish with a lattice rim, central support strut and a small receiver mast, mounted on a compact dark metal base frame, isolated on a completely flat solid pure magenta background rgb(255,0,255), soft contact shadow directly beneath, centered, crisp clean circular silhouette, muted dark desaturated palette, no text, no watermark, no ground visible.",
+  "provider": "openai-codex",
+  "responseModel": "gpt-5.5",
+  "imageModel": "gpt-image-2",
+  "imageId": "ig_0ae265d557b9f02d016aab6430f8f087d18b95a5f24cc0d2e7",
+  "savedPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\tiles_raw\\antenna_dish.png",
+  "metadataPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\tiles_raw\\antenna_dish.json",
+  "mimeType": "image/png",
+  "revisedPrompt": "Video game map sprite of a single industrial radar antenna dish viewed directly from above in top-down orthographic perspective. Large shallow circular white-grey parabolic dish with lattice rim, central support strut and small receiver mast, mounted on a compact dark metal base frame. Centered and isolated on a completely flat solid pure magenta background RGB(255,0,255). Soft contact shadow directly beneath the object. Crisp clean circular silhouette, muted dark desaturated palette. No text, no watermark, no ground visible.",
+  "size": "1024x1024",
+  "quality": "medium",
+  "background": "auto",
+  "outputFormat": "png",
+  "thinking": "low"
+}

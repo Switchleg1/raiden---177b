@@ -1,0 +1,17 @@
+{
+  "createdAt": "2026-09-16T23:59:12.038Z",
+  "prompt": "Top-down game terrain material swatch, PERFECTELY SEAMLESS tileable on all four edges (opposite edges must match exactly), flat orthographic top-down view, uniform soft lighting, no directional shading, no shadows, no vignette, no bevels, no borders, no distinct landmarks. Subject: dry canyon sandy gravel, sunbaked tan earth scattered with small rounded pebbles and faint wind ripple lines. Muted desaturated dark dusty palette, high detail.",
+  "provider": "openai-codex",
+  "responseModel": "gpt-5.5",
+  "imageModel": "gpt-image-2",
+  "imageId": "ig_0540c90e8cc9981b016aab2d311e2887d2bad7ae665603d47e",
+  "savedPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\tiles\\sand_canyon.png",
+  "metadataPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\tiles\\sand_canyon.json",
+  "mimeType": "image/png",
+  "revisedPrompt": "Top-down game terrain material swatch, perfectly seamless tileable on all four edges with opposite edges matching exactly. Flat orthographic top-down view of dry canyon sandy gravel: sunbaked tan earth scattered with many small rounded pebbles and subtle faint wind ripple lines. Muted desaturated dark dusty palette, high detail micro-texture. Uniform soft lighting, no directional shading, no shadows, no vignette, no bevels, no borders, no distinct landmarks, continuous texture.",
+  "size": "1024x1024",
+  "quality": "medium",
+  "background": "auto",
+  "outputFormat": "png",
+  "thinking": "low"
+}

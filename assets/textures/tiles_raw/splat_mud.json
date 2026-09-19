@@ -1,0 +1,17 @@
+{
+  "createdAt": "2026-09-17T03:55:24.453Z",
+  "prompt": "Top-down game debris splat decal, single irregular organic blob of wet churned dark brown mud with glossy slick highlights and small darker clods, ragged feathered edges fading out to transparency, centered, isolated on a completely flat solid pure magenta background rgb(255,0,255), muted very dark desaturated palette, no hard outline, no text, no watermark.",
+  "provider": "openai-codex",
+  "responseModel": "gpt-5.5",
+  "imageModel": "gpt-image-2",
+  "imageId": "ig_0aaa3b4b06cf8916016aab6494212887d1896cc7e25a4162ae",
+  "savedPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\tiles_raw\\splat_mud.png",
+  "metadataPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\tiles_raw\\splat_mud.json",
+  "mimeType": "image/png",
+  "revisedPrompt": "Top-down game debris splat decal: a single irregular organic blob of wet churned dark brown mud, glossy slick highlights, small darker clods embedded throughout, ragged feathered edges fading outward as if to transparency. Centered and isolated on a completely flat solid pure magenta background RGB(255,0,255). Muted very dark desaturated palette, no hard outline, no text, no watermark.",
+  "size": "1024x1024",
+  "quality": "medium",
+  "background": "auto",
+  "outputFormat": "png",
+  "thinking": "low"
+}

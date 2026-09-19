@@ -1,0 +1,17 @@
+{
+  "createdAt": "2026-09-17T00:06:19.338Z",
+  "prompt": "Video game map sprite, single small red barn with a gambrel roof seen directly from above (top-down), faded red metal roof panels with rust, small white farm building attached, isolated on a completely flat solid pure magenta background rgb(255,0,255), soft contact shadow directly beneath, centered, crisp clean silhouette, muted dark desaturated palette, no text, no watermark, no ground visible.",
+  "provider": "openai-codex",
+  "responseModel": "gpt-5.5",
+  "imageModel": "gpt-image-2",
+  "imageId": "ig_01d51b2bda47852e016aab2ee1269087d2aa1c6925cf0944f4",
+  "savedPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\tiles_raw\\barn_red.png",
+  "metadataPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\tiles_raw\\barn_red.json",
+  "mimeType": "image/png",
+  "revisedPrompt": "Video game map sprite, top-down orthographic view of a single small red barn with a gambrel roof seen directly from above. Faded red metal roof panels with rust streaks and weathering, small white farm building attached to one side. Isolated and centered on a completely flat solid pure magenta background RGB(255,0,255). Soft contact shadow directly beneath the building only. Crisp clean silhouette, muted dark desaturated palette, no text, no watermark, no ground visible.",
+  "size": "1024x1024",
+  "quality": "medium",
+  "background": "auto",
+  "outputFormat": "png",
+  "thinking": "low"
+}

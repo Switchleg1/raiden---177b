@@ -1,0 +1,17 @@
+{
+  "createdAt": "2026-09-17T14:09:17.950Z",
+  "prompt": "Pixel art sprite for a 2D vertical shoot-em-up arcade game. ONE boss enemy, centered, filling the frame edge to edge. Direct top-down view of an alien war machine, nose pointing to the BOTTOM of the image with engines at the TOP. Wide boss silhouette, about 3:2 wider than tall. Crisp readable pixel clusters, worn gunmetal hull plates, panel lines, rivets, one glowing energy core, hazard stripe accents. No text, no watermark, no scenery, no drop shadow, nothing else in the image.\n\nBOSS: factory gantry fortress for an industrial sector. Brutalist dark steel fortress built on a wide gantry crane frame, two huge press-stamp hammers under the wings, conveyor belts loaded with shells running along the sides, chain hoists and hook blocks, exhaust fans, hazard-striped panels and catwalk railings, one yellow-white furnace core in the middle.",
+  "provider": "openai-codex",
+  "responseModel": "gpt-5.5",
+  "imageModel": "gpt-image-2",
+  "imageId": "ig_070e3737fdb665f2016aabf45d86d087d19de2761957280f15",
+  "savedPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\sprites_raw\\e_boss8.png",
+  "metadataPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\sprites_raw\\e_boss8.json",
+  "mimeType": "image/png",
+  "revisedPrompt": "Pixel art sprite for a 2D vertical shoot-em-up arcade game. Single boss enemy only, centered, filling the frame edge to edge, transparent/empty background. Direct top-down view of an alien industrial war machine, nose pointing to the bottom of the image, engines at the top. Wide silhouette about 3:2 wider than tall. Factory gantry fortress for an industrial sector: brutalist dark gunmetal steel fortress built on a wide gantry crane frame, two huge press-stamp hammers under the wings, conveyor belts loaded with shells running along both sides, chain hoists and hook blocks, exhaust fans, hazard-striped yellow-black panels and catwalk railings, rivets, panel lines, worn hull plates, crisp readable pixel clusters. One glowing yellow-white furnace energy core in the middle. No text, no watermark, no scenery, no drop shadow, no other objects. Orthographic top-down pixel art, arcade boss sprite, sharp edges, limited palette, high contrast.",
+  "size": "1536x1024",
+  "quality": "high",
+  "background": "auto",
+  "outputFormat": "png",
+  "thinking": "low"
+}

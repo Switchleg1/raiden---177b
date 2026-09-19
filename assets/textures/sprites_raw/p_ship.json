@@ -1,0 +1,17 @@
+{
+  "createdAt": "2026-09-18T02:05:18.688Z",
+  "prompt": "Pixel art sprite for a 2D vertical shoot-em-up arcade game. ONE player fighter craft, centered, filling the frame edge to edge. Direct top-down view of a hero jet fighter, nose pointing to the TOP of the image, engine nozzles at the BOTTOM. Silhouette slightly taller than wide, swept delta wings, twin wing-edge gun pods, slim fuselage, canopy near the front, twin engine nozzles at the rear. Crisp readable pixel clusters, retro arcade pixel art, no anti-aliased blur, hard one-pixel rim highlight. Bright red and white armour plates with dark gunmetal panel lines and rivets, thin black canopy shadow with amber glass, small yellow hazard stripes, subtle wear and scorching on the leading edges. Two short engine flames directly behind the nozzles, orange to cyan, short and tight. Background is a completely flat solid pure magenta colour rgb(255,0,255) with no gradient, no shadow, no floor, no clouds, no stars. No text, no watermark, nothing else in the image.",
+  "provider": "openai-codex",
+  "responseModel": "gpt-5.5",
+  "imageModel": "gpt-image-2",
+  "imageId": "ig_0bf839116226a237016aac9c4592cc87d281a3876882a0ef81",
+  "savedPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\sprites_raw\\p_ship.png",
+  "metadataPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\sprites_raw\\p_ship.json",
+  "mimeType": "image/png",
+  "revisedPrompt": "Pixel art sprite for a 2D vertical shoot-em-up arcade game. ONE player fighter craft, centered, filling the frame edge to edge. Direct top-down orthographic view of a hero jet fighter, nose pointing to the TOP of the image, engine nozzles at the BOTTOM. Silhouette slightly taller than wide, swept delta wings, twin wing-edge gun pods, slim fuselage, canopy near the front, twin engine nozzles at the rear. Crisp readable pixel clusters, retro arcade pixel art, no anti-aliased blur, hard one-pixel rim highlight. Bright red and white armour plates with dark gunmetal panel lines and rivets, thin black canopy shadow with amber glass, small yellow hazard stripes, subtle wear and scorching on the leading edges. Two short engine flames directly behind the nozzles, orange to cyan, short and tight. Background is a completely flat solid pure magenta colour rgb(255,0,255) with no gradient, no shadow, no floor, no clouds, no stars. No text, no watermark, nothing else in the image.",
+  "size": "1024x1024",
+  "quality": "high",
+  "background": "opaque",
+  "outputFormat": "png",
+  "thinking": "low"
+}

@@ -1,0 +1,17 @@
+{
+  "createdAt": "2026-09-17T03:58:46.676Z",
+  "prompt": "Top-down game debris decal sprite: kicked-up powder snow and ice crystals, bright white granular clumps with soft dust, ragged irregular outline. IMPORTANT: the entire background behind the snow must be one completely flat solid pure magenta colour rgb(255,0,255) covering the full frame corner to corner, like a green-screen but magenta; absolutely no black, no dark grey, no gradient, no vignette anywhere in the background. The snow decal sits centered in the frame. Muted cold palette for the snow only, no text, no watermark.",
+  "provider": "openai-codex",
+  "responseModel": "gpt-5.5",
+  "imageModel": "gpt-image-2",
+  "imageId": "ig_0f6c1341ec39c2c3016aab656056d087d2b4f7954a8eba786b",
+  "savedPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\tiles_raw\\splat_snow.png",
+  "metadataPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\tiles_raw\\splat_snow.json",
+  "mimeType": "image/png",
+  "revisedPrompt": "Top-down game debris decal sprite of kicked-up powder snow and ice crystals, centered in frame. Bright white granular clumps with soft dusty powder, ragged irregular outline, muted cold palette for the snow only with subtle pale blue shadows. Entire background is a completely flat solid pure magenta RGB(255,0,255) covering full frame corner to corner like chroma key; absolutely no black, no dark grey, no gradients, no vignette in the background. No text, no watermark.",
+  "size": "1024x1024",
+  "quality": "medium",
+  "background": "auto",
+  "outputFormat": "png",
+  "thinking": "low"
+}

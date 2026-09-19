@@ -1,0 +1,17 @@
+{
+  "createdAt": "2026-09-17T00:03:24.119Z",
+  "prompt": "Video game map sprite, single cluster of three leafy deciduous trees seen directly from above (top-down), round dark green canopies overlapping, isolated on a completely flat solid pure magenta background rgb(255,0,255), soft contact shadow directly beneath canopies, centered, crisp clean silhouette, muted dark desaturated palette, no text, no watermark, no ground visible.",
+  "provider": "openai-codex",
+  "responseModel": "gpt-5.5",
+  "imageModel": "gpt-image-2",
+  "imageId": "ig_0fd1ff42f6d984a7016aab2e24933087d1a08dad131eac5e99",
+  "savedPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\tiles_raw\\tree_clump.png",
+  "metadataPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\tiles_raw\\tree_clump.json",
+  "mimeType": "image/png",
+  "revisedPrompt": "Video game map sprite, single cluster of three leafy deciduous trees seen directly from above (top-down), round dark green canopies overlapping, isolated on a completely flat solid pure magenta background rgb(255,0,255), soft contact shadow directly beneath canopies, centered, crisp clean silhouette, muted dark desaturated palette, no text, no watermark, no ground visible.",
+  "size": "1024x1024",
+  "quality": "medium",
+  "background": "auto",
+  "outputFormat": "png",
+  "thinking": "low"
+}

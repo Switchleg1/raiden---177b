@@ -1,0 +1,17 @@
+{
+  "createdAt": "2026-09-17T00:06:20.806Z",
+  "prompt": "Video game map sprite, single village house seen directly from above (top-down), weathered orange-brown tiled gable roof with chimney and a small stone annex, isolated on a completely flat solid pure magenta background rgb(255,0,255), soft contact shadow directly beneath, centered, crisp clean silhouette, muted dark desaturated palette, no text, no watermark, no ground visible.",
+  "provider": "openai-codex",
+  "responseModel": "gpt-5.5",
+  "imageModel": "gpt-image-2",
+  "imageId": "ig_0028b4158ce673a3016aab2ee1501487d28046dd46c06c0521",
+  "savedPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\tiles_raw\\house_top.png",
+  "metadataPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\tiles_raw\\house_top.json",
+  "mimeType": "image/png",
+  "revisedPrompt": "Video game map sprite, single village house seen directly from above (top-down orthographic). Weathered orange-brown tiled gable roof with a chimney and a small stone annex attached. Isolated and centered on a completely flat solid pure magenta background RGB(255,0,255). Soft contact shadow directly beneath the house only. Crisp clean silhouette, muted dark desaturated palette, no text, no watermark, no ground visible.",
+  "size": "1024x1024",
+  "quality": "medium",
+  "background": "auto",
+  "outputFormat": "png",
+  "thinking": "low"
+}

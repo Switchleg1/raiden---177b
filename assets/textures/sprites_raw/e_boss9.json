@@ -1,0 +1,17 @@
+{
+  "createdAt": "2026-09-17T14:09:14.776Z",
+  "prompt": "Pixel art sprite for a 2D vertical shoot-em-up arcade game. ONE boss enemy, centered, filling the frame edge to edge. Direct top-down view of an alien war machine, nose pointing to the BOTTOM of the image with engines at the TOP. Wide boss silhouette, about 3:2 wider than tall. Crisp readable pixel clusters, worn gunmetal hull plates, panel lines, rivets, one glowing energy core, hazard stripe accents. No text, no watermark, no scenery, no drop shadow, nothing else in the image.\n\nBOSS: alien hive mothership, final boss of a wasteland sector. Huge organic-mechanical disc, pale chitin and bone plates fused over rusted gunmetal, many small glowing red eyes ringed around the rim, throbbing red veins pumping toward one gigantic crimson energy core in the middle, jagged bone spurs on the wings.",
+  "provider": "openai-codex",
+  "responseModel": "gpt-5.5",
+  "imageModel": "gpt-image-2",
+  "imageId": "ig_029be3aaaee0e206016aabf45d088087d2b04336bbf99cfb0e",
+  "savedPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\sprites_raw\\e_boss9.png",
+  "metadataPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\sprites_raw\\e_boss9.json",
+  "mimeType": "image/png",
+  "revisedPrompt": "Pixel art sprite for a 2D vertical shoot-em-up arcade game. Single boss enemy only, centered, filling the frame edge to edge. Direct top-down view, nose/front pointing to the bottom of the image, engines/rear at the top. Wide boss silhouette about 3:2 wider than tall. Alien hive mothership final boss of a wasteland sector: huge organic-mechanical disc shape, pale chitin and bone armor plates fused over rusted gunmetal hull, crisp readable pixel clusters, worn hull plates, panel lines, rivets, hazard stripe accents. Many small glowing red eyes ringed around the rim, throbbing red vein patterns pumping toward one gigantic crimson glowing energy core in the exact middle. Jagged bone spurs extending from the wings/side edges. Arcade pixel-art style, sharp edges, limited palette, high contrast. Transparent or plain empty background, no scenery, no text, no watermark, no drop shadow, nothing else in image.",
+  "size": "1536x1024",
+  "quality": "high",
+  "background": "auto",
+  "outputFormat": "png",
+  "thinking": "low"
+}

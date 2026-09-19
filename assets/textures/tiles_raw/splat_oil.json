@@ -1,0 +1,17 @@
+{
+  "createdAt": "2026-09-17T04:46:49.834Z",
+  "prompt": "Top-down game asset: a single dark oily liquid spill stain, irregular organic blobby shape with thin runny tendrils and a few small satellite droplets, very dark greasy black-brown with subtle oily blue-purple iridescent sheen, semi-transparent thin edges, painted flat as a ground decal viewed straight down from above.\n\nThe spill must be centered and fully inside the frame. The ENTIRE background must be pure flat magenta rgb(255,0,255) filling corner to corner with absolutely no other color: no black background, no dark grey, no shadow, no gradient, no vignette, no floor, no lighting. Only the dark oil stain is non-magenta. Only the spill stain itself is not magenta.",
+  "provider": "openai-codex",
+  "responseModel": "gpt-5.5",
+  "imageModel": "gpt-image-2",
+  "imageId": "ig_0c4d1d2790f849de016aab70a18bd087d18a8232230241c61e",
+  "savedPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\tiles_raw\\splat_oil.png",
+  "metadataPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\tiles_raw\\splat_oil.json",
+  "mimeType": "image/png",
+  "revisedPrompt": "Top-down game asset, centered: a single dark oily liquid spill stain decal, irregular organic blobby shape with thin runny tendrils and a few small satellite droplets. Very dark greasy black-brown with subtle oily blue-purple iridescent sheen, semi-transparent thin edges, flat painted ground decal viewed straight down. Spill fully inside frame. ENTIRE background pure flat magenta RGB(255,0,255) from corner to corner, absolutely no other background color, no black/dark gray, no shadow, no gradient, no vignette, no floor, no lighting. Only the oil spill stain is non-magenta.",
+  "size": "1024x1024",
+  "quality": "high",
+  "background": "opaque",
+  "outputFormat": "png",
+  "thinking": "low"
+}

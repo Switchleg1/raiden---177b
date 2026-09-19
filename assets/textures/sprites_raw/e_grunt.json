@@ -1,0 +1,17 @@
+{
+  "createdAt": "2026-09-17T12:01:01.531Z",
+  "prompt": "Top-down straight-overhead arcade shoot-em-up ENEMY craft sprite. The craft points its nose toward the BOTTOM edge of the image; its engine exhaust nozzles point toward the TOP edge. One single craft, centered, filling about 85 percent of the frame.\n\nCraft design: a small fast insectoid wasp-pod drone. Deep crimson red armoured hull shaped like a teardrop stinger pod, two bulbous side pods with dark circular rotor intakes, spiky stinger nose, faded yellow hazard stripes, dark gunmetal trim, one small glowing amber eye light. Engine nozzles at the top edge glow hot orange.\n\nRendering rules: bold readable silhouette built from 3 to 5 large forms, crisp clean edges, medium-scale panel detail only (panel lines, rivets, one or two pipes), absolutely no fine filigree and no thin antenna tangles. Painterly arcade sprite look, dark metal with a strong top-down rim light, saturated accents.\n\nBackground: completely flat pure magenta rgb(255,0,255) from corner to corner, no shadow, no gradient, no vignette, no floor, no smoke, no border, no text, no watermark.",
+  "provider": "openai-codex",
+  "responseModel": "gpt-5.5",
+  "imageModel": "gpt-image-2",
+  "imageId": "ig_032dec477ceeab6c016aabd657fcc887d29a07907ee91086c6",
+  "savedPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\sprites_raw\\e_grunt.png",
+  "metadataPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\sprites_raw\\e_grunt.json",
+  "mimeType": "image/png",
+  "revisedPrompt": "Top-down straight-overhead arcade shoot-em-up ENEMY craft sprite, one single craft centered filling about 85% of frame. Nose points toward the BOTTOM edge; engine exhaust nozzles point toward the TOP edge. Small fast insectoid wasp-pod drone: deep crimson red armored hull shaped like a teardrop stinger pod, two bulbous side pods with dark circular rotor intakes, spiky stinger nose, faded yellow hazard stripes, dark gunmetal trim, one small glowing amber eye light. Engine nozzles at the top edge glow hot orange. Bold readable silhouette built from 3 to 5 large forms, crisp clean edges, medium-scale panel detail only: panel lines, rivets, one or two pipes; absolutely no fine filigree, no thin antenna tangles. Painterly arcade sprite look, dark metal with strong top-down rim light, saturated accents. Background is completely flat pure magenta RGB(255,0,255) from corner to corner, no shadow, no gradient, no vignette, no floor, no smoke, no border, no text, no watermark.",
+  "size": "1024x1024",
+  "quality": "high",
+  "background": "auto",
+  "outputFormat": "png",
+  "thinking": "low"
+}

@@ -1,0 +1,17 @@
+{
+  "createdAt": "2026-09-17T03:41:11.618Z",
+  "prompt": "Video game map sprite, single industrial cylindrical fuel storage tank seen directly from above (top-down orthographic), flat circular metal roof with concentric ribbed ring seams, a small central vent cap and weathered grey-green painted surface with rust streaks, isolated on a completely flat solid pure magenta background rgb(255,0,255), soft contact shadow directly beneath, centered, crisp clean circular silhouette, muted dark desaturated palette, no text, no watermark, no ground visible.",
+  "provider": "openai-codex",
+  "responseModel": "gpt-5.5",
+  "imageModel": "gpt-image-2",
+  "imageId": "ig_0857e92af7475176016aab61251db087d284f0957380e771f8",
+  "savedPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\tiles_raw\\storage_tank.png",
+  "metadataPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\tiles_raw\\storage_tank.json",
+  "mimeType": "image/png",
+  "revisedPrompt": "Video game map sprite, single industrial cylindrical fuel storage tank viewed directly from above in top-down orthographic perspective. Flat circular metal roof with concentric ribbed ring seams, small central vent cap, weathered grey-green painted surface with subtle rust streaks and stains. Isolated object centered on a completely flat solid pure magenta background RGB(255,0,255). Soft contact shadow directly beneath the circular tank. Crisp clean circular silhouette, muted dark desaturated palette. No text, no watermark, no ground visible.",
+  "size": "1024x1024",
+  "quality": "medium",
+  "background": "auto",
+  "outputFormat": "png",
+  "thinking": "low"
+}

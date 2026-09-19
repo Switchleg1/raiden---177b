@@ -1,0 +1,17 @@
+{
+  "createdAt": "2026-09-17T03:36:49.250Z",
+  "prompt": "Video game map sprite, single large glacial boulder seen directly from above (top-down orthographic), angular grey granite rock mass with sharp facets, capped and dusted with white snow in its crevices and on its top faces, isolated on a completely flat solid pure magenta background rgb(255,0,255), soft contact shadow directly beneath, centered, crisp clean silhouette, muted dark desaturated cold palette, no text, no watermark, no ground visible.",
+  "provider": "openai-codex",
+  "responseModel": "gpt-5.5",
+  "imageModel": "gpt-image-2",
+  "imageId": "ig_03d23a7fa39190a9016aab601d6be487d29cdbb2221a39592e",
+  "savedPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\tiles_raw\\ice_boulder.png",
+  "metadataPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\tiles_raw\\ice_boulder.json",
+  "mimeType": "image/png",
+  "revisedPrompt": "Video game map sprite, single large glacial boulder seen directly from above (top-down orthographic), angular grey granite rock mass with sharp facets, capped and dusted with white snow in its crevices and on its top faces, isolated on a completely flat solid pure magenta background rgb(255,0,255), soft contact shadow directly beneath, centered, crisp clean silhouette, muted dark desaturated cold palette, no text, no watermark, no ground visible.",
+  "size": "1024x1024",
+  "quality": "medium",
+  "background": "auto",
+  "outputFormat": "png",
+  "thinking": "low"
+}

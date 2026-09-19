@@ -1,0 +1,17 @@
+{
+  "createdAt": "2026-09-17T03:39:39.925Z",
+  "prompt": "Video game map sprite, single small volcanic fumarole lava vent seen directly from above (top-down orthographic), circular mound of dark cracked basalt with a glowing orange molten opening at the centre and thin translucent grey-white steam wisps drifting off it, isolated on a completely flat solid pure magenta background rgb(255,0,255), soft contact shadow directly beneath, centered, crisp clean silhouette, very dark palette with limited orange glow, no text, no watermark, no ground visible.",
+  "provider": "openai-codex",
+  "responseModel": "gpt-5.5",
+  "imageModel": "gpt-image-2",
+  "imageId": "ig_0b0d725f3712d5f9016aab60cf7b2487d1ac46239ecc7a8acd",
+  "savedPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\tiles_raw\\lava_vent.png",
+  "metadataPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\tiles_raw\\lava_vent.json",
+  "mimeType": "image/png",
+  "revisedPrompt": "Video game map sprite, single small volcanic fumarole lava vent seen directly from above (top-down orthographic), circular mound of dark cracked basalt with a glowing orange molten opening at the centre and thin translucent grey-white steam wisps drifting off it, isolated on a completely flat solid pure magenta background rgb(255,0,255), soft contact shadow directly beneath, centered, crisp clean silhouette, very dark palette with limited orange glow, no text, no watermark, no ground visible.",
+  "size": "1024x1024",
+  "quality": "medium",
+  "background": "auto",
+  "outputFormat": "png",
+  "thinking": "low"
+}

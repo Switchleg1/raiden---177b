@@ -1,0 +1,17 @@
+{
+  "createdAt": "2026-09-16T23:59:09.625Z",
+  "prompt": "Top-down game terrain material swatch, PERFECTELY SEAMLESS tileable on all four edges (opposite edges must match exactly), flat orthographic top-down view, uniform soft lighting, no directional shading, no shadows, no vignette, no bevels, no borders, no distinct landmarks. Subject: flooded rice paddy water, shallow muddy water over dark soil, faint sky reflection sheen, subtle ripple streaks and a few floating duckweed flecks. Muted desaturated very dark olive-teal palette, high detail.",
+  "provider": "openai-codex",
+  "responseModel": "gpt-5.5",
+  "imageModel": "gpt-image-2",
+  "imageId": "ig_00babfaf25277642016aab2d313c1087d2b4744f55da2a4e8d",
+  "savedPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\tiles\\water_paddy.png",
+  "metadataPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\tiles\\water_paddy.json",
+  "mimeType": "image/png",
+  "revisedPrompt": "Top-down game terrain material swatch, perfectly seamless tileable texture on all four edges with opposite edges matching exactly. Flat orthographic top-down view of flooded rice paddy water: shallow muddy water over dark soil, faint sky-reflection sheen, subtle ripple streaks, and a few tiny floating duckweed flecks. Muted desaturated very dark olive-teal palette, high detail. Uniform soft lighting, no directional shading, no shadows, no vignette, no bevels, no borders, no distinct landmarks. Texture-only square swatch.",
+  "size": "1024x1024",
+  "quality": "medium",
+  "background": "auto",
+  "outputFormat": "png",
+  "thinking": "low"
+}

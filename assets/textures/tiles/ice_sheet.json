@@ -1,0 +1,17 @@
+{
+  "createdAt": "2026-09-17T03:21:57.658Z",
+  "prompt": "Top-down game terrain material swatch, PERFECTLY SEAMLESS tileable on all four edges (opposite edges must match exactly, like photographic noise), flat orthographic top-down view, uniform soft lighting, no directional shading, no shadows, no vignette, no bevels, no borders, no distinct landmarks. Subject: glacial ice sheet with pale cyan meltwater veins, hairline fractures and powdery frost patches over hard blue-grey ice. Muted desaturated cold palette kept dim, high detail.",
+  "provider": "openai-codex",
+  "responseModel": "gpt-5.5",
+  "imageModel": "gpt-image-2",
+  "imageId": "ig_05e5c87402b21ea1016aab5cb7ad7887d1930ba4eea7c1d2ba",
+  "savedPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\tiles\\ice_sheet.png",
+  "metadataPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\tiles\\ice_sheet.json",
+  "mimeType": "image/png",
+  "revisedPrompt": "Top-down game terrain material swatch, perfectly seamless tileable on all four edges with opposite edges matching exactly like photographic noise. Flat orthographic top-down view, uniform soft lighting, no directional shading, no shadows, no vignette, no bevels, no borders, no distinct landmarks. Glacial ice sheet texture: hard blue-grey ice base, pale cyan meltwater veins winding subtly, fine hairline fractures, powdery frost patches scattered naturally. Muted desaturated cold palette kept dim, high detail, realistic terrain material, square texture.",
+  "size": "1024x1024",
+  "quality": "medium",
+  "background": "auto",
+  "outputFormat": "png",
+  "thinking": "low"
+}

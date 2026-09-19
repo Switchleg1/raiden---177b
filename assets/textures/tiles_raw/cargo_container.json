@@ -1,0 +1,17 @@
+{
+  "createdAt": "2026-09-17T03:52:44.779Z",
+  "prompt": "Video game map sprite, small cluster of three shipping cargo containers seen directly from above (top-down orthographic), rectangular corrugated steel containers in faded dark red, dark teal and rusty ochre, lying close together at slightly different angles with visible ribbed lids, isolated on a completely flat solid pure magenta background rgb(255,0,255), soft contact shadow directly beneath, centered, crisp clean silhouettes, muted dark desaturated palette, no text, no watermark, no ground visible.",
+  "provider": "openai-codex",
+  "responseModel": "gpt-5.5",
+  "imageModel": "gpt-image-2",
+  "imageId": "ig_068a5dc60ebbb744016aab63e374f887d1953f76f72525c700",
+  "savedPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\tiles_raw\\cargo_container.png",
+  "metadataPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\tiles_raw\\cargo_container.json",
+  "mimeType": "image/png",
+  "revisedPrompt": "Video game map sprite, small cluster of three shipping cargo containers seen directly from above, top-down orthographic view. Rectangular corrugated steel containers in faded dark red, dark teal, and rusty ochre, lying close together at slightly different angles with visible ribbed lids. Isolated on a completely flat solid pure magenta background rgb(255,0,255). Soft contact shadow directly beneath the containers. Centered composition, crisp clean silhouettes, muted dark desaturated palette. No text, no watermark, no ground visible.",
+  "size": "1024x1024",
+  "quality": "medium",
+  "background": "auto",
+  "outputFormat": "png",
+  "thinking": "low"
+}

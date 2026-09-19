@@ -1,0 +1,17 @@
+{
+  "createdAt": "2026-09-17T00:03:22.011Z",
+  "prompt": "Video game map sprite, small stack of wooden military supply crates seen directly from above (top-down), weathered olive-drab planks with metal edges seen from directly overhead, isolated on a completely flat solid pure magenta background rgb(255,0,255), soft contact shadow directly beneath, centered, crisp clean silhouette, muted dark palette, no text, no watermark, no ground visible.",
+  "provider": "openai-codex",
+  "responseModel": "gpt-5.5",
+  "imageModel": "gpt-image-2",
+  "imageId": "ig_09ed5a5d41644e50016aab2e2499f487d19dd0ce04d5cd42c4",
+  "savedPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\tiles_raw\\crate_stack.png",
+  "metadataPath": "C:\\Users\\switchleg\\Documents\\GitHub\\pi_agent\\raiden - 177b\\assets\\textures\\tiles_raw\\crate_stack.json",
+  "mimeType": "image/png",
+  "revisedPrompt": "Video game map sprite, small stack of wooden military supply crates seen directly from above (top-down). Weathered olive-drab planks with metal edges visible from directly overhead, isolated on a completely flat solid pure magenta background RGB(255,0,255). Soft contact shadow directly beneath, centered composition, crisp clean silhouette, muted dark palette, no text, no watermark, no ground visible.",
+  "size": "1024x1024",
+  "quality": "medium",
+  "background": "auto",
+  "outputFormat": "png",
+  "thinking": "low"
+}

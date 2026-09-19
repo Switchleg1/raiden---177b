@@ -1,0 +1,350 @@
+{
+ "generator": "gpt-image-2 via pi-imagegen, seamless2d + chroma-key post",
+ "note": "assets/ holds raw generations (scratch); data/ is shipped",
+ "tiles": {
+  "antenna_dish": {
+   "coverage": 0.57,
+   "kind": "prop",
+   "px": 256,
+   "sha1": "cb1c180ed286"
+  },
+  "ash_ground": {
+   "kind": "material",
+   "mean": 42.5,
+   "px": 256,
+   "seam_after": 1.25,
+   "seam_before": 1.36,
+   "sha1": "5c94e5d0a7c4"
+  },
+  "barn_red": {
+   "coverage": 0.523,
+   "kind": "prop",
+   "px": 256,
+   "sha1": "e4ad776cba2c"
+  },
+  "basalt_spire": {
+   "coverage": 0.508,
+   "kind": "prop",
+   "px": 256,
+   "sha1": "085d2cb2f283"
+  },
+  "cargo_container": {
+   "coverage": 0.513,
+   "kind": "prop",
+   "px": 256,
+   "sha1": "0fcb2726a950"
+  },
+  "cobble_moss": {
+   "kind": "material",
+   "mean": 50.4,
+   "px": 256,
+   "seam_after": 1.13,
+   "seam_before": 1.35,
+   "sha1": "88a535b21f59"
+  },
+  "concrete_apron": {
+   "kind": "material",
+   "mean": 65.3,
+   "px": 256,
+   "seam_after": 1.27,
+   "seam_before": 1.43,
+   "sha1": "7cca5b8e8c4b"
+  },
+  "crate_stack": {
+   "coverage": 0.652,
+   "kind": "prop",
+   "px": 256,
+   "sha1": "66ef33416dcb"
+  },
+  "cypress_clump": {
+   "coverage": 0.539,
+   "kind": "prop",
+   "px": 256,
+   "sha1": "d00b3904ea7f"
+  },
+  "dead_tree": {
+   "coverage": 0.146,
+   "kind": "prop",
+   "px": 256,
+   "sha1": "34909eed01bb"
+  },
+  "earth_cracked": {
+   "kind": "material",
+   "mean": 95.3,
+   "px": 256,
+   "seam_after": 1.16,
+   "seam_before": 1.31,
+   "sha1": "42afdd812be4"
+  },
+  "forest_floor": {
+   "kind": "material",
+   "mean": 38.2,
+   "px": 256,
+   "seam_after": 1.08,
+   "seam_before": 1.23,
+   "sha1": "5d34d4f6e1b9"
+  },
+  "grass_lush": {
+   "kind": "material",
+   "mean": 37.4,
+   "px": 256,
+   "seam_after": 0.77,
+   "seam_before": 1.46,
+   "sha1": "0ab608dca190"
+  },
+  "grass_patchy": {
+   "kind": "material",
+   "mean": 88.1,
+   "px": 256,
+   "seam_after": 0.99,
+   "seam_before": 1.16,
+   "sha1": "7b9ef7aeae7b"
+  },
+  "gravel_rubble": {
+   "kind": "material",
+   "mean": 100.8,
+   "px": 256,
+   "seam_after": 0.88,
+   "seam_before": 1.51,
+   "sha1": "cbbcf4ebd9c0"
+  },
+  "house_top": {
+   "coverage": 0.629,
+   "kind": "prop",
+   "px": 256,
+   "sha1": "eb956b53287c"
+  },
+  "hut_stilt": {
+   "coverage": 0.45,
+   "kind": "prop",
+   "px": 256,
+   "sha1": "7ad5202c6b28"
+  },
+  "ice_boulder": {
+   "coverage": 0.684,
+   "kind": "prop",
+   "px": 256,
+   "sha1": "0457f6e9d38f"
+  },
+  "ice_sheet": {
+   "kind": "material",
+   "mean": 135.0,
+   "px": 256,
+   "seam_after": 1.14,
+   "seam_before": 1.36,
+   "sha1": "7c0add25a7ef"
+  },
+  "lava_crust": {
+   "kind": "material",
+   "mean": 42.0,
+   "px": 256,
+   "seam_after": 0.93,
+   "seam_before": 1.28,
+   "sha1": "7e2894d3376a"
+  },
+  "lava_vent": {
+   "coverage": 0.713,
+   "kind": "prop",
+   "px": 256,
+   "sha1": "85edc40462e8"
+  },
+  "mast_lattice": {
+   "coverage": 0.181,
+   "kind": "prop",
+   "px": 256,
+   "sha1": "01e1b41037aa"
+  },
+  "mud_flat": {
+   "kind": "material",
+   "mean": 72.1,
+   "px": 256,
+   "seam_after": 1.07,
+   "seam_before": 1.33,
+   "sha1": "59e98e19671e"
+  },
+  "obsidian": {
+   "kind": "material",
+   "mean": 33.4,
+   "px": 256,
+   "seam_after": 1.04,
+   "seam_before": 1.53,
+   "sha1": "a813cd2033f1"
+  },
+  "ocean_surface": {
+   "kind": "material",
+   "mean": 68.2,
+   "px": 256,
+   "seam_after": 1.32,
+   "seam_before": 2.13,
+   "sha1": "0221fab215e2"
+  },
+  "pine_clump": {
+   "coverage": 0.49,
+   "kind": "prop",
+   "px": 256,
+   "sha1": "a94a5b3e45c0"
+  },
+  "pine_snow": {
+   "coverage": 0.528,
+   "kind": "prop",
+   "px": 256,
+   "sha1": "a4329656b72e"
+  },
+  "reed_marsh": {
+   "kind": "material",
+   "mean": 43.4,
+   "px": 256,
+   "seam_after": 1.02,
+   "seam_before": 1.28,
+   "sha1": "71ef974e3f04"
+  },
+  "road_asphalt": {
+   "kind": "material",
+   "mean": 96.6,
+   "px": 256,
+   "seam_after": 1.12,
+   "seam_before": 1.17,
+   "sha1": "312f3f1f8955"
+  },
+  "road_dirt": {
+   "kind": "material",
+   "mean": 102.4,
+   "px": 256,
+   "seam_after": 1.16,
+   "seam_before": 1.46,
+   "sha1": "f5427d3c7a62"
+  },
+  "rock_cluster": {
+   "coverage": 0.623,
+   "kind": "prop",
+   "px": 256,
+   "sha1": "a09fa0950871"
+  },
+  "rust_plate": {
+   "kind": "material",
+   "mean": 58.9,
+   "px": 256,
+   "seam_after": 1.41,
+   "seam_before": 1.52,
+   "sha1": "f4c47cff7211"
+  },
+  "sand_canyon": {
+   "kind": "material",
+   "mean": 118.1,
+   "px": 256,
+   "seam_after": 1.16,
+   "seam_before": 1.42,
+   "sha1": "aad82cf639d7"
+  },
+  "snow_field": {
+   "kind": "material",
+   "mean": 141.9,
+   "px": 256,
+   "seam_after": 1.04,
+   "seam_before": 1.36,
+   "sha1": "3f28245af1d8"
+  },
+  "splat_dirt": {
+   "coverage": 0.405,
+   "kind": "splat",
+   "px": 256,
+   "sha1": "0c4685da64d8"
+  },
+  "splat_grass": {
+   "coverage": 0.338,
+   "kind": "splat",
+   "px": 256,
+   "sha1": "765fde73bc9b"
+  },
+  "splat_mud": {
+   "coverage": 0.302,
+   "kind": "splat",
+   "px": 256,
+   "sha1": "333a30849bfa"
+  },
+  "splat_oil": {
+   "coverage": 0.321,
+   "kind": "splat",
+   "px": 256,
+   "sha1": "676308e7411f"
+  },
+  "splat_scorch": {
+   "coverage": 0.366,
+   "kind": "splat",
+   "px": 256,
+   "sha1": "dffc1f36a22c"
+  },
+  "splat_snow": {
+   "coverage": 0.235,
+   "kind": "splat",
+   "px": 256,
+   "sha1": "1cdb55879362"
+  },
+  "steel_deck": {
+   "kind": "material",
+   "mean": 73.2,
+   "px": 256,
+   "seam_after": 1.05,
+   "seam_before": 3.18,
+   "sha1": "7900530696be"
+  },
+  "storage_tank": {
+   "coverage": 0.705,
+   "kind": "prop",
+   "px": 256,
+   "sha1": "e13748aff80a"
+  },
+  "tarmac_runway": {
+   "kind": "material",
+   "mean": 128.1,
+   "px": 256,
+   "seam_after": 1.36,
+   "seam_before": 1.38,
+   "sha1": "8e32750cdc26"
+  },
+  "tree_clump": {
+   "coverage": 0.572,
+   "kind": "prop",
+   "px": 256,
+   "sha1": "e407c58b688d"
+  },
+  "tundra_moss": {
+   "kind": "material",
+   "mean": 58.4,
+   "px": 256,
+   "seam_after": 1.03,
+   "seam_before": 1.37,
+   "sha1": "a04bce7b1f75"
+  },
+  "warehouse_long": {
+   "coverage": 0.258,
+   "kind": "prop",
+   "px": 256,
+   "sha1": "68029e5458ab"
+  },
+  "water_marsh": {
+   "kind": "material",
+   "mean": 44.4,
+   "px": 256,
+   "seam_after": 1.12,
+   "seam_before": 1.95,
+   "sha1": "8dc97b6d72c3"
+  },
+  "water_paddy": {
+   "kind": "material",
+   "mean": 57.8,
+   "px": 256,
+   "seam_after": 1.2,
+   "seam_before": 2.03,
+   "sha1": "d495713cb0d9"
+  },
+  "water_river": {
+   "kind": "material",
+   "mean": 35.2,
+   "px": 256,
+   "seam_after": 1.12,
+   "seam_before": 3.05,
+   "sha1": "4ed7467453e8"
+  }
+ }
+}
