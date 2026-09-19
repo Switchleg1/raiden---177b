@@ -19,7 +19,7 @@ import pytest
 import config as C
 import terrain
 from app import App
-from game import Game
+from game import SIG_LIFE_LOST, Game
 from prefetch import Prefetch, sector_key, sector_phases
 from state import State
 from terrain.handoff import HANDOFF_SECONDS, SectorHandoff
@@ -466,3 +466,62 @@ def test_longer_waves_mean_a_boss_arrives_later():
     g._wave_timer = spec.wave_seconds
     g.update(C.SIM_DT)
     assert g.boss_alive()
+
+
+# ------------------------------------------------- respawn keeps its scenery
+# Dying re-serves the craft inside the sector it already flew over. Re-loading
+# that sector's ground there scrolled it back to the opening zone, so the tiles
+# visibly changed under a ship the camera never moved.
+
+def test_ensure_terrain_keeps_the_ground_of_the_same_sector():
+    rend = _renderer()
+    rend.set_terrain(C.LEVELS[0], 1)
+    track = rend._terrain
+    track.update(3.0, 1.0)
+    assert rend.ensure_terrain(C.LEVELS[0], 1) is True
+    assert rend._terrain is track, "the sector was rebuilt under the player"
+    assert rend._terrain.t == pytest.approx(3.0)
+
+
+def test_ensure_terrain_installs_what_is_not_on_screen():
+    rend = _renderer()
+    assert rend.ensure_terrain(C.LEVELS[0], 1) is False   # nothing loaded yet
+    first = rend._terrain
+    assert rend.ensure_terrain(C.LEVELS[0], 1) is True
+    assert rend.ensure_terrain(C.LEVELS[1], 2) is False   # a different sector
+    assert rend._terrain is not first
+
+
+def test_ensure_terrain_leaves_an_incoming_sweep_alone():
+    rend = _renderer()
+    rend.set_terrain(C.LEVELS[0], 1)
+    rend.handoff_terrain(C.LEVELS[1], 2)
+    assert rend.ensure_terrain(C.LEVELS[1], 2) is True
+    assert rend.terrain_handoff_active(), "a respawn cancelled the reveal"
+
+
+def test_dying_does_not_change_the_ground(app):
+    app._start_game()
+    app.game.lives = 99                 # one death, not a game over
+    app.sm.to(State.PLAYING)
+    track = app.renderer._terrain
+    for _ in range(30):
+        app._update(1.0 / 120.0)
+    scrolled = track.t
+    assert scrolled > 0.0, "the world never scrolled to begin with"
+
+    app._on_signal({"type": SIG_LIFE_LOST})
+    for _ in range(180):                # SHIP DOWN banner, then READY
+        app._update(1.0 / 120.0)
+
+    assert app.renderer._terrain is track
+    assert app.renderer._terrain.t > scrolled, "the ground wound back"
+
+
+def test_a_new_run_gets_its_own_ground(app):
+    app._start_game()
+    first = app.renderer._terrain
+    first.update(20.0, 1.0)
+    app._start_game()                   # a restart is a new world, not a resume
+    assert app.renderer._terrain is not first
+    assert app.renderer._terrain.t == pytest.approx(0.0)

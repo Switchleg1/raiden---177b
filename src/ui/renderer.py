@@ -37,6 +37,7 @@ class Renderer:
         self._stars: list[tuple[float, float, float, int]] = []
         self._seed_stars()
         self._terrain: Any = None        # terrain.TerrainTrack when loaded
+        self._terrain_key: Any = None    # terrain.sector_key of what is loaded
         self._handoff: Any = None        # terrain.SectorHandoff mid-transition
         self._prefetch: Any = None       # prefetch.Prefetch (background loader)
         self._bank: Any = None           # sprites.Bank (lazy; baked sheets)
@@ -66,7 +67,32 @@ class Renderer:
         if track is None and self._prefetch is not None:
             track = self._prefetch.sector_track(level, seed)
         self._terrain = track or self._build_track(level, seed)
+        self._terrain_key = self._key_of(level, seed)
         self._handoff = None
+
+    def ensure_terrain(self, level: Any, seed: int = 1) -> bool:
+        """Put a sector's ground on screen unless that ground is already there.
+
+        Dying does not move the camera. The craft is re-served inside the sector
+        it already flew over, and while the SHIP DOWN banner rolls the world is
+        still scrolling underneath it - so rebuilding the track here would
+        teleport the player back to the sector's opening zone and read as the
+        tiles changing. Answering "same sector?" with the sector's identity
+        instead of a reload is what keeps respawn from disturbing the ground.
+
+        Returns True when the ground already on screen was kept.
+        """
+        on_screen = self._terrain is not None or self._handoff is not None
+        if on_screen and self._terrain_key == self._key_of(level, seed):
+            return True
+        self.set_terrain(level, seed)
+        return False
+
+    @staticmethod
+    def _key_of(level: Any, seed: int) -> Any:
+        import terrain
+        return terrain.sector_key(terrain.sector_phases(level), seed)
+
 
     def handoff_terrain(self, level: Any, seed: int = 1,
                         dur: float | None = None, track: Any = None) -> bool:
@@ -86,6 +112,9 @@ class Renderer:
         args: dict[str, Any] = {} if dur is None else {"dur": dur}
         self._handoff = SectorHandoff(self._terrain, incoming, **args)
         self._terrain = None
+        # The sector being revealed is the one the player is now in, even while
+        # its ground is only half on screen: a respawn mid-sweep belongs here.
+        self._terrain_key = self._key_of(level, seed)
         return True
 
     def terrain_handoff_active(self) -> bool:
@@ -104,14 +133,12 @@ class Renderer:
     def _build_track(level: Any, seed: int) -> Any:
         """Build a sector track from scratch (the synchronous fallback)."""
         import terrain
-        phases = getattr(level, "phases", ())
-        if not phases:
-            phases = (C.ThemePhase(getattr(level, "theme", level), 1.0),)
-        return terrain.TerrainTrack(phases, seed,
+        return terrain.TerrainTrack(terrain.sector_phases(level), seed,
                               plan=terrain.plan_span(level))
 
     def clear_terrain(self) -> None:
         self._terrain = None
+        self._terrain_key = None
         self._handoff = None
 
     # ---- sprite bank (baked sheets; vector art is the fallback) ----------

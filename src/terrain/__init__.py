@@ -13,7 +13,7 @@ from .handoff import HANDOFF_SECONDS, SectorHandoff
 from .layer import Layer
 from .procedural import build_procedural
 from .terrain_map import Terrain, bake, baked_paths
-from .track import PHASE_FADE, PHASE_PLAN, TerrainTrack, plan_span
+from .track import PHASE_FADE, PHASE_PLAN, TerrainTrack, plan_span, sector_key, sector_phases
 
 __all__ = [
     "FAR_SPEED",
@@ -30,5 +30,7 @@ __all__ = [
     "bake",
     "baked_paths",
     "plan_span",
+    "sector_key",
+    "sector_phases",
     "build_procedural",
 ]

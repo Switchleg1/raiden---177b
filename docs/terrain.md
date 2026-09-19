@@ -275,6 +275,27 @@ while it lives, and `update_background` promotes the incoming track when the edg
 reaches the bottom. `dt` and the speed scale are respected: pausing freezes the
 sweep rather than letting it finish behind the pause menu.
 
+## Losing a ship must not move the ground (`ensure_terrain`)
+
+A track *is* the camera's memory: `TerrainTrack.t` records how far the sector
+has scrolled and the zone schedule is read from it. `Game` holds no scroll state
+at all, so the only thing that can put the ground backwards is the renderer
+building a new track.
+
+That is what dying used to do. `_enter_ready()` ran again after the SHIP DOWN
+banner and called `set_terrain()` for the sector the craft was already flying
+over, which produced a fresh track at `t = 0`: the tiles visibly changed under a
+ship the camera never moved — during the banner, the world is still scrolling at
+half speed, so the jump happened against ground the player watched moving.
+
+`Renderer.ensure_terrain(level, seed)` is the honest form of "show this sector",
+idempotent in the sense that matters here: when the ground already on screen has
+the same `terrain.sector_key` (its zones plus map seed — the same identity the
+prefetch worker uses, so nobody can disagree about what "the same ground" is),
+the existing track is kept, including a handoff mid-sweep. A different sector
+still builds. `App._start_game()` clears the terrain first, because a restart is
+a new world — the deliberate opposite of a respawn.
+
 ## Prefetch (`prefetch.py`)
 
 One daemon worker thread builds what the *next* minutes of play need, off the

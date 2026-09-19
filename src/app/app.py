@@ -480,6 +480,11 @@ class App:
         self._run_rank = None
         self._score_highlight = -1
         self.effects.reset()
+        # A new run is a new world, whatever the last one left on screen; this
+        # is the deliberate opposite of the respawn rule in _enter_ready, which
+        # keeps the ground because the camera never moved.
+        if self.renderer is not None:
+            self.renderer.clear_terrain()
         self._set_music(self.game.level_index)
         self._enter_ready()
 
@@ -534,7 +539,9 @@ class App:
             seed = self.game.level_index + 1
             if not (seamless and
                     self.renderer.handoff_terrain(level, seed)):
-                self.renderer.set_terrain(level, seed)
+                # A respawn is the sector the craft already flew over; asking
+                # for it must not rebuild the ground under the player.
+                self.renderer.ensure_terrain(level, seed)
         self._warm_ahead()
 
     def _warm_ahead(self) -> None:

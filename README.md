@@ -198,7 +198,9 @@ directory is empty.
   `TerrainTrack` schedules each sector's *phase zones* over the sector's wave
   length and dissolves between them as the sector scrolls (weights live on
   `LevelSpec.phases`); `SectorHandoff` reveals the *next* sector with a
-  downward sweep while both sectors keep scrolling. Maps are
+  downward sweep while both sectors keep scrolling, and `ensure_terrain` keeps
+  that ground in place when the craft is re-served after a death (the camera
+  never moved, so the tiles must not). Maps are
   painted from the tileable kit — Raiden motifs include glowing bomb-scar
   craters, buried metal hatches, strata buttes with chunky offset shadows,
   canopy and conifers — and BAKED offline (`scripts/bake_terrain.py`) into

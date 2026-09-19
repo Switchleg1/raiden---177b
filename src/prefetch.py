@@ -25,32 +25,9 @@ import threading
 from collections.abc import Callable
 from typing import Any
 
-from terrain.track import TerrainTrack, plan_span
+from terrain.track import TerrainTrack, plan_span, sector_key, sector_phases
 
-
-def sector_phases(level: Any) -> tuple:
-    """The level's phase schedule, with the implicit single-phase fallback the
-    renderer uses too, so a prefetch always builds what will be drawn."""
-    import config as C
-
-    phases = tuple(getattr(level, "phases", ()) or ())
-    if not phases:
-        # Same fallback the renderer uses, so a prefetch always builds the map
-        # that will actually be drawn (a level may *be* its theme).
-        phases = (C.ThemePhase(getattr(level, "theme", level), 1.0),)
-    return phases
-
-
-def sector_key(phases: tuple, seed: int) -> tuple:
-    """Identity of a sector's terrain: its zones and their map seed.
-
-    Two sectors with the same zones and seed do share maps, which is the point:
-    a retry, or a level whose second zone is another level's first, is already
-    paid for.
-    """
-    return tuple(
-        (str(p.theme), round(float(p.weight), 4)) for p in phases
-    ) + (int(seed),)
+__all__ = ["Prefetch", "sector_key", "sector_phases"]
 
 
 class Prefetch:

@@ -31,6 +31,33 @@ def plan_span(level: Any) -> float:
     return span if span > 0.0 else PHASE_PLAN
 
 
+def sector_phases(level: Any) -> tuple:
+    """The level's phase schedule, including the implicit single-zone fallback.
+
+    A level may simply *be* a theme instead of scheduling zones. Everyone who
+    needs to know which ground a sector draws - the renderer, the prefetch
+    worker, the "is this the same ground?" test - asks here, so a prefetch can
+    never build maps that will not be the ones drawn.
+    """
+    phases = tuple(getattr(level, "phases", ()) or ())
+    if not phases:
+        phases = (C.ThemePhase(getattr(level, "theme", level), 1.0),)
+    return phases
+
+
+def sector_key(phases: tuple, seed: int) -> tuple:
+    """Identity of a sector's ground: its zones and their map seed.
+
+    Two sectors with the same zones and seed *are* the same ground, which is the
+    point: it is what lets a retry keep the terrain it was already flying over
+    instead of snapping back to the opening zone, and what makes a repeated
+    sector already paid for.
+    """
+    return tuple(
+        (str(p.theme), round(float(p.weight), 4)) for p in phases
+    ) + (int(seed),)
+
+
 class TerrainTrack:
     """One sector's worth of terrain: baked zone segments in phase order.
 
