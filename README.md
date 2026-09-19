@@ -7,8 +7,10 @@ settings, persistence, procedural synthwave music) with a completely new game
 model: a transformable fighter, an upgradable Vulcan cannon, homing-side
 missiles, an energy whip, screen-clearing smart bombs, enemy waves with
 per-sector bosses that call in escort fighters, a retractable energy shield, and
-a falling power-up system. The campaign is nine sectors, each scrolling through
-two crossfading terrain themes; **each of the nine bosses fights differently** —
+a falling power-up system. The campaign is nine sectors of 51 to 75 seconds of
+wave before the boss appears, each scrolling through two crossfading terrain
+themes and changing sector with the ground itself sweeping in — no load hitch;
+**each of the nine bosses fights differently** —
 its own entry, movement habit and attack repertoire (spirals, walls, sweeping
 lances, pinwheels, minefields) — each gets its own synthesized fight theme, and
 runs end in a three-letter arcade leaderboard.
@@ -98,10 +100,13 @@ python -m pytest tests -q
 ### Baked art (terrain & sprites)
 
 All artwork is painted by code and baked to PNG once — gameplay only loads
-files (~15 ms/map). Sector terrain ships in `data/textures/terrain/`; each
-sector scrolls through two *terrain phases* (e.g. Sector 1 dissolves from
-countryside into farmland mid-level, Raiden-style), so all 18 theme/level
-pairs the nine sectors schedule are baked. Sprite sheets (the raw-keyed hero
+files (~15 ms/map), and what it needs next is loaded on a worker thread ahead of
+the frame that asks for it (`prefetch.py`). Sector terrain ships in
+`data/textures/terrain/`; each sector scrolls through two *terrain phases* (e.g.
+Sector 1 dissolves from countryside into farmland mid-level, Raiden-style)
+scheduled over that sector's own wave length, and the sector change itself is a
+2.4 s reveal drawn from two live sectors (`terrain/handoff.py`) rather than a
+swap. So all 18 theme/level pairs the nine sectors schedule are baked. Sprite sheets (the raw-keyed hero
 craft, ten enemy kinds, nine per-sector bosses, bullets, whip beads, 3-tier
 explosions, nine pickup pods and one shared orbiting pickup marker) ship in
 `data/textures/sprites/`, and the seamless material /
@@ -190,8 +195,10 @@ directory is empty.
 - `terrain/` — vertically wrapping two-layer parallax terrain: thirteen
   themes (countryside, farmland, swamp, city, ruins, glacier, volcanic,
   ocean, airbase, industrial, wasteland, canyon, forest).
-  `TerrainTrack` schedules each sector's *phase zones* and dissolves between
-  them as the sector scrolls (weights live on `LevelSpec.phases`). Maps are
+  `TerrainTrack` schedules each sector's *phase zones* over the sector's wave
+  length and dissolves between them as the sector scrolls (weights live on
+  `LevelSpec.phases`); `SectorHandoff` reveals the *next* sector with a
+  downward sweep while both sectors keep scrolling. Maps are
   painted from the tileable kit — Raiden motifs include glowing bomb-scar
   craters, buried metal hatches, strata buttes with chunky offset shadows,
   canopy and conifers — and BAKED offline (`scripts/bake_terrain.py`) into
@@ -201,12 +208,21 @@ directory is empty.
 - `audio_effects.py` / `audio.py` — the sound-effect vocabulary (every effect
   name + how close two repeats may be) as a table, and the DSP engine that
   synthesizes it at runtime.
-- `music_content.py` / `music.py` — the score as data (31 level cues, 19
-  attract cues, 6 boss cues, with their scales and bar layouts) and the
-  threaded synth that renders three looping pools: attract themes, level
-  themes and boss fight cues (faster, denser, with a tritone alarm bed). No
-  audio files; each pool renders incrementally in the background so a boss
-  appearing in the first minute still gets music.
+- `music_content.py` / `music.py` / `drum_kit.py` — the score as data (33 level
+  cues, 20 attract cues, 6 boss cues, each with its scale, drum kit, groove,
+  melody family and bass line) and the threaded synth that renders three looping
+  pools: attract themes, level themes and boss fight cues (faster, denser, with a
+  tritone alarm bed). Drums are a small procedural rompler — a kit is a set of
+  voice parameters rendered once per sample rate, then hits are added in — with
+  tempo-selected grooves (swing, ghost notes, bar-8 fills) so no two sectors keep
+  the same time. Melody families (`hero`, `lyric`, the stock `base`) and relative
+  bass lines (octave pops, chromatic approach tones) give each cue its own
+  narrative role. No audio files; each pool renders incrementally in the
+  background so a boss appearing in the first minute still gets music.
+- `prefetch.py` — the worker thread that composes the next sector's terrain and
+  warms the next boss's sprite sheets, so a sector change never pays for either
+  on the render thread. It is an optimisation with a correctness-free failure
+  mode: any consumer that finds nothing ready just loads it the old way.
 - `persistence/` — per-user settings, run statistics and the **top-10
   leaderboard** (`scores.json`) in the OS app-data folder (isolated from
   Breakout Classic).
@@ -218,6 +234,8 @@ directory is empty.
 - [docs/terrain.md](docs/terrain.md) — terrain map system and how to add themes.
 - [docs/sprites.md](docs/sprites.md) — sprite sheets, the generated-raw
   pipeline and anchors, animation, explosions, the whip, and the bake workflow.
+- [docs/music.md](docs/music.md) — the rendered soundtrack: voice engine,
+  procedural drum rompler, grooves and kits, cue keys, melodic-material policy.
 - [docs/testing.md](docs/testing.md) — test layout, quality gates, headless
   smoke commands.
 
@@ -325,7 +343,7 @@ src/                     one class per file; tables live in table files
                scores_table.py · scores_store.py · settings_store.py
   app/       app.py (state machine) · settings_rows.py
   game.py · items.py · physics.py · audio.py · audio_effects.py ·
-  music.py · music_content.py
+  music.py · music_content.py · drum_kit.py
 data/      RUNTIME DATA — the only art a running game or build reads
   textures/  tiles/ · terrain/ · sprites/
 assets/    SOURCE / BAKE-TIME MATERIAL — never shipped, safe to delete
@@ -335,8 +353,8 @@ scripts/
   bake_tiles.py · bake_terrain.py · bake_sprite_raws.py · bake_sprites.py
   preview_sprites.py · preview_entities.py · preview_fx.py · preview_bosses.py
   build.py · entry.py · audit_symbols.py
-tests/           322 pytest tests (model, sprites, terrain, state, app)
-docs/            architecture.md · terrain.md · sprites.md · testing.md
+tests/           365 pytest tests (model, sprites, terrain, music, state, app)
+docs/            architecture.md · terrain.md · sprites.md · music.md · testing.md
 ```
 
 ## Notes on the original

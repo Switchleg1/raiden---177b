@@ -26,11 +26,23 @@ SCALES: dict[str, tuple[int, ...]] = {
     "harmonic": (0, 2, 3, 5, 7, 8, 11),
     "major": (0, 2, 4, 5, 7, 9, 11),
     "lydian": (0, 2, 4, 6, 7, 9, 11),
+    # Dorian: minor with a raised 6th - the mode of tense-but-grooving cues
+    # (brawl alleys, sleazy night stages). Phrygian: flat 2nd - the "occult"
+    # semitone under the tonic, for dungeons and tombs.
+    "dorian": (0, 2, 3, 5, 7, 9, 10),
+    "phrygian": (0, 1, 3, 5, 7, 8, 10),
 }
 
 # --- bar motifs -------------------------------------------------------------
 # Each motif is a list of (start_beat, dur_beats, scale_degree_offset) relative
 # to the current bar's chord root scale-degree, so melodies always stay in key.
+# Named motif sets live in this same table: MOTIFS["A"]/MOTIFS["B"] are the
+# base set (what an untagged cue uses), the other keys are extra melodies in
+# the same format. MOTIF_SETS maps a cue's `"motifs"` tag onto an (A, B) pair,
+# so a cue can own its own tune without the engine knowing anything about it.
+MOTIF_SETS = {"base": ("A", "B"), "hero": ("hero_A", "hero_B"),
+              "lyric": ("lyric_A", "lyric_B")}
+
 MOTIFS = {
     "A": (
         ((0.0, 1.0, 4), (1.0, 0.5, 2), (1.5, 0.5, 0), (2.0, 1.0, 2), (3.0, 1.0, 0)),
@@ -44,6 +56,45 @@ MOTIFS = {
         ((0.0, 0.5, 9), (0.5, 0.5, 7), (1.0, 0.5, 6), (1.5, 0.5, 7), (2.0, 1.0, 4), (3.0, 1.0, 2)),
         ((0.0, 1.0, 2), (1.0, 0.5, 4), (1.5, 0.5, 5), (2.0, 2.0, 4)),
     ),
+    # --- heroic set ---------------------------------------------------------
+    # Structural profile of a certain SNES knight-errant theme: aeolian minor,
+    # dotted fanfare rhythm, an anacrusis-style leap up to the fifth/octave that
+    # answers downward, and cadences that walk i-VI-VII instead of resolving.
+    # Profile only: these note sequences are written here, not transcribed.
+    "hero_A": (
+        ((0.0, 0.75, 7), (0.75, 0.25, 2), (1.0, 1.0, 4), (2.0, 0.5, 2),
+         (2.5, 0.5, 0), (3.0, 1.0, 2)),
+        ((0.0, 0.5, 4), (0.5, 0.5, 7), (1.0, 1.5, 9), (2.5, 0.5, 7),
+         (3.0, 1.0, 4)),
+        ((0.0, 1.0, 2), (1.0, 0.5, 4), (1.5, 0.5, 2), (2.0, 1.0, 0),
+         (3.0, 0.5, -1), (3.5, 0.5, 0)),
+        ((0.0, 1.5, 7), (1.5, 0.5, 9), (2.0, 1.0, 7), (3.0, 1.0, 4)),
+    ),
+    "hero_B": (
+        ((0.0, 0.5, 11), (0.5, 0.5, 9), (1.0, 1.0, 7), (2.0, 1.0, 9),
+         (3.0, 1.0, 7)),
+        ((0.0, 1.0, 9), (1.0, 0.5, 7), (1.5, 0.5, 4), (2.0, 2.0, 7)),
+        ((0.0, 0.75, 7), (0.75, 0.25, 9), (1.0, 1.5, 11), (2.5, 0.5, 9),
+         (3.0, 1.0, 7)),
+        ((0.0, 1.0, 12), (1.0, 1.0, 11), (2.0, 0.5, 9), (2.5, 0.5, 7),
+         (3.0, 1.0, 4)),
+    ),
+    # --- lyrical set --------------------------------------------------------
+    # Structural profile of a certain SNES seeress theme: whole-note phrases,
+    # stepwise descent, a raised fourth used as a colour tone (works because the
+    # cue is tagged Lydian), and a long note held across the chord change.
+    "lyric_A": (
+        ((0.0, 2.0, 7), (2.0, 1.0, 6), (3.0, 1.0, 4)),
+        ((0.0, 1.5, 9), (1.5, 1.5, 7), (3.0, 1.0, 6)),
+        ((0.0, 2.0, 4), (2.0, 1.0, 6), (3.0, 1.0, 7)),
+        ((0.0, 1.0, 11), (1.0, 2.0, 9), (3.0, 1.0, 7)),
+    ),
+    "lyric_B": (
+        ((0.0, 2.0, 4), (2.0, 1.0, 2), (3.0, 1.0, 0)),
+        ((0.0, 1.5, 7), (1.5, 1.5, 6), (3.0, 1.0, 4)),
+        ((0.0, 2.0, 2), (2.0, 1.0, 4), (3.0, 1.0, 5)),
+        ((0.0, 1.0, 7), (1.0, 1.0, 6), (2.0, 1.0, 4), (3.0, 1.0, 2)),
+    ),
 }
 CADENCE = ((0.0, 2.0, 0), (2.0, 1.0, 4), (3.0, 1.0, 7))
 # Bass 8th-note patterns: indices into the current triad (0=root, 2=fifth).
@@ -53,6 +104,257 @@ BASS = {
     "B": (0, 1, 0, 2, 0, 1, 0, 2),
     "outro": (0, 0, 0, 0, 2, 2, 0, 0),
 }
+
+# --- named bass lines -------------------------------------------------------
+# A cue may name one of these with `"bass": "<name>"`; otherwise it plays BASS.
+# Each line is the eight 8ths of a bar as (chord tone, extra octaves), where
+# chord tone 0/1/2 is the root/third/fifth of the current chord and 3 is the
+# chromatic approach a semitone *below* the root (the note that pulls the ear
+# into the next bar's chord). The engine adds the bass octave; these numbers are
+# relative, so a line sounds right under any chord in any progression.
+BASS_LINES: dict[str, dict[str, tuple[tuple[int, int], ...]]] = {
+    # The chugging heroic line: root 8ths, octave pops on the back half of
+    # beats 2 and 4, and an approach tone walking into the next chord. Arranged
+    # under a fanfare lead, this is what makes a slow-ish cue feel driven.
+    "chug": {
+        "intro": ((0, 0), (0, 0), (0, 12), (0, 0), (0, 0), (0, 12), (0, 0),
+                  (3, 0)),
+        "A": ((0, 0), (0, 0), (0, 12), (0, 0), (2, 0), (2, 0), (0, 12), (3, 0)),
+        "B": ((0, 0), (0, 12), (0, 0), (1, 0), (0, 0), (2, 12), (0, 0), (3, 0)),
+        "outro": ((0, 0), (0, 0), (0, 12), (0, 0), (2, 0), (2, 0), (0, 0),
+                  (0, 0)),
+    },
+    # The running line: root / fifth alternation with octave pops, written to
+    # carry a long, slow melody without fighting it. The bass moves in 8ths
+    # while the lead holds whole notes - the two layers never compete for the
+    # same rhythm, which is the whole trick behind an upbeat ballad cue.
+    "run": {
+        "intro": ((0, 0), (2, 0), (0, 0), (2, 0), (0, 0), (2, 0), (0, 12),
+                  (2, 0)),
+        "A": ((0, 0), (2, 0), (0, 12), (2, 0), (0, 0), (2, 0), (0, 12), (2, 0)),
+        "B": ((0, 0), (2, 0), (1, 0), (2, 0), (0, 0), (2, 0), (1, 0), (3, 0)),
+        "outro": ((0, 0), (2, 0), (0, 0), (2, 0), (0, 0), (0, 0), (0, 0),
+                  (0, 0)),
+    },
+}
+
+# --- drum kits -------------------------------------------------------------
+# Parameters for src/drum_kit.py: pitch, decay, brightness and playback gain.
+# Velocities in GROOVES stay 0..1 and each kit decides how loud *its* voices
+# sit against the synth, so re-balancing drums vs. leads never means touching
+# a groove. Every key is optional; drum_kit.<VOICE>_DEFAULTS fills the rest.
+KITS: dict[str, dict] = {
+    # Tight, bright, front-of-the-mix. The default for mid/fast stage cues.
+    "crisp": {
+        "kick": {"f0": 165.0, "f1": 52.0, "glide": 0.026, "decay": 8.0,
+                 "click": 0.5, "punch": 0.55, "dur": 0.36},
+        "snare": {"body_f": 195.0, "body_dec": 46.0, "noise_f": 2100.0,
+                  "noise_dec": 23.0, "snap": 0.6},
+        "hat": {"base": 860.0, "decay": 70.0, "bp": 8600.0},
+        "open": {"dur": 0.30, "decay_scale": 0.18},
+        "tom": {"decay": 10.0, "dur": 0.30},
+        "gain": {"kick": 0.40, "snare": 0.30, "hat": 0.115, "open": 0.085,
+                 "ride": 0.085, "crash": 0.13, "rim": 0.13, "clap": 0.15,
+                 "tom": 0.21},
+    },
+    # Rounder kick, more membrane than crack. Mid-tempo grooves.
+    "punch": {
+        "kick": {"f0": 150.0, "f1": 47.0, "glide": 0.034, "decay": 6.8,
+                 "click": 0.38, "punch": 0.45, "dur": 0.44},
+        "snare": {"body_f": 178.0, "body_dec": 38.0, "noise_f": 1750.0,
+                  "noise_dec": 27.0, "snap": 0.45},
+        "hat": {"base": 780.0, "decay": 60.0, "bp": 8000.0},
+        "tom": {"decay": 8.0},
+        "gain": {"kick": 0.42, "snare": 0.31, "hat": 0.105, "open": 0.08,
+                 "ride": 0.08, "crash": 0.125, "rim": 0.12, "clap": 0.15,
+                 "tom": 0.22},
+    },
+    # Big and low: deep kick, fat snare, dark metal. Slow dread and bosses.
+    "heavy": {
+        "kick": {"f0": 140.0, "f1": 41.0, "glide": 0.045, "decay": 5.6,
+                 "click": 0.32, "punch": 0.4, "sat": 2.0, "dur": 0.52},
+        "snare": {"body_f": 158.0, "body_dec": 30.0, "noise_f": 1450.0,
+                  "noise_dec": 32.0, "wash": 0.95, "snap": 0.42},
+        "hat": {"base": 700.0, "decay": 52.0, "hp": 4600.0, "bp": 7400.0},
+        "crash": {"base": 240.0, "decay": 3.4, "wash_dec": 2.8, "dur": 1.3},
+        "tom": {"decay": 6.5, "dur": 0.42, "glide": -0.14},
+        "gain": {"kick": 0.46, "snare": 0.34, "hat": 0.10, "open": 0.08,
+                 "ride": 0.08, "crash": 0.16, "rim": 0.12, "clap": 0.16,
+                 "tom": 0.26},
+    },
+    # Industrial and bright: saturated kick, prominent rim/clap, cutting hats.
+    "metal": {
+        "kick": {"f0": 175.0, "f1": 55.0, "glide": 0.022, "decay": 9.0,
+                 "click": 0.62, "click_f": 3200.0, "punch": 0.62,
+                 "sat": 2.2, "dur": 0.34},
+        "snare": {"body_f": 210.0, "ratio": 1.9, "body_dec": 50.0,
+                  "noise_f": 2500.0, "noise_q": 0.7, "noise_dec": 21.0,
+                  "snap": 0.7, "snap_f": 4200.0},
+        "hat": {"base": 950.0, "decay": 80.0, "hp": 5600.0, "bp": 9000.0,
+                "chick": 0.55},
+        "rim": {"f": 2400.0, "blip": 700.0},
+        "clap": {"f": 1350.0, "tail_dec": 16.0},
+        "crash": {"base": 360.0, "decay": 5.0, "bell_level": 0.2},
+        "tom": {"decay": 11.0, "noise": 0.2, "dur": 0.28},
+        "gain": {"kick": 0.44, "snare": 0.33, "hat": 0.125, "open": 0.09,
+                 "ride": 0.09, "crash": 0.15, "rim": 0.16, "clap": 0.19,
+                 "tom": 0.23},
+    },
+    # Brushed back: quiet hats, soft transient, long-ish snare wash. For the
+    # slow, atmospheric cues (and anything that has to sit under an alarm).
+    "soft": {
+        "kick": {"f0": 130.0, "f1": 45.0, "glide": 0.040, "decay": 6.0,
+                 "click": 0.22, "punch": 0.32, "dur": 0.46},
+        "snare": {"body_f": 168.0, "body_dec": 30.0, "noise_f": 1500.0,
+                  "noise_dec": 34.0, "wash": 0.9, "snap": 0.3},
+        "hat": {"base": 720.0, "decay": 48.0, "hp": 4400.0, "bp": 7000.0,
+                "noise": 0.26, "chick": 0.25},
+        "open": {"dur": 0.42, "decay_scale": 0.12},
+        "ride": {"decay": 5.0, "dur": 0.75, "ping_level": 0.26},
+        "tom": {"decay": 7.0, "dur": 0.4},
+        "gain": {"kick": 0.34, "snare": 0.25, "hat": 0.085, "open": 0.07,
+                 "ride": 0.075, "crash": 0.11, "rim": 0.10, "clap": 0.12,
+                 "tom": 0.19},
+    },
+}
+
+# --- grooves ---------------------------------------------------------------
+# One bar = 16 sixteenth-note steps. Every entry is (step, velocity 0..1) and
+# every voice is optional. Voice names are the drum_kit sample names, plus
+# "ghost" (a snare played at a fraction of the level - the thing that makes a
+# breakbeat feel played rather than programmed).
+#
+#   fill  rotated by phrase on the last bar of each 8-bar section
+#   roll  crescendo the boss intro bar uses instead of the groove
+#   swing how far odd 16ths are pushed late, as a fraction of a 16th
+GROOVES: dict[str, dict] = {
+    # Baseline synthwave: kick 1 and 3, snare 2 and 4, 8th hats, open hat on
+    # the "a" of 4 so the bar lifts into the next one.
+    "straight": {
+        "kick": ((0, 1.0), (8, 0.95), (14, 0.4)),
+        "snare": ((4, 0.95), (12, 0.95)),
+        "ghost": ((10, 0.18),),
+        "hat": ((0, 0.75), (2, 0.4), (4, 0.7), (6, 0.4), (8, 0.75), (10, 0.4),
+                (12, 0.7), (14, 0.45)),
+        "open": ((14, 0.3),),
+        "swing": 0.0,
+        "fill": (
+            ((8, "tom", 0.7), (10, "tom", 0.6), (12, "snare", 0.85),
+             (13, "tom", 0.7), (14, "tom", 0.55), (15, "kick", 0.6)),
+            ((9, "tom", 0.6), (10, "tom", 0.5), (11, "tom", 0.45),
+             (12, "snare", 0.8), (13, "snare", 0.5), (14, "snare", 0.4),
+             (15, "crash", 0.6)),
+        ),
+    },
+    # Mega Man X / breakbeat: syncopated kick, ghost snares between the
+    # backbeats, hats on every 16th with a light swing.
+    "break": {
+        "kick": ((0, 1.0), (6, 0.75), (10, 0.9), (13, 0.45)),
+        "snare": ((4, 1.0), (12, 1.0)),
+        "ghost": ((2, 0.16), (7, 0.2), (9, 0.16), (14, 0.22)),
+        "hat": ((0, 0.8), (2, 0.42), (3, 0.26), (4, 0.62), (6, 0.42),
+                (7, 0.26), (8, 0.78), (10, 0.42), (11, 0.26), (12, 0.62),
+                (14, 0.42), (15, 0.26)),
+        "open": ((10, 0.26),),
+        "swing": 0.06,
+        "fill": (
+            ((8, "snare", 0.8), (9, "ghost", 0.3), (10, "tom", 0.65),
+             (11, "tom", 0.55), (12, "kick", 0.8), (13, "tom", 0.6),
+             (14, "snare", 0.7), (15, "crash", 0.55)),
+            ((6, "tom", 0.6), (7, "tom", 0.5), (8, "snare", 0.75),
+             (10, "snare", 0.6), (12, "snare", 0.85), (13, "snare", 0.5),
+             (14, "snare", 0.45), (15, "kick", 0.7)),
+        ),
+    },
+    # F-Zero chase: four-on-the-floor kick, backbeat snare, hats on every 16th
+    # and ride on the quarters, so nothing in the bar is ever empty.
+    "drive16": {
+        "kick": ((0, 1.0), (4, 0.82), (8, 1.0), (12, 0.82), (10, 0.38)),
+        "snare": ((4, 0.9), (12, 0.9)),
+        "hat": ((0, 0.8), (1, 0.28), (2, 0.45), (3, 0.28), (4, 0.7), (5, 0.28),
+                (6, 0.45), (7, 0.28), (8, 0.8), (9, 0.28), (10, 0.45),
+                (11, 0.28), (12, 0.7), (13, 0.28), (14, 0.45), (15, 0.3)),
+        "ride": ((0, 0.32), (4, 0.26), (8, 0.32), (12, 0.26)),
+        "open": ((14, 0.32),),
+        "swing": 0.0,
+        "fill": (
+            ((8, "tom", 0.75), (9, "tom", 0.65), (10, "tom", 0.55),
+             (11, "tom", 0.5), (12, "snare", 0.9), (13, "snare", 0.6),
+             (14, "snare", 0.5), (15, "crash", 0.7)),
+            ((10, "tom", 0.6), (11, "tom", 0.55), (12, "kick", 0.9),
+             (13, "tom", 0.6), (14, "snare", 0.8), (15, "kick", 0.7)),
+        ),
+    },
+    # DKC "Fear Factory" dread: one kick, one huge snare on 3, ride on the
+    # quarters. Space is the effect; the bass line carries the bar.
+    "halftime": {
+        "kick": ((0, 1.0), (11, 0.45)),
+        "snare": ((8, 1.0),),
+        "hat": ((0, 0.5), (4, 0.34), (8, 0.5), (12, 0.34)),
+        "ride": ((0, 0.4), (4, 0.26), (8, 0.38), (12, 0.26))
+        ,
+        "clap": ((8, 0.22),),
+        "swing": 0.0,
+        "fill": (
+            ((8, "tom", 0.8), (10, "tom", 0.65), (12, "tom", 0.6),
+             (14, "snare", 0.85), (15, "crash", 0.75)),
+            ((9, "tom", 0.7), (10, "tom", 0.6), (11, "tom", 0.5),
+             (12, "snare", 0.8), (13, "ghost", 0.35), (14, "snare", 0.5),
+             (15, "kick", 0.8)),
+        ),
+    },
+    # Castlevania "Simon's Theme" march: kick on the quarters, heavy snare on
+    # 3, rim on the off-beats (the military gallop), 16th pickup at bar end.
+    "march": {
+        "kick": ((0, 0.95), (4, 0.55), (8, 0.95), (12, 0.55)),
+        "snare": ((8, 0.95), (14, 0.5), (15, 0.6)),
+        "rim": ((2, 0.3), (6, 0.3), (10, 0.3), (14, 0.28)),
+        "hat": ((0, 0.45), (4, 0.32), (8, 0.45), (12, 0.32)),
+        "swing": 0.0,
+        "fill": (
+            ((10, "rim", 0.4), (11, "rim", 0.35), (12, "snare", 0.9),
+             (13, "snare", 0.6), (14, "snare", 0.45), (15, "kick", 0.8)),
+            ((8, "tom", 0.7), (10, "tom", 0.6), (12, "snare", 0.85),
+             (14, "crash", 0.7), (15, "snare", 0.5)),
+        ),
+    },
+    # Boss bed: double kick, 16th hats, backbeat snare and a low tom pulse on
+    # the last 16th so every bar pushes into the next one.
+    "grind": {
+        "kick": ((0, 1.0), (3, 0.45), (4, 0.8), (8, 1.0), (11, 0.45),
+                 (12, 0.8)),
+        "snare": ((4, 0.9), (12, 0.9)),
+        "ghost": ((6, 0.2), (14, 0.2)),
+        "hat": ((0, 0.82), (1, 0.3), (2, 0.48), (3, 0.3), (4, 0.72), (5, 0.3),
+                (6, 0.48), (7, 0.3), (8, 0.82), (9, 0.3), (10, 0.48),
+                (11, 0.3), (12, 0.72), (13, 0.3), (14, 0.48), (15, 0.32)),
+        "tom": ((15, 0.45),),
+        "clap": ((7, 0.2),),
+        "swing": 0.0,
+        "fill": (
+            ((8, "tom", 0.85), (9, "tom", 0.75), (10, "tom", 0.65),
+             (11, "tom", 0.6), (12, "snare", 0.95), (13, "snare", 0.7),
+             (14, "snare", 0.6), (15, "crash", 0.8)),
+            ((6, "tom", 0.7), (7, "tom", 0.6), (8, "kick", 0.9),
+             (10, "tom", 0.65), (11, "tom", 0.55), (12, "snare", 0.9),
+             (13, "snare", 0.6), (14, "snare", 0.5), (15, "kick", 0.8)),
+        ),
+        # The one bar of alarm before the fight: 16th snare crescendo.
+        "roll": ((0, 0.3), (1, 0.34), (2, 0.38), (3, 0.42), (4, 0.46),
+                 (5, 0.5), (6, 0.55), (7, 0.6), (8, 0.65), (9, 0.7),
+                 (10, 0.75), (11, 0.8), (12, 0.85), (13, 0.88), (14, 0.92),
+                 (15, 1.0)),
+    },
+}
+
+# Fallback selection when a theme does not name a groove/kit: tempo decides,
+# because that is what actually makes a groove feel fast or heavy. A theme can
+# always override with "groove" / "kit".
+GROOVE_BY_TEMPO = ((132, "drive16"), (120, "break"), (108, "straight"),
+                   (0, "halftime"))
+KIT_BY_TEMPO = ((130, "crisp"), (112, "punch"), (0, "soft"))
+GROOVE_BOSS = "grind"
+KIT_BOSS = "metal"
 
 # (section, bars) layout -> 2 + 8 + 8 + 2 = 20 bars per loop.
 LAYOUT = (("intro", 2), ("A", 8), ("B", 8), ("outro", 2))
@@ -75,13 +377,13 @@ BOSS_LAYOUT = (("intro", 1), ("A", 8), ("B", 8), ("outro", 1))
 # progression moves every bar, so the harmony never loops on a 2-second cell).
 THEMES: tuple[dict, ...] = (
     {"name": "Neon Grid",   "root": 57, "bpm": 106, "lead": "pulse",
-     "prog": (0, 5, 2, 6, 3, 0, 5, 4)},
+     "prog": (0, 5, 2, 6, 3, 0, 5, 4), "groove": "straight", "kit": "punch"},
     {"name": "Chrome Run",  "root": 55, "bpm": 114, "lead": "square",
      "prog": (0, 6, 5, 6, 3, 5, 0, 4)},
     {"name": "Laser Night", "root": 60, "bpm": 120, "lead": "pulse",
      "prog": (0, 3, 5, 4, 6, 3, 2, 4)},
     {"name": "Turbo Drift", "root": 53, "bpm": 128, "lead": "saw",
-     "prog": (0, 5, 3, 6, 0, 4, 5, 6)},
+     "prog": (0, 5, 3, 6, 0, 4, 5, 6), "groove": "drive16", "kit": "crisp"},
     {"name": "Final Wave",  "root": 58, "bpm": 134, "lead": "pulse",
      "prog": (0, 6, 5, 4, 3, 6, 5, 4)},
     # Extra level cues: the level playlist picks a random track per level (never
@@ -94,9 +396,9 @@ THEMES: tuple[dict, ...] = (
     {"name": "Midnight Run", "root": 57, "bpm": 122, "lead": "saw",
      "prog": (0, 6, 5, 0, 6, 4, 5, 6)},
     {"name": "Daydream Vector", "root": 62, "bpm": 118, "lead": "pulse",
-     "prog": (0, 5, 2, 4, 5, 3, 2, 6)},
+     "prog": (0, 5, 2, 4, 5, 3, 2, 6), "kit": "soft"},
     {"name": "Sunset Circuit", "root": 55, "bpm": 126, "lead": "triangle",
-     "prog": (0, 3, 6, 5, 3, 0, 4, 6)},
+     "prog": (0, 3, 6, 5, 3, 0, 4, 6), "kit": "soft"},
     {"name": "Hyper Grid", "root": 60, "bpm": 138, "lead": "square",
      "prog": (0, 4, 5, 6, 3, 4, 5, 0)},
     # Original cues channelled from classic NES/SNES action-score archetypes
@@ -104,16 +406,22 @@ THEMES: tuple[dict, ...] = (
     # themes). These are stylistic homages only: original natural-minor degree
     # progressions, no borrowed melodies and no trademarked titles.
     {"name": "Steel Fist", "root": 57, "bpm": 132, "lead": "saw",
+     "kit": "heavy",
      "prog": (0, 6, 5, 6, 0, 6, 5, 4)},          # driving belt-scroll riff
     {"name": "Back Alley", "root": 53, "bpm": 126, "lead": "square",
+     "scale": "dorian", "groove": "halftime", "kit": "heavy",
      "prog": (0, 0, 5, 6, 3, 0, 6, 4)},          # tense verse/chorus brawl
     {"name": "Cathedral Run", "root": 55, "bpm": 130, "lead": "saw",
+     "kit": "metal",
      "prog": (0, 5, 6, 5, 0, 3, 6, 4)},          # gothic heroic gallop
     {"name": "Crypt March", "root": 57, "bpm": 116, "lead": "pulse",
+     "scale": "phrygian", "groove": "march", "kit": "heavy",
      "prog": (0, 6, 5, 0, 3, 6, 5, 4)},          # brooding dungeon crawl
     {"name": "Clockwork Tide", "root": 60, "bpm": 124, "lead": "pulse",
+     "groove": "drive16",
      "prog": (0, 2, 5, 4, 0, 2, 6, 4)},          # hopeful mediant (III) lift
     {"name": "Knight's Resolve", "root": 58, "bpm": 120, "lead": "triangle",
+     "groove": "march", "kit": "punch",
      "prog": (0, 3, 2, 4, 5, 3, 0, 6)},          # noble quest fanfare
     # ---- researched NES/SNES archetypes (see docs) -------------------------------
     # Original degree progressions channelled from real chord *analyses* of these
@@ -121,40 +429,72 @@ THEMES: tuple[dict, ...] = (
     # `scale: harmonic` raises the 7th so the v chord becomes a major V -- the
     # gothic cadence that defines Castlevania and JRPG battle music.
     {"name": "Blood Moon Rite", "root": 57, "bpm": 128, "lead": "saw",
-     "scale": "harmonic", "prog": (0, 5, 6, 4, 0, 5, 6, 4)},   # i-VI-vii°-V
+     "scale": "harmonic", "groove": "halftime", "kit": "heavy",
+     "prog": (0, 5, 6, 4, 0, 5, 6, 4)},   # i-VI-vii degree-V ritual
     {"name": "Candelabra Hall", "root": 55, "bpm": 122, "lead": "saw",
-     "scale": "harmonic", "prog": (0, 3, 4, 0, 0, 3, 4, 5)},   # i-iv-V-i
+     "scale": "harmonic", "kit": "soft",
+     "prog": (0, 3, 4, 0, 0, 3, 4, 5)},   # i-iv-V-i
     {"name": "Night Fortress", "root": 57, "bpm": 134, "lead": "pulse",
-     "scale": "harmonic", "prog": (0, 6, 5, 4, 0, 3, 5, 4)},   # descending gothic
+     "scale": "harmonic", "kit": "metal",
+     "prog": (0, 6, 5, 4, 0, 3, 5, 4)},   # descending gothic
     {"name": "Battle Verge", "root": 62, "bpm": 130, "lead": "square",
      "scale": "harmonic", "prog": (0, 3, 4, 0, 5, 3, 4, 0)},   # i-iv-V (CT battle)
     {"name": "Magus Gate", "root": 64, "bpm": 126, "lead": "saw",
-     "scale": "harmonic", "prog": (0, 2, 0, 4, 0, 5, 2, 4)},   # III+ aug mystery
+     "scale": "harmonic", "groove": "halftime", "kit": "soft",
+     "prog": (0, 2, 0, 4, 0, 5, 2, 4)},   # III+ aug mystery
     {"name": "Hyrule Ascent", "root": 60, "bpm": 124, "lead": "pulse",
-     "scale": "lydian", "prog": (0, 4, 5, 3, 0, 4, 1, 0)},      # heroic Lydian
+     "scale": "lydian", "groove": "march", "kit": "punch",
+     "prog": (0, 4, 5, 3, 0, 4, 1, 0)},      # heroic Lydian
     {"name": "Kakariko Heights", "root": 62, "bpm": 130, "lead": "triangle",
-     "scale": "lydian", "prog": (0, 1, 3, 4, 0, 1, 4, 0)},      # Lydian II lift
+     "scale": "lydian", "groove": "break", "kit": "punch",
+     "prog": (0, 1, 3, 4, 0, 1, 4, 0)},      # Lydian II lift
     {"name": "Rooftop Duel", "root": 53, "bpm": 128, "lead": "saw",
+     "kit": "heavy",
      "prog": (0, 6, 0, 5, 6, 0, 4, 0)},                          # belt-scroll i-VII
     # Secret of Mana "Fear of the Heavens" homage: analyses give Am with a major
     # V (D/E) and chromatic mediants -> A harmonic minor, i-VI-iv-V.
     {"name": "Empyrean Dread", "root": 57, "bpm": 118, "lead": "saw",
-     "scale": "harmonic", "prog": (0, 5, 3, 4, 0, 5, 3, 4)},   # i-VI-iv-V (SoM)
+     "scale": "harmonic", "groove": "halftime", "kit": "heavy",
+     "prog": (0, 5, 3, 4, 0, 5, 3, 4)},   # i-VI-iv-V (SoM)
     # ---- more classics -----------------------------------------------------------
     # Original degree progressions in the spirit of these scores (structure only;
     # no copied melodies, no trademarked names as track titles).
     {"name": "Oath of Flame", "root": 57, "bpm": 130, "lead": "saw",      # Soul Blazer
-     "scale": "harmonic", "prog": (0, 3, 4, 0, 0, 5, 3, 4)},              # noble i-iv-V
+     "scale": "harmonic", "kit": "metal",
+     "prog": (0, 3, 4, 0, 0, 5, 3, 4)},              # noble i-iv-V
     {"name": "Peak of Regret", "root": 55, "bpm": 124, "lead": "saw",     # Soul Blazer
+     "groove": "halftime", "kit": "heavy",
      "prog": (0, 6, 5, 4, 0, 6, 3, 4)},                                   # epic descent
     {"name": "Overture of Field", "root": 61, "bpm": 126, "lead": "triangle",  # ALttP
-     "scale": "major", "prog": (0, 3, 4, 0, 5, 3, 4, 0)},                 # bright heroic
+     "scale": "major", "groove": "march",
+     "prog": (0, 3, 4, 0, 5, 3, 4, 0)},                 # bright heroic
     {"name": "Neon Freeway", "root": 62, "bpm": 140, "lead": "square",    # Mega Man X
      "prog": (0, 0, 3, 4, 0, 5, 3, 4)},                                   # driving i-VII
     {"name": "Crater Wastes", "root": 53, "bpm": 110, "lead": "saw",      # Metroid
+     "scale": "dorian", "groove": "halftime", "kit": "soft",
      "prog": (0, 6, 5, 0, 3, 6, 5, 4)},                                   # eerie expanse
     {"name": "Gearwork Cathedral", "root": 57, "bpm": 134, "lead": "pulse",   # Castlevania
-     "scale": "harmonic", "prog": (0, 4, 5, 6, 0, 4, 3, 4)},              # clockwork gothic
+     "scale": "harmonic", "kit": "metal",
+     "prog": (0, 4, 5, 6, 0, 4, 3, 4)},              # clockwork gothic
+    # ---- SNES action-score profiles, driving-bass arrangements --------------
+    # Structural homages only: mode, meter, cadence shape and layer roles were
+    # taken from analyses of the scores; the notes here are written, the titles
+    # are original. Each of these three cues arranges its melody over a named
+    # BASS_LINES pattern instead of the stock 8ths, which is what makes a
+    # mid-tempo cue read as "driven" rather than "mid-tempo".
+    # Knight-errant profile: aeolian fanfare, dotted lead, i-VI-VII cadences,
+    # chug bass (octave pops + approach tone), heavy kit on a march groove.
+    {"name": "Knight of the Marsh", "root": 57, "bpm": 132, "lead": "square",
+     "scale": "natural", "motifs": "hero", "bass": "chug",
+     "groove": "march", "kit": "heavy",
+     "prog": (0, 5, 6, 0, 3, 5, 6, 4)},
+    # Seeress profile in a level arrangement: Lydian whole-note melody over the
+    # running bass - the slow line and the fast line never share a rhythm, so
+    # the cue can be tender and fast at the same time.
+    {"name": "Starfall Vale", "root": 60, "bpm": 138, "lead": "triangle",
+     "scale": "lydian", "motifs": "lyric", "bass": "run",
+     "groove": "drive16", "kit": "soft",
+     "prog": (0, 3, 4, 0, 5, 3, 4, 0)},
 )
 
 MENU_THEMES: tuple[dict, ...] = (
@@ -212,6 +552,13 @@ MENU_THEMES: tuple[dict, ...] = (
     {"name": "Gaia's Lament", "root": 57, "bpm": 92, "lead": "triangle",  # Illusion of Gaia
      "prog": (0, 5, 3, 4, 0, 6, 5, 4),
      "drums": False, "layout": MENU_LAYOUT},
+    # The seeress profile again, arranged as a menu cue: no drums at all, but
+    # the running bass line keeps moving under the whole-note melody. Proof that
+    # "driving" is a bass-line decision, not a percussion decision.
+    {"name": "Vale of the Sleeping Star", "root": 62, "bpm": 104,
+     "lead": "triangle", "scale": "lydian", "motifs": "lyric", "bass": "run",
+     "prog": (0, 4, 5, 3, 0, 4, 3, 0),
+     "drums": False, "layout": MENU_LAYOUT},
 )
 
 # Back-compat alias (used by tests and single-track callers).
@@ -241,6 +588,8 @@ BOSS_THEMES: tuple[dict, ...] = (
      "drive": True, "layout": BOSS_LAYOUT},
 )
 
-__all__ = ["SCALE", "SCALES", "MOTIFS", "CADENCE", "BASS",
+__all__ = ["SCALE", "SCALES", "MOTIFS", "MOTIF_SETS", "CADENCE", "BASS",
+           "BASS_LINES", "KITS", "GROOVES",
+           "GROOVE_BY_TEMPO", "KIT_BY_TEMPO", "GROOVE_BOSS", "KIT_BOSS",
            "LAYOUT", "MENU_LAYOUT", "BOSS_LAYOUT",
            "THEMES", "MENU_THEMES", "MENU_THEME", "BOSS_THEMES"]

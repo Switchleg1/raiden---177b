@@ -14,7 +14,7 @@ from .theme_phase import ThemePhase
 
 LEVELS: tuple[LevelSpec, ...] = (
     LevelSpec(
-        name="Sector 1: Countryside Approach", wave_seconds=34.0,
+        name="Sector 1: Countryside Approach", wave_seconds=51.0,
         spawn_interval=0.95,
         spawns=(("grunt", 60), ("weaver", 26), ("darter", 14)),
         bullet_speed=210.0, boss_hp=180, boss_bullet=0.9,
@@ -23,7 +23,7 @@ LEVELS: tuple[LevelSpec, ...] = (
         phases=(ThemePhase(StageTheme.COUNTRYSIDE, 0.55),
                 ThemePhase(StageTheme.FARMLAND, 0.45))),
     LevelSpec(
-        name="Sector 2: Bayou Marsh", wave_seconds=36.0,
+        name="Sector 2: Bayou Marsh", wave_seconds=54.0,
         spawn_interval=0.92,
         spawns=(("grunt", 42), ("weaver", 22), ("darter", 16),
                 ("gunner", 12), ("splitter", 8)),
@@ -33,7 +33,7 @@ LEVELS: tuple[LevelSpec, ...] = (
         phases=(ThemePhase(StageTheme.SWAMP, 0.62),
                 ThemePhase(StageTheme.FARMLAND, 0.38))),
     LevelSpec(
-        name="Sector 3: City Gauntlet", wave_seconds=38.0,
+        name="Sector 3: City Gauntlet", wave_seconds=57.0,
         spawn_interval=0.88,
         spawns=(("grunt", 34), ("weaver", 20), ("darter", 16),
                 ("gunner", 16), ("sentry", 8), ("splitter", 10),
@@ -44,7 +44,7 @@ LEVELS: tuple[LevelSpec, ...] = (
         phases=(ThemePhase(StageTheme.CITY, 0.62),
                 ThemePhase(StageTheme.RUINS, 0.38))),
     LevelSpec(
-        name="Sector 4: Frozen Approach", wave_seconds=40.0,
+        name="Sector 4: Frozen Approach", wave_seconds=60.0,
         spawn_interval=0.85,
         spawns=(("grunt", 26), ("weaver", 18), ("darter", 16),
                 ("gunner", 18), ("sentry", 12), ("heavy", 4),
@@ -55,7 +55,7 @@ LEVELS: tuple[LevelSpec, ...] = (
         phases=(ThemePhase(StageTheme.GLACIER, 0.62),
                 ThemePhase(StageTheme.OCEAN, 0.38))),
     LevelSpec(
-        name="Sector 5: Ruins Citadel", wave_seconds=42.0,
+        name="Sector 5: Ruins Citadel", wave_seconds=63.0,
         spawn_interval=0.82,
         spawns=(("grunt", 22), ("weaver", 18), ("darter", 16),
                 ("gunner", 20), ("sentry", 14), ("heavy", 6),
@@ -66,7 +66,7 @@ LEVELS: tuple[LevelSpec, ...] = (
         phases=(ThemePhase(StageTheme.RUINS, 0.55),
                 ThemePhase(StageTheme.CANYON, 0.45))),
     LevelSpec(
-        name="Sector 6: Molten Shelf", wave_seconds=44.0,
+        name="Sector 6: Molten Shelf", wave_seconds=66.0,
         spawn_interval=0.78,
         spawns=(("grunt", 18), ("weaver", 16), ("darter", 16),
                 ("gunner", 22), ("sentry", 16), ("heavy", 8),
@@ -77,7 +77,7 @@ LEVELS: tuple[LevelSpec, ...] = (
         phases=(ThemePhase(StageTheme.VOLCANIC, 0.62),
                 ThemePhase(StageTheme.CANYON, 0.38))),
     LevelSpec(
-        name="Sector 7: Ocean Bulwark", wave_seconds=46.0,
+        name="Sector 7: Ocean Bulwark", wave_seconds=69.0,
         spawn_interval=0.74,
         spawns=(("grunt", 16), ("weaver", 16), ("darter", 16),
                 ("gunner", 22), ("sentry", 18), ("heavy", 10),
@@ -88,7 +88,7 @@ LEVELS: tuple[LevelSpec, ...] = (
         phases=(ThemePhase(StageTheme.OCEAN, 0.55),
                 ThemePhase(StageTheme.AIRBASE, 0.45))),
     LevelSpec(
-        name="Sector 8: Iron Works", wave_seconds=48.0,
+        name="Sector 8: Iron Works", wave_seconds=72.0,
         spawn_interval=0.70,
         spawns=(("grunt", 14), ("weaver", 14), ("darter", 16),
                 ("gunner", 24), ("sentry", 18), ("heavy", 12),
@@ -99,7 +99,7 @@ LEVELS: tuple[LevelSpec, ...] = (
         phases=(ThemePhase(StageTheme.INDUSTRIAL, 0.60),
                 ThemePhase(StageTheme.AIRBASE, 0.40))),
     LevelSpec(
-        name="Sector 9: Wasteland Core", wave_seconds=50.0,
+        name="Sector 9: Wasteland Core", wave_seconds=75.0,
         spawn_interval=0.66,
         spawns=(("grunt", 12), ("weaver", 14), ("darter", 16),
                 ("gunner", 24), ("sentry", 20), ("heavy", 14),

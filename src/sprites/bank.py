@@ -1,24 +1,33 @@
 """Lazy PNG sheet loader (runtime loads art only; painters are for baking)."""
 from __future__ import annotations
 
+import threading
 from typing import Any
 
 from .manifest import SPRITES, pygame_rect, sheet_path
 
 
 class Bank:
-    """Lazy-loading cache of baked sheet textures."""
+    """Lazy-loading cache of baked sheet textures.
+
+    The cache is guarded because the prefetch thread warms sheets ahead of time
+    while the render thread draws from the same bank. The lock is only held for
+    a cache miss, so the drawing path does not wait on it in practice - a sheet
+    that is wanted mid-fight was queued seconds earlier and is already there.
+    """
 
     def __init__(self) -> None:
         self._sheets: dict[str, Any | None] = {}
         self._tinted: dict[tuple[str, tuple[int, int, int]], Any] = {}
+        self._lock = threading.Lock()
 
     def sheet(self, name: str) -> Any | None:
-        if name in self._sheets:
-            return self._sheets[name]
-        surf = self._load(name)
-        self._sheets[name] = surf
-        return surf
+        with self._lock:
+            if name in self._sheets:
+                return self._sheets[name]
+            surf = self._load(name)
+            self._sheets[name] = surf
+            return surf
 
     def _load(self, name: str) -> Any | None:
         meta = SPRITES.get(name)
@@ -76,5 +85,6 @@ class Bank:
         return tint
 
     def clear(self) -> None:
-        self._sheets.clear()
-        self._tinted.clear()
+        with self._lock:
+            self._sheets.clear()
+            self._tinted.clear()

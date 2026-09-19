@@ -123,6 +123,34 @@ class Game:
         """True while a sector boss is on screen (drives music and escorts)."""
         return any(e.alive and e.kind is C.EnemyKind.BOSS for e in self.enemies)
 
+    def wave_progress(self) -> float:
+        """0..1 through this sector's pre-boss wave (1.0 once the boss is out).
+
+        Read-only progress for the loader: half-way through the wave is the last
+        quiet moment before a boss appears, so it is when its art gets warmed.
+        """
+        if self._boss_spawned:
+            return 1.0
+        return min(1.0, self._wave_timer / max(0.001, self._spec().wave_seconds))
+
+    def boss_hp_fraction(self) -> float | None:
+        """The boss's remaining hull as 0..1, or None when no boss is live.
+
+        The App watches this so the *next* sector starts loading while the
+        player is still shooting: when the boss is halved, what replaces it is
+        already being built off-thread.
+        """
+        for e in self.enemies:
+            if e.alive and e.kind is C.EnemyKind.BOSS:
+                return max(0.0, min(1.0, e.hp / max(1.0, float(e.max_hp))))
+        return None
+
+    def boss_sheet(self, index: int | None = None) -> str:
+        """Art/behaviour key of a sector's boss (default: the current one)."""
+        i = (self.level_index if index is None else
+             max(0, min(int(index), C.FINAL_LEVEL_INDEX)))
+        return C.LEVELS[i].boss
+
     def _serve_craft(self) -> None:
         self.player.full_restore()
         self.whip_timer = 0.0          # arcade: the lash dies with the craft

@@ -13,10 +13,15 @@ never spawn/enemy logic.
 ## Phase schedule (`TerrainTrack`)
 
 - `LevelSpec.phases` is a tuple of `ThemePhase(theme, weight)`; weights
-  normalise into a `PHASE_PLAN = 46 s` virtual-scroll timeline (level
-  lengths vary; the last zone covers the boss approach).
-- `TerrainTrack(phases, seed)` builds one `Terrain` per zone (same seed) and
-  advances a virtual clock `t += dt * speed_scale` — pausing freezes the
+  normalise into the sector's own virtual-scroll timeline: `plan_span(level)`
+  is the level's `wave_seconds` (so zones keep trading until the boss arrives,
+  instead of the ground freezing on the last zone for half a long sector).
+  `PHASE_PLAN = 46 s` is the fallback for a spec with no wave length.
+- `TerrainTrack(phases, seed, maps=None, plan=PHASE_PLAN)` builds one `Terrain`
+  per zone (same seed) — or adopts a prebuilt `maps` tuple from the prefetch
+  cache, whose order must match `phases` exactly (the constructor refuses a
+  mismatch). It advances a virtual clock `t += dt * speed_scale` — pausing
+  freezes the
   schedule; the track is recreated in `_enter_ready()`, so sectors always
   replay identically.
 - At each zone boundary the new map **dissolves in over the old one** for
@@ -37,8 +42,7 @@ never spawn/enemy logic.
 - **One `TerrainTrack` per sector**, built in
   `Renderer.set_terrain(level_spec, seed)` (called by the app in
   `_enter_ready()`; title screen clears it and falls back to the starfield).
-  A `Terrain` is one baked map: three parts:
-- Three parts:
+  A `Terrain` is one baked map in three parts:
   1. `base` — static vertical gradient (theme-specific sky/ground tones),
      size 800×`TILE_H` (556 = playfield band height).
   2. `far` layer — distant silhouettes (tree lines, islets, towers, mesas),
@@ -255,11 +259,67 @@ sprite-vs-bright-patch is a renderer concern, not a `THEME_MEAN` one).
    (parametrized over `list(C.StageTheme)`); the bake/coverage tests will
    fail until the new theme's art is baked.
 
+## Sector handoff (`terrain/handoff.py`)
+
+Changing sector used to be a load: the ground disappeared, a new map was built
+on the render thread, and the frame dropped. `SectorHandoff` makes the change
+something the player watches instead: the incoming sector is exposed by an edge
+that travels down the play field, so both sectors are on screen (and scrolling)
+during the sweep. The boundary is a hard clip plus a thin scanline that fades as
+the sweep completes — the same visual grammar the mid-sector zone dissolve uses.
+
+The sweep lasts `HANDOFF_SECONDS` (2.4 s), longer than the SECTOR CLEAR banner,
+so the reveal is never over before the banner leaves. Because a handoff is not a
+`TerrainTrack`, the renderer's background update and draw both route through it
+while it lives, and `update_background` promotes the incoming track when the edge
+reaches the bottom. `dt` and the speed scale are respected: pausing freezes the
+sweep rather than letting it finish behind the pause menu.
+
+## Prefetch (`prefetch.py`)
+
+One daemon worker thread builds what the *next* minutes of play need, off the
+render thread:
+
+- `request_sector(level, seed)` builds that sector's zone maps (the expensive
+  part: an 800×480 procedural composition plus its two parallax layers).
+- `request_art(*names)` warms sprite sheets through the renderer's own
+  `SpriteBank`, so the first frame that needs a boss blits instead of loading.
+- `sector_track(level, seed)` hands over a finished `TerrainTrack`, **or None**.
+
+Three properties make this safe to splice into the frame loop:
+
+1. **It is never required.** Every consumer treats `None` as "load it the old
+   way". A broken map, a disabled prefetcher, or a thread that never got
+   scheduled all degrade to the pre-optimisation behaviour.
+2. **A take is a transfer, not a copy.** Maps carry mutable scroll offsets, so
+   handing maps to a track removes them from the cache; two live tracks must
+   never drag the same parallax. The failed take re-queues the sector.
+3. **Failures are swallowed.** An exception in the worker is a missed
+   optimisation; the worker keeps going.
+
+The cache is bounded (`MAX_SECTORS`, oldest evicted) and `Bank.sheet()` holds a
+lock only while *loading* a sheet, which is why prefetching sheets helps without
+putting contention on the draw path.
+
+Checkpoints live in the app, not in the prefetcher: at the half of a sector's
+wave the sector's own boss art is queued; at half hull on that boss the next
+sector and its boss are queued. `TerrainTrack` schedules zones over
+`plan_span(level)` = `level.wave_seconds`, so a longer sector keeps changing
+ground instead of sitting on the last zone for half its length.
+
+Measured on this machine (SDL dummy video, so no GPU blit): a steady sector
+updates and draws in ~11.6 ms median per frame, mid-sweep with two live sectors
+~13.0 ms (+12 %) for the 2.4 s of the transition.
+
 ## Renderer integration
 
 - `Renderer.set_terrain(level_spec, seed)` / `clear_terrain()` — the
   renderer builds the `TerrainTrack` from `level.phases` (single zone when
-  empty).
+  empty), or adopts a prefetched one when `set_prefetch()` was given a
+  prefetcher that has the sector ready.
+- `Renderer.handoff_terrain(level_spec, seed)` starts a `SectorHandoff` from the
+  current ground into the new sector, and reports whether there was ground to
+  hand off from.
 - `Renderer.update_background(dt, speed_scale)` routes to terrain when set,
   otherwise to the starfield. Speed scales: PLAYING 1.0, TITLE/transitions
   0.5, PAUSED 0.0 (see `App._update`).

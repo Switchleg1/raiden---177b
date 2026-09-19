@@ -63,16 +63,18 @@ Every package below keeps one class (or one topic) per file; its
 | `entities/bosskit.py` | Executes those habits: `move()` handles the scripted entrance (descend from above, or sail in from off the side) then one of nine path strategies (strafe, pendulum, orbit, hunt, lunge, eight, hop, edge, stalker), and `attack()` fires one primitive per call — aimed, fan, ring, spiral, pinwheel, wall, mine, shell, spray, beam. A boss is **silent until it lands**, and an enraged boss fires faster and adds a bullet to every volley. |
 | `entities/` | `player.py`, `enemy.py` (per-kind movement+patterns), `bullet.py`, `whip.py` (energy-lash point chain). Enemy `update(dt, player_x, player_y, fire_cb, bullet_speed, rng)`; `fire_cb(x, y, vx, vy, shell=0, fuse=0.0)` — a non-zero `shell` is a cluster shell. Specialist kinds: **bomber** lobs fusing shells, **splitter** weaves down (`split_into`/`split_count` on its spec), **rammer** tracks `lock_x` for `RAMMER_LOCK_TIME` then charges the frozen column and never fires, **shard** is the diverging corpse child. |
 | `items.py`    | Falling `Item`, weighted `roll_item`, seeded RNG.                   |
-| `game.py`     | `Game`: spawn director, **boss escort waves** (`_update_escorts`, armed by `_spawn_boss`, capped by `C.escort_cap`), firing, whip timer/contact damage, collisions, item apply/drops, bombs, lives, level flow; routes each level's boss art (`LevelSpec.boss` → `Enemy.sheet`); `_burst_shells()` detonates bomber shells when their fuse expires and `_split_enemy()` spawns splitter children (children cannot chain). Emits event dicts (`SIG_BOSS` on spawn). |
+| `game.py`     | `Game`: spawn director, **boss escort waves** (`_update_escorts`, armed by `_spawn_boss`, capped by `C.escort_cap`), firing, whip timer/contact damage, collisions, item apply/drops, bombs, lives, level flow; routes each level's boss art (`LevelSpec.boss` → `Enemy.sheet`); `_burst_shells()` detonates bomber shells when their fuse expires and `_split_enemy()` spawns splitter children (children cannot chain). Emits event dicts (`SIG_BOSS` on spawn). Three read-only hooks let the *view* schedule its own loading work: `wave_progress()` (0..1 across the pre-boss wave), `boss_hp_fraction()` (0..1 while the boss lives) and `boss_sheet(index)`. The model decides nothing about assets — it only reports where in the sector the run is. |
 | `state/`    | `game_state.py` state enum (BOOT/TITLE/READY/PLAYING/LIFE_LOST/LEVEL_COMPLETE/GAME_OVER/VICTORY/PAUSED/SETTINGS/HOW_TO_PLAY/**NAME_ENTRY**/**HIGH_SCORES**/SHUTDOWN), `transitions.py` the legal-movement table, `machine.py` the enforcer. PLAYING→VICTORY is legal: the last boss ends the run where it died. |
 | `input/`    | `viewport.py` letterbox math, `ship_axis.py` smoothed axes, `controller.py` `InputController` (keys+mouse → axes, fire-hold, edge-action set), `actions.py` action ids. |
 | `audio_effects.py` | The SFX vocabulary as data: every effect name, `EFFECT_NAMES`, and `MIN_GAP` (how close two repeats of the same effect may be). |
 | `audio.py`    | Procedural SFX + WAV bytes (reused Breakout synth engine): renders the names from `audio_effects`, gates them by `MIN_GAP`, and owns the music playlists/channels. |
-| `music_content.py` | The music as data: the 31 level cues, 19 menu cues and 6 boss cues (`THEMES`/`MENU_THEMES`/`BOSS_THEMES`), the scale table and the bar layouts. A theme is a root note, a bpm, a lead wave and an eight-bar progression. |
-| `music.py`    | Threaded procedural synthwave playlist builder that renders `music_content` into looping 16-bit PCM (boss cues set `drive=True`: +50 bpm, four-on-the-floor, 16th hats, tritone alarm).    |
-| `terrain/`  | Per-sector scrolling terrain maps: `terrain_map.py` loads baked PNGs; `procedural.py` vector painters; `tilekit.py` loads `data/textures/tiles/` (seamless materials, props, splats + manifest, prepared by `scripts/bake_tiles.py`); `compose.py` seeded, y-periodic tileset compositions; `theme_table.py` per-theme ground data (backdrop material pair + target mean luminance); `track.py` phase schedule (see terrain.md). |
+| `music_content.py` | The music as data: the 33 level cues, 20 menu cues and 6 boss cues (`THEMES`/`MENU_THEMES`/`BOSS_THEMES`), the scale table, the bar layouts, the melody tables — `MOTIFS` (the four-bar phrases), `MOTIF_SETS` (a cue names one family: `base`, `hero`, `lyric`), `CADENCE`, `BASS`, `BASS_LINES` (eight eighth-note `(tone, octave)` slots per bar, tones relative to the sounding chord, 3 = chromatic approach) — and the rhythm tables: `KITS` (drum-voice parameter presets), `GROOVES` (16-step patterns with swing, ghost notes and fills) plus their tempo-selection tables. A theme is a root note, a bpm, a lead wave and an eight-bar progression, optionally tagged `scale`/`groove`/`kit`/`motifs`/`bass`/`drums`/`drive`/`layout`. |
+| `music.py`    | Procedural playlist builder that renders `music_content` into looping 16-bit PCM on a background thread: `_Mix` (oscillator voices, drum playback, soft-clipping master), bar arrangement, groove/kit resolution. Boss cues set `drive=True`: a denser bed (16th octave ghosts under the bass), tritone alarm stabs and the crash on bar 1. See [music.md](music.md). |
+| `drum_kit.py` | Procedural rompler behind the drums: renders every voice once per kit (pitch-glide kick, filtered snare + ghosts, 6-partial inharmonic hats, 8-partial crash/ride with `partial_fall` and shimmer, 8 tuned toms, rim, clap), caches it by `(name, rate)`, then `play()` adds one hit into the mix. Unknown voice names are a no-op so a bad table entry cannot kill the audio thread. |
+| `terrain/`  | Per-sector scrolling terrain maps: `terrain_map.py` loads baked PNGs; `procedural.py` vector painters; `tilekit.py` loads `data/textures/tiles/` (seamless materials, props, splats + manifest, prepared by `scripts/bake_tiles.py`); `compose.py` seeded, y-periodic tileset compositions; `theme_table.py` per-theme ground data (backdrop material pair + target mean luminance); `track.py` phase schedule (its span is the sector's wave length, so zones keep trading across a long sector); `handoff.py` the sector-to-sector reveal — both sectors scroll while an edge travels down the field, then the incoming track is promoted (see terrain.md). |
 | `sprites/`  | `sheet_table.py` the `SPRITES` records (a sheet may name a `raw` source; several sheets may share one raw), `manifest.py` the path/grid helpers over that table (`sheet_path`, `cols_for`, `tile_count`, `raw_stem`), `rawkit.py` keyed-source → animated cell painter (anchors: glow/plume/spin/flap/bob, incl. auto-detected power cores for bosses) plus `build_player_sheet()` for the hero's 10-pose bank, **`fxkit.py` premultiplied-float tile compositor** (`disc`/`capsule`/`box`/`cone`/`tri`/`annulus`/`bloom`/`window`) used for every bullet, bead and explosion because pygame draws do not composite alpha, `painters.py` procedural painters + bake, `bank.py` lazy loader, `anim.py` playheads + hit-flash silhouettes (see sprites.md). |
 | `ui/`       | `renderer.py` canvas painting (terrain/starfield, sprite blits w/ vector fallback, HUD, menus), `effects.py`/`particle.py`/`explosion.py`, `button.py`/`menu.py` widgets, `fonts.py` cache. |
+| `prefetch.py` | One daemon worker thread that builds tomorrow's work today: `request_sector(level, seed)` composes a sector's terrain maps, `request_art(*names)` warms sprite sheets through the renderer's bank, `sector_track(level, seed)` hands over a finished track **or None**. Never required for correctness — every consumer falls back to loading synchronously — and never shares a map with a live track (maps own mutable scroll state). Bounded cache, swallowed failures, `pending()` for honest waiting. |
 | `app/`      | `app.py` owns pygame lifecycle, fixed 120 Hz substeps, transitions, event→fx/audio mapping, menus, run stats; `settings_rows.py` settings-menu row table. |
 | `persistence/` | Settings, lifetime statistics and the **leaderboard**, one module per kind: `paths.py` (where files live), `json_store.py` (atomic write + quarantine), `stats.py`/`stats_store.py`, `score_entry.py` + `scores_table.py` (rank rules) + `scores_store.py`, `settings_store.py`. Public surface is re-exported, so callers still say `persistence.load_scores`. Files live under `C.APP_AUTHOR/C.APP_SLUG`; corrupt files are quarantined, never trusted; renamed fields keep reading their old key (`stats_store.LEGACY_KEYS`); `C.TEST_DATA_DIR` seam redirects in tests. |
 
@@ -94,11 +96,12 @@ src/
                anim.py · bank.py · painters.py
   state/       game_state.py · transitions.py · errors.py · machine.py
   terrain/     common.py · layer.py · procedural.py · tilekit.py ·
-               theme_table.py · compose.py · terrain_map.py · track.py
+               theme_table.py · compose.py · terrain_map.py · track.py ·
+               handoff.py
   ui/          fonts.py · constants.py · button.py · menu.py · particle.py ·
                explosion.py · effects.py · renderer.py
   audio.py · audio_effects.py · game.py · items.py · music.py ·
-  music_content.py · physics.py
+  music_content.py · drum_kit.py · prefetch.py · physics.py
 ```
 
 Table modules (`config/*`, `sheet_table.py`, `music_content.py`,
@@ -133,6 +136,26 @@ same public names as before the split.
 
 Signals `life_lost/level_clear/game_over` return True from `_on_signal` and
 break the substep loop; the app then starts the appropriate transition.
+
+## Background work (the one thread besides the frame loop)
+
+Two subsystems build work off the render thread, and both follow the same three
+rules:
+
+- **The worker only builds data.** `music.py` renders PCM buffers, `prefetch.py`
+  composes terrain surfaces and loads sheets. Neither touches the display, the
+  event queue, or the model.
+- **The consumer never depends on it.** A track that has not rendered is skipped;
+  a sector that has not been built is loaded synchronously instead. Prefetching
+  is an optimisation with a correctness-free failure mode.
+- **Publication is one item at a time**, under the lock that guards the cache,
+  so the frame loop can read at any moment (`AudioManager` publishes each cue as
+  it finishes; `SpriteBank.sheet()` locks only while a sheet is *loading*, so the
+  draw path stays contention-free).
+
+Checkpoints are the app's business: at half of a sector's wave it queues that
+sector's boss art, and at half hull on that boss it queues the next sector plus
+its boss (`App._watch_load_ahead`).
 
 ## Key rules (learned the hard way)
 

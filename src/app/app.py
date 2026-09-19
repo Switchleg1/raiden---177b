@@ -91,6 +91,11 @@ class App:
         self.window: Any = None
         self.canvas: Any = None
         self.renderer: Any = None
+        # Ahead-of-time loader: next sector's terrain and boss art are built on
+        # its thread so the frame a sector ends has nothing left to load.
+        self.prefetch: Any = None
+        self._warmed_wave_sector = -1     # sector whose pre-boss art was queued
+        self._warmed_next_sector = -1     # sector whose handoff was queued
         self.viewport = Viewport(0, 0, C.LOGICAL_W, C.LOGICAL_H)
         self._window_size = C.window_size(self.settings.window_scale)
         self._confirm_text = ""
@@ -111,6 +116,9 @@ class App:
         self._create_window()
         self.canvas = pygame.Surface((C.LOGICAL_W, C.LOGICAL_H))
         self.renderer = ui.Renderer(self.canvas, self.settings)
+        from prefetch import Prefetch
+        self.prefetch = Prefetch(bank=self.renderer.bank())
+        self.renderer.set_prefetch(self.prefetch)
         self.effects.configure(shake=self.settings.screen_shake,
                                reduced_flashing=self.settings.reduced_flashing)
         from audio import AudioManager
@@ -504,7 +512,14 @@ class App:
         self._music_want = BOSS_KEY
         self.audio.play_boss_music()
 
-    def _enter_ready(self) -> None:
+    def _enter_ready(self, seamless: bool = False) -> None:
+        """Show READY for the sector the player is now in.
+
+        ``seamless`` is the sector-to-sector path: the incoming ground is
+        revealed over the ground the player already flies above instead of being
+        swapped in, which is only possible because it was prefetched during the
+        boss fight.
+        """
         if self.sm.state != State.READY:
             self.sm.to(State.READY)
         self._menu = None
@@ -515,8 +530,52 @@ class App:
         self._bomb_pending = False
         if self.renderer is not None:
             # every sector scrolls its own phase-scheduled terrain
-            self.renderer.set_terrain(C.LEVELS[self.game.level_index],
-                                      self.game.level_index + 1)
+            level = C.LEVELS[self.game.level_index]
+            seed = self.game.level_index + 1
+            if not (seamless and
+                    self.renderer.handoff_terrain(level, seed)):
+                self.renderer.set_terrain(level, seed)
+        self._warm_ahead()
+
+    def _warm_ahead(self) -> None:
+        """Queue what the end of this sector needs. Idempotent and off-thread.
+
+        The sector's own boss art and the next sector's terrain plus boss art are
+        all wanted before they are on screen. Prefetching is never required: if
+        the work has not finished when the game asks for it, the caller loads it
+        the old way.
+        """
+        if self.prefetch is None:
+            return
+        idx = self.game.level_index
+        self.prefetch.request_art(self.game.boss_sheet(idx))
+        if idx >= C.FINAL_LEVEL_INDEX:
+            return
+        nxt = idx + 1
+        self.prefetch.request_sector(C.LEVELS[nxt], nxt + 1)
+        self.prefetch.request_art(self.game.boss_sheet(nxt))
+
+    def _watch_load_ahead(self) -> None:
+        """The two checkpoints inside a sector, watching the model.
+
+        Half-way through the pre-boss wave this sector's boss art is queued -
+        loading a sheet on the frame the boss appears is the stutter this
+        exists to remove. Once the boss is halved, the next sector is queued,
+        so the sector handoff has real ground to reveal rather than a fresh
+        load; the boss decides the timing because that is when the player has
+        the least left to do about it.
+        """
+        if self.prefetch is None:
+            return
+        idx = self.game.level_index
+        if self._warmed_wave_sector != idx and self.game.wave_progress() >= 0.5:
+            self._warmed_wave_sector = idx
+            self.prefetch.request_art(self.game.boss_sheet(idx))
+        frac = self.game.boss_hp_fraction()
+        if (frac is not None and frac <= 0.5
+                and self._warmed_next_sector != idx):
+            self._warmed_next_sector = idx
+            self._warm_ahead()
 
     def _launch_craft(self) -> None:
         if self.sm.state == State.READY:
@@ -785,7 +844,8 @@ class App:
             self.game.advance_level()
             self._set_music(self.game.level_index)
             if self.sm.can(State.READY):
-                self._enter_ready()
+                # Seamless: the new sector's ground sweeps in over the old one.
+                self._enter_ready(seamless=True)
         elif after in ("game_over", "victory"):
             # Banner finished rolling: ask for initials if the run placed,
             # otherwise the results menu is already up.
@@ -977,6 +1037,7 @@ class App:
                 self._launch_craft()
         elif st == State.PLAYING:
             self._play_time += dt
+            self._watch_load_ahead()
             self._apply_craft_input(dt)
             self._acc += dt
             steps = 0
@@ -1144,6 +1205,8 @@ class App:
     # ------------------------------------------------------------- shutdown
     def shutdown(self) -> None:
         self.running = False
+        if self.prefetch is not None:
+            self.prefetch.shutdown()
         try:
             Pers.save_settings(self.settings)
         except Exception:

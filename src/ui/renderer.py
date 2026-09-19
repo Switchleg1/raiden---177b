@@ -37,6 +37,8 @@ class Renderer:
         self._stars: list[tuple[float, float, float, int]] = []
         self._seed_stars()
         self._terrain: Any = None        # terrain.TerrainTrack when loaded
+        self._handoff: Any = None        # terrain.SectorHandoff mid-transition
+        self._prefetch: Any = None       # prefetch.Prefetch (background loader)
         self._bank: Any = None           # sprites.Bank (lazy; baked sheets)
         self._wpn_level = 1              # picks vulcan vs plasma bullet art
         self._p_at = 0.0                 # monotonic clock for craft anim
@@ -53,17 +55,64 @@ class Renderer:
         self.settings = settings
 
     # ---- terrain (sector backdrop; replaces the starfield in-game) --------
-    def set_terrain(self, level: Any, seed: int = 1) -> None:
+    def set_terrain(self, level: Any, seed: int = 1,
+                    track: Any = None) -> None:
         """Load one sector's terrain: phase zones when the level defines
-        them (dissolving backdrop as the sector scrolls), else one map."""
+        them (dissolving backdrop as the sector scrolls), else one map.
+
+        ``track`` - or a finished prefetch - supplies an already-built track,
+        which turns "start sector N" into a pointer swap instead of a load.
+        """
+        if track is None and self._prefetch is not None:
+            track = self._prefetch.sector_track(level, seed)
+        self._terrain = track or self._build_track(level, seed)
+        self._handoff = None
+
+    def handoff_terrain(self, level: Any, seed: int = 1,
+                        dur: float | None = None, track: Any = None) -> bool:
+        """Reveal the next sector's ground over the current one: no reload, no
+        cut, and the outgoing ground keeps scrolling while it leaves.
+
+        Returns False when there is nothing to hand off from (title screen, the
+        very first sector); the caller then uses :meth:`set_terrain`.
+        """
+        if self._terrain is None and self._handoff is None:
+            return False
+        if track is None and self._prefetch is not None:
+            track = self._prefetch.sector_track(level, seed)
+        from terrain.handoff import SectorHandoff
+
+        incoming = track or self._build_track(level, seed)
+        args: dict[str, Any] = {} if dur is None else {"dur": dur}
+        self._handoff = SectorHandoff(self._terrain, incoming, **args)
+        self._terrain = None
+        return True
+
+    def terrain_handoff_active(self) -> bool:
+        return self._handoff is not None
+
+    def set_prefetch(self, prefetch: Any) -> None:
+        """Hand over the background loader (the App owns the thread)."""
+        self._prefetch = prefetch
+
+    def bank(self) -> Any:
+        """The sprite bank, so the prefetch thread warms the sheets this
+        renderer will actually ask for instead of a copy nobody reads."""
+        return self._bank_of()
+
+    @staticmethod
+    def _build_track(level: Any, seed: int) -> Any:
+        """Build a sector track from scratch (the synchronous fallback)."""
         import terrain
         phases = getattr(level, "phases", ())
         if not phases:
             phases = (C.ThemePhase(getattr(level, "theme", level), 1.0),)
-        self._terrain = terrain.TerrainTrack(phases, seed)
+        return terrain.TerrainTrack(phases, seed,
+                              plan=terrain.plan_span(level))
 
     def clear_terrain(self) -> None:
         self._terrain = None
+        self._handoff = None
 
     # ---- sprite bank (baked sheets; vector art is the fallback) ----------
     def _bank_of(self) -> Any:
@@ -91,6 +140,12 @@ class Renderer:
     def update_background(self, dt: float, speed_scale: float = 1.0) -> None:
         self._p_at += dt
         self._scroll += dt * speed_scale
+        if self._handoff is not None:
+            self._handoff.update(dt, speed_scale)
+            if self._handoff.done:
+                self._terrain = self._handoff.new
+                self._handoff = None
+            return
         if self._terrain is not None:
             self._terrain.update(dt, speed_scale)
             return
@@ -199,7 +254,10 @@ class Renderer:
         # play area
         rect = (C.FIELD_LEFT, C.FIELD_TOP,
                 C.FIELD_RIGHT - C.FIELD_LEFT, C.FIELD_BOTTOM - C.FIELD_TOP)
-        if self._terrain is not None:
+        if self._handoff is not None:
+            self._handoff.draw(self.canvas)
+            pygame.draw.rect(self.canvas, p.field_bg, rect, 1)
+        elif self._terrain is not None:
             self._terrain.draw(self.canvas)
             pygame.draw.rect(self.canvas, p.field_bg, rect, 1)
         else:

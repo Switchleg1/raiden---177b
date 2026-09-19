@@ -80,14 +80,22 @@ def test_drive_flag_makes_the_rhythm_bed_denser():
 def test_boss_intro_bar_is_an_alarm():
     theme = music.BOSS_THEMES[1]
     spb = 60.0 / theme["bpm"]
+    groove = music.GROOVES[music.GROOVE_BOSS]
 
     def count(drive: bool) -> int:
         rec = Recorder()
         music._add_bar(rec, "intro", 0, theme["root"], theme["prog"],
-                       theme["lead"], spb, 0.0, drive=drive)
+                       theme["lead"], spb, 0.0, groove=groove, drive=drive)
         return rec.events
 
-    assert count(True) > count(False)
+    plain, alarmed = count(False), count(True)
+    assert alarmed > plain, f"alarm roll added nothing to {plain} events"
+    # The alarm *is* the roll: a crescendo of snares across the whole bar.
+    roll = groove.get("roll") or ()
+    assert len(roll) >= 8, "boss groove needs a multi-hit snare roll"
+    velocities = [vel for _step, vel in roll]
+    assert velocities == sorted(velocities), "the roll must crescendo"
+    assert max(velocities) >= 0.9, "the roll must arrive at full strength"
 
 
 @pytest.mark.parametrize("index", [0, 3])

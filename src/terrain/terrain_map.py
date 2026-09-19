@@ -72,10 +72,20 @@ class Terrain:
         for layer in self.layers:
             layer.update(dt, scale)
 
-    def draw(self, canvas: Any) -> None:
+    def draw(self, canvas: Any, clip: Any = None) -> None:
+        """Paint the map into the field band, or into a sub-band of it.
+
+        ``clip`` lets the sector handoff draw only the strip above (or below)
+        the reveal edge without the map having to know about handoffs.
+        """
         import pygame
+        band = pygame.Rect(0, C.HUD_H, C.LOGICAL_W, TILE_H)
+        if clip is not None:
+            band = band.clip(clip)
+            if band.width <= 0 or band.height <= 0:
+                return
         old = canvas.get_clip()
-        canvas.set_clip(pygame.Rect(0, C.HUD_H, C.LOGICAL_W, TILE_H))
+        canvas.set_clip(band)
         canvas.blit(self.base, (0, C.HUD_H))
         for layer in self.layers:
             layer.draw(canvas)

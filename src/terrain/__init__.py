@@ -9,14 +9,17 @@ vertically and scroll at two parallax speeds. Imports pygame lazily.
 from __future__ import annotations
 
 from .common import FAR_SPEED, NEAR_SPEED, SS, TILE_H
+from .handoff import HANDOFF_SECONDS, SectorHandoff
 from .layer import Layer
 from .procedural import build_procedural
 from .terrain_map import Terrain, bake, baked_paths
-from .track import PHASE_FADE, PHASE_PLAN, TerrainTrack
+from .track import PHASE_FADE, PHASE_PLAN, TerrainTrack, plan_span
 
 __all__ = [
     "FAR_SPEED",
+    "HANDOFF_SECONDS",
     "Layer",
+    "SectorHandoff",
     "NEAR_SPEED",
     "PHASE_FADE",
     "PHASE_PLAN",
@@ -26,5 +29,6 @@ __all__ = [
     "TerrainTrack",
     "bake",
     "baked_paths",
+    "plan_span",
     "build_procedural",
 ]
