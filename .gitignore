@@ -179,3 +179,8 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+
+# --- Raiden Shadow ---------------------------------------------------------
+#  Dev-review image dumps written by scripts/preview_*.py and the bake scripts.
+#  Regenerate on demand; never commit them, never leave them in the repo root.
+screenshots/
