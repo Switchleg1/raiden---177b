@@ -9,8 +9,9 @@ class Player:
     """The player's craft: 2D position, power levels, and effect timers."""
 
     __slots__ = ("x", "y", "vx", "vy", "r", "half", "alive",
-                 "weapon_level", "missile_level", "bomb_stock",
-                 "fire_timer", "missile_timer", "invuln", "shield")
+                 "weapon_level", "missile_level", "moon_level", "bomb_stock",
+                 "fire_timer", "missile_timer", "moon_timer", "invuln",
+                 "shield")
 
     def __init__(self) -> None:
         self.half = C.PLAYER_HALF
@@ -18,12 +19,14 @@ class Player:
         self.reset_position()
         self.weapon_level = C.WEAPON_BASE_LEVEL
         self.missile_level = C.MISSILE_BASE_LEVEL
+        self.moon_level = C.MOON_BASE_LEVEL
         self.bomb_stock = C.BOMB_START
         self.alive = True
         self.invuln = 0.0
         self.shield = 0.0
         self.fire_timer = 0.0
         self.missile_timer = 0.0
+        self.moon_timer = 0.0
 
     def reset_position(self) -> None:
         self.x = (C.FIELD_LEFT + C.FIELD_RIGHT) / 2.0
@@ -36,11 +39,13 @@ class Player:
         self.reset_position()
         self.weapon_level = C.WEAPON_BASE_LEVEL
         self.missile_level = C.MISSILE_BASE_LEVEL
+        self.moon_level = C.MOON_BASE_LEVEL
         self.alive = True
         self.invuln = C.PLAYER_INVULN
         self.shield = 0.0
         self.fire_timer = 0.0
         self.missile_timer = 0.0
+        self.moon_timer = 0.0
 
     @property
     def protected(self) -> bool:
@@ -60,3 +65,5 @@ class Player:
             self.fire_timer = max(0.0, self.fire_timer - dt)
         if self.missile_timer > 0.0:
             self.missile_timer = max(0.0, self.missile_timer - dt)
+        if self.moon_timer > 0.0:
+            self.moon_timer = max(0.0, self.moon_timer - dt)

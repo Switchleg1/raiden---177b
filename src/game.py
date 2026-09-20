@@ -315,6 +315,28 @@ class Game:
                 friendly=True, missile=True))
         events.append({"type": "missile"})
 
+    def _fire_moons(self, events: list[dict[str, Any]]) -> None:
+        """Half-moon blades: a fan of piercing shots.
+
+        Each blade is weak on purpose - one damage, slower than any shell - and
+        each one refuses to stop. The point of the weapon is the column it cuts
+        through, so the fan is wide and the blades leave from the wingtips with
+        the missiles' rhythm rather than the vulcan's.
+        """
+        pl = self.player
+        n = C.MOON_STREAMS[max(0, min(C.MOON_MAX_LEVEL, pl.moon_level))]
+        if n <= 0:
+            return
+        for i in range(n):
+            if len(self.bullets) >= C.MAX_BULLETS:
+                break
+            k = i - (n - 1) / 2.0          # centre the fan on the craft
+            vx, vy = P.from_deg(k * C.MOON_FAN_DEG, C.MOON_SPEED)
+            self.bullets.append(Bullet(
+                pl.x + k * C.MOON_SPREAD, pl.y - pl.half * 0.6, vx, vy,
+                C.MOON_R, C.MOON_DMG, friendly=True, pierce=True))
+        events.append({"type": "moon"})
+
     # ------------------------------------------------------------- apply items
     def _apply_item(self, item: Item, events: list[dict[str, Any]]) -> None:
         kind = item.kind
@@ -338,6 +360,10 @@ class Game:
             pl.weapon_level = min(C.WEAPON_MAX_LEVEL, pl.weapon_level + 1)
         elif kind is C.ItemKind.MISSILE:
             pl.missile_level = min(C.MISSILE_MAX_LEVEL, pl.missile_level + 1)
+        elif kind is C.ItemKind.MOON:
+            # Its own track: the crescents level up without touching vulcan
+            # power or missile level, so a run can specialise in the fan.
+            pl.moon_level = min(C.MOON_MAX_LEVEL, pl.moon_level + 1)
         elif kind is C.ItemKind.BOMB:
             pl.bomb_stock = min(C.BOMB_MAX, pl.bomb_stock + 1)
         elif kind is C.ItemKind.SHIELD:
@@ -439,6 +465,12 @@ class Game:
         if pl.missile_level > 0 and pl.missile_timer <= 0.0:
             self._fire_missiles(events)
             pl.missile_timer = C.MISSILE_INTERVAL
+        # Blades are automatic like missiles, and outlive the vulcan being
+        # holstered for a whip: a piercing track should not vanish because a
+        # timed power is running.
+        if pl.moon_level > 0 and pl.moon_timer <= 0.0:
+            self._fire_moons(events)
+            pl.moon_timer = C.MOON_INTERVAL
         if self.whip_timer > 0.0:
             self.whip_clock += dt
             self.whip_timer = max(0.0, self.whip_timer - dt)
@@ -549,10 +581,19 @@ class Game:
             for e in self.enemies:
                 if not e.alive:
                     continue
-                if P.circle_hit(b.x, b.y, b.r, e.x, e.y, e.r):
+                if b.pierce and b.has_cut(e):
+                    continue          # this hull is already opened
+                if not P.circle_hit(b.x, b.y, b.r, e.x, e.y, e.r):
+                    continue
+                if b.pierce:
+                    # A blade is not spent by what it goes through: it remembers
+                    # the cut and keeps flying, so one volley can clear a column.
+                    b.note_cut(e)
+                else:
                     b.alive = False
-                    if e.hurt(b.dmg):
-                        self._on_enemy_killed(e, events)
+                if e.hurt(b.dmg):
+                    self._on_enemy_killed(e, events)
+                if not b.pierce:
                     break
         if self._cleared:
             return

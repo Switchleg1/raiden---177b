@@ -10,6 +10,7 @@ The other rule is that an effect must not lie: the bubble is presentation, so
 rendering it may not consume the run's seeded RNG or disturb a bullet.
 """
 
+import dataclasses
 import os
 
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
@@ -37,10 +38,10 @@ def _display():
     yield
 
 
-def _scene(shield: float, bullets=()):
+def _scene(shield: float, bullets=(), settings: C.Settings | None = None):
     """A canvas with the player drawn at a fixed pose, shield as given."""
     canvas = pygame.Surface((C.LOGICAL_W, C.LOGICAL_H))
-    rend = ui.Renderer(canvas, C.Settings())
+    rend = ui.Renderer(canvas, settings or C.Settings())
     game = Game()
     game.new_game()
     game.start_level(0)
@@ -71,6 +72,32 @@ def _hull_mask(rend, pl):
 def _pixels(surf: pygame.Surface) -> bytes:
     tobytes = getattr(pygame.image, "tobytes", None) or pygame.image.tostring
     return tobytes(surf, "RGBA")
+
+
+def _light(canvas: pygame.Surface, bare: pygame.Surface) -> float:
+    """How much light the shield adds to a bare scene (mean per-channel delta).
+
+    Counting touched pixels would not work: a 28 % bubble repaints almost as
+    many pixels as a solid one. Summing how far each pixel moved measures the
+    thing that actually changes during the lapse, which is opacity.
+    """
+    pa, pb = _pixels(canvas), _pixels(bare)
+    total = 0
+    for i in range(0, min(len(pa), len(pb)), 4):
+        total += abs(pa[i] - pb[i]) + abs(pa[i + 1] - pb[i + 1])
+        total += abs(pa[i + 2] - pb[i + 2])
+    return total / (3.0 * C.LOGICAL_W * C.LOGICAL_H)
+
+
+def _glow(shield: float, settings: C.Settings | None = None) -> float:
+    """Bubble brightness with ``shield`` seconds left, against no bubble at all.
+
+    The renderer's playhead is per-instance and starts at zero, so every scene
+    here draws the same spin frame: the only variable is opacity.
+    """
+    lit, _r, _g = _scene(shield, settings=settings)
+    bare, _r2, _g2 = _scene(0.0, settings=settings)
+    return _light(lit, bare)
 
 
 def _diff(a: pygame.Surface, b: pygame.Surface):
@@ -224,3 +251,98 @@ def test_far_bullets_leave_the_rim_alone():
     calm, _r, _g = _scene(C.SHIELD_TIME - 3.0)
     other, _r2, _g2 = _scene(C.SHIELD_TIME - 3.0, far)
     assert _diff(calm, other) == []
+
+
+# --------------------------------------------------- the lapse: flash, then fade
+
+def test_the_shield_is_solid_until_the_warning_window():
+    """Nothing flickers while the shield has time left - a thing that always
+    blinks is a thing that is never noticed blinking."""
+    solid = _glow(C.SHIELD_TIME - 1.0)
+    assert solid > 0.1, "no bubble to measure"
+    for remaining in (C.SHIELD_WARN_TIME + 0.05, C.SHIELD_WARN_TIME + 1.4,
+                      C.SHIELD_WARN_TIME + 0.5):
+        assert _glow(remaining) == pytest.approx(solid), \
+            f"the bubble flickered with {remaining:.2f}s still to run"
+
+
+def test_the_shield_flashes_once_it_is_warning():
+    """Inside the window the bubble alternates between full and dim. Sampled
+    across two whole cycles so a rule that only fires once cannot pass."""
+    solid = _glow(C.SHIELD_WARN_TIME + 0.5)
+    samples = [round(C.SHIELD_WARN_TIME - 0.08 - i * 0.167, 3)
+               for i in range(24)]
+    levels = {_glow(r) for r in samples}
+    bright = max(levels)
+    dark = min(levels)
+    assert len(levels) >= 2, "the bubble never dimmed inside the window"
+    assert bright == pytest.approx(solid, abs=1e-6), "the flash lost its top end"
+    assert dark < solid * 0.5, f"dim level {dark:.4f} is not a flash"
+    # The dark half is dimmed, not hidden: it still says "you have a shield".
+    assert dark > 0.005, "the bubble blinked out entirely"
+    assert dark == pytest.approx(solid * C.SHIELD_FLASH_DIM, rel=0.25), \
+        "the dark half is not the configured dim level"
+
+
+def test_the_flash_is_periodic_not_random():
+    """A strobe is a clock, not a flicker. Sampled every 50 ms across two
+    seconds (well above Nyquist for a 3 Hz flash), the bubble has to change
+    state about twelve times - not once, not every sample."""
+    solid = _glow(C.SHIELD_WARN_TIME + 0.5)
+    states = []
+    t = C.SHIELD_WARN_TIME - 0.02
+    while t > C.SHIELD_WARN_TIME - 2.0:
+        states.append(_glow(t) > solid * 0.7)
+        t -= 0.05
+    assert any(states) and not all(states), "no flash in two whole seconds"
+    flips = sum(1 for a, b in zip(states, states[1:], strict=False)
+            if a != b)
+    expected = 2.0 * C.SHIELD_FLASH_HZ * 1.98        # half-cycles in the span
+    assert expected * 0.7 <= flips <= expected * 1.35, \
+        f"{flips} transitions where {expected:.0f} were due (not a strobe)"
+
+
+def test_the_shield_fades_rather_than_stopping():
+    """Over the last second it sinks to nothing. Monotonic, and gone at zero."""
+    fade = C.SHIELD_FADE_TIME
+    levels = [_glow(fade * (1.0 - i / 8.0)) for i in range(9)]
+    assert all(levels[i] >= levels[i + 1] - 1e-9 for i in range(len(levels) - 1)), \
+        f"the fade brightened on the way out: {levels}"
+    assert levels[0] > levels[-1], "the fade did not fade"
+    assert levels[-1] < levels[0] * 0.2, "it expired without leaving"
+    assert _glow(0.0) == pytest.approx(0.0), "a dead shield still draws"
+
+
+def test_the_lapse_rule_is_presentation_only():
+    """Flashing is not a mechanic: the model still owns the countdown, and the
+    bubble must not spend the run's numbers or shorten anything."""
+    game = Game()
+    game.new_game()
+    game.start_level(0)
+    game.player.shield = C.SHIELD_WARN_TIME - 0.5   # mid-flash
+    canvas = pygame.Surface((C.LOGICAL_W, C.LOGICAL_H))
+    rend = ui.Renderer(canvas, C.Settings())
+    before = game.rng.getstate()
+    tick = 1.0 / 120.0
+    elapsed = 0.0
+    while game.player.shield > 0.0:
+        rend._draw_player(game.player, [])
+        game.player.tick_timers(tick)
+        elapsed += tick
+    assert game.rng.getstate() == before
+    assert C.SHIELD_WARN_TIME - 0.6 < elapsed < C.SHIELD_WARN_TIME - 0.4, \
+        f"shield lasted {elapsed:.3f}s, not the {C.SHIELD_WARN_TIME - 0.5}s asked"
+
+
+def test_the_lapse_survives_the_high_contrast_pen():
+    """The pen-drawn fallback ring follows the same rule as the baked bubble,
+    or the accessibility mode hides the one warning the effect exists for."""
+    hc = dataclasses.replace(C.Settings(), high_contrast=True)
+    solid = _glow(C.SHIELD_WARN_TIME + 0.5, hc)
+    dimmable = {_glow(C.SHIELD_WARN_TIME - 0.08 - i * 0.167, hc)
+                for i in range(12)}
+    assert solid > 0.05, "no fallback ring to measure"
+    assert min(dimmable) < solid * 0.5, "the fallback ring never flashed"
+    assert _glow(0.0, hc) == pytest.approx(0.0), "a dead shield still draws"
+    assert _glow(C.SHIELD_FADE_TIME * 0.15, hc) < solid * 0.3, \
+        "the fallback ring does not fade out with the bubble"

@@ -14,3 +14,7 @@ class ItemKind(StrEnum):
     WHIP = "whip"            # timed energy-whip primary (replaces vulcan)
     JAMMER = "jammer"        # hazard: downgrade weapon level
     MINE = "mine"            # hazard: costs a life on contact
+    # Declared last on purpose: the item sheet lays kinds out in declaration
+    # order, four tiles each, so a new kind appends art instead of shuffling
+    # every tile that already ships.
+    MOON = "moon"            # +1 half-moon blade level (pierces, its own track)

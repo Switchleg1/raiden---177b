@@ -64,7 +64,7 @@ ITEM_AURA_TINTS: dict[str, tuple[int, int, int]] = {
 ITEM_GLYPH: dict[str, str] = {
     "weapon": "up", "missile": "rocket", "bomb": "bomb", "shield": "shield",
     "medal": "medal", "extra_life": "life", "whip": "whip",
-    "jammer": "jam", "mine": "mine",
+    "jammer": "jam", "mine": "mine", "moon": "moon",
 }
 
 

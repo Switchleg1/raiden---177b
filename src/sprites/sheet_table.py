@@ -52,6 +52,11 @@ SPRITES: dict[str, dict[str, Any]] = {
     "shot_missile": {"cell": (14, 22),
                      "anims": {"run": {"frames": [0, 1, 2, 3],
                                        "fps": 18, "loop": True}}},
+    # the half-moon blade: a wide tile because the crescent is wide, and a fast
+    # spin so a fan of them reads as turning steel rather than four shapes.
+    "shot_moon":    {"cell": (26, 26),
+                     "anims": {"run": {"frames": [0, 1, 2, 3],
+                                       "fps": 26, "loop": True}}},
     "shot_enemy":   {"cell": (12, 12),
                      "anims": {"run": {"frames": [0, 1, 2, 3],
                                        "fps": 14, "loop": True}}},
@@ -63,7 +68,7 @@ SPRITES: dict[str, dict[str, Any]] = {
     # declaration order — see ui/constants.ITEM_TILE. The first anim declares
     # every tile so it fixes the grid, and doubles as a family sweep.
     "items":        {"cell": (28, 28),
-                     "anims": {"all": {"frames": list(range(36)),
+                     "anims": {"all": {"frames": list(range(40)),
                                       "fps": 20, "loop": True},
                                "weapon": {"frames": [0, 1, 2, 3],
                                           "fps": 11, "loop": True},
@@ -82,7 +87,9 @@ SPRITES: dict[str, dict[str, Any]] = {
                                "jammer": {"frames": [28, 29, 30, 31],
                                           "fps": 14, "loop": True},
                                "mine": {"frames": [32, 33, 34, 35],
-                                        "fps": 8, "loop": True}}},
+                                        "fps": 8, "loop": True},
+                               "moon": {"frames": [36, 37, 38, 39],
+                                        "fps": 12, "loop": True}}},
     # the orbiting pickup marker: one translucent sprite ringed around every
     # item, recoloured per kind at runtime (Bank.tinted) so a pickup is
     # identifiable as a pickup before its icon is readable

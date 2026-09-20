@@ -108,7 +108,7 @@ scheduled over that sector's own wave length, and the sector change itself is a
 2.4 s reveal drawn from two live sectors (`terrain/handoff.py`) rather than a
 swap. So all 18 theme/level pairs the nine sectors schedule are baked. Sprite sheets (the raw-keyed hero
 craft, ten enemy kinds, nine per-sector bosses, bullets, whip beads, 3-tier
-explosions, nine pickup pods and one shared orbiting pickup marker) ship in
+explosions, ten pickup pods and one shared orbiting pickup marker) ship in
 `data/textures/sprites/`, and the seamless material /
 prop / splat tilekit in `data/textures/tiles/`. The keyed stills the sheets
 are animated from stay in `assets/textures/sprites_src/` — bake input, never
@@ -175,7 +175,7 @@ directory is empty.
   model events.
 - `sprites/` — sprite-sheet system: manifest of 30 tiled sheets (player craft
   with left/right banking frames, 10 enemy kinds, 9 sector bosses, 4 bullet
-  types, whip bead FX, 3 explosion tiers, 9 pickup pods sharing one tinted
+  types, whip bead FX, 3 explosion tiers, 10 pickup pods sharing one tinted
   orbiting marker) with per-sheet animation sequences, a
   lazy loading `Bank` (white hit-flash silhouettes via `BLEND_RGB_MAX`,
   per-colour recoloured copies via `BLEND_RGB_MULT`),
@@ -274,8 +274,10 @@ sector 9; shards are corpse content only and never spawn directly.
 ## Power-up system
 
 Enemies drop weighted falling icons: Vulcan power-ups (wider gun spread up to
-level 5, bolts turn into plasma orbs from level 4), missile upgrades, extra
-smart bombs,
+level 5, bolts turn into plasma orbs from level 4), missile upgrades, **half-moon
+blades** — a third power track of its own, a fan of thrown crescents that each
+carry one shell's damage, fly slower than anything else and refuse to stop:
+one blade cuts through every hostile on its line — extra smart bombs,
 an energy shield you can see (a bubble that deploys around the craft and flares
 when a shot is closing in), medals, bonus lives — and the **energy whip**: for
 ~12 s
@@ -293,7 +295,7 @@ travels across the frames. Hazards are octagons, because "do not touch" has to
 be a shape and not only a colour. Around every pod a marker **orbits** — three
 comet blades and counter-rotating gauge ticks, punched hollow in the middle so
 the pod stays the thing you aim at. One neutral marker is baked and recoloured
-per kind at runtime, so nine distinct colours cost one sheet; the pod colour,
+per kind at runtime, so ten distinct colours cost one sheet; the pod colour,
 the marker colour and the high-contrast icon colour all come from one palette.
 The marker deliberately over-frames the hitbox: the pod is what you have to
 touch, the orbit is what you notice falling.

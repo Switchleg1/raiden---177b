@@ -114,6 +114,43 @@ def _paint_shot_missile(sheet: Any) -> None:
         t.blit(sheet, ox, oy)
 
 
+def _paint_shot_moon(sheet: Any) -> None:
+    """Half-moon blade: a crescent of steel, thrown, turning.
+
+    Built as four concentric arcs whose angular windows shrink inwards, which is
+    the way to paint a real crescent: the blade's silhouette is the *outermost*
+    arc, and because each inner arc covers less of the circle, the band narrows
+    to a point at both ends by itself. A punched hole leaves a jagged inner edge
+    at this size. The widest arc is also the brightest, because the sharpened
+    convex edge is the part that has to read at a glance.
+
+    ``Tile.arc`` takes a centre angle and a HALF-angle, so the numbers below are
+    half-spans: 1.45 is a 166 degree crescent. Frame 0 centres the arc straight
+    down, which puts the horns up and the belly trailing, so the shape says which
+    way it flies; later frames turn it a quarter turn each.
+    """
+    cw, ch = SPRITES["shot_moon"]["cell"]
+    for i in range(4):
+        ox, oy = tile_xy("shot_moon", i)
+        t = Tile(cw, ch, ss=6)
+        c = cw / 2.0
+        a = math.tau * 0.25 + i * math.tau / 4.0
+        # travel smear, under everything: a thrown blade that leaves nothing
+        # behind looks like a sticker sliding up the screen
+        t.arc(c, c + 1.6, 7.2, 4.6, a, 1.05, (150, 205, 255), edge=1.6,
+              taper=0.25, alpha=0.16)
+        t.bloom(c, c, 11.4, (92, 172, 255), power=2.3, peak=0.30)
+        # cut edge, and the two points it tapers to: widest, hardest light
+        t.arc(c, c, 9.0, 2.3, a, 1.45, (250, 253, 255), edge=0.5, taper=0.18)
+        # body of the blade, under the edge
+        t.arc(c, c, 7.2, 3.6, a, 1.22, (140, 180, 222), edge=0.7, taper=0.5)
+        t.arc(c, c, 5.9, 2.8, a, 1.02, (76, 112, 162), edge=0.7, taper=0.5)
+        # back of the blade in shade, so the crescent has a thickness to it
+        t.arc(c, c, 4.7, 1.3, a, 0.82, (16, 26, 44), edge=0.6, taper=0.4,
+              alpha=0.55)
+        t.blit(sheet, ox, oy)
+
+
 def _paint_shot_enemy(sheet: Any) -> None:
     """Enemy orb: hot core in a cooling shell, rippling rim so the four frames
     counter-rotate, warm bloom so it never disappears on snow or sand."""
@@ -876,6 +913,29 @@ def _item_symbol(t: Tile, c: float, kind: str, accent: RGB, i: int) -> None:
         t.bloom(bx, by, 5.4, accent, power=2.0, peak=0.6)
         t.disc(bx, by, 2.1, mix(_WHITE, accent, 0.35), edge=0.45)
         t.disc(bx, by, 0.9, _WHITE, edge=0.35)
+    elif kind == "moon":                       # crescent blade, slow turn
+        # The same silhouette the craft throws, so a pickup says what it is
+        # before the pod is read: one tapered arc, horns up, turning a quarter
+        # of a turn over the four frames. Cold steel on a near-white accent -
+        # missile and shield already own the saturated blues.
+        a = math.tau * 0.25 + ph * 0.25
+        # Same construction as the fired blade, at pod scale: widest arc is the
+        # cut edge, inner arcs span less so the crescent ends in points.
+        #
+        # A crescent's mass sits on the far side of its arc centre, so the centre
+        # is pulled back along the spin axis by that offset. Without it the glyph
+        # orbits the recess - hanging low in frame 0 and against the left wall in
+        # frame 4 - and reads as a smudge that will not stay put; with it the
+        # blade turns inside the window about its own middle.
+        gx, gy = math.cos(a) * 3.2, math.sin(a) * 3.2
+        mx, my = c - gx, c - gy
+        t.bloom(c, c, 9.0, accent, power=2.0,
+                peak=0.26 + 0.12 * math.sin(ph))
+        t.arc(mx, my, 6.5, 2.2, a, 1.42, key, edge=0.45, taper=0.16)
+        t.arc(mx, my, 5.0, 3.4, a, 1.18, mix(accent, dark, 0.22), edge=0.5,
+              taper=0.4)
+        t.arc(mx, my, 3.7, 2.2, a, 0.92, dark, edge=0.6, taper=0.35,
+              alpha=0.85)
     elif kind == "jammer":                     # broadcasting antenna, pulsing
         # No "prohibited" slash through it: ring + mast + slash is three shapes
         # of mush at 20 px. The octagon plate and the red already say hazard,
@@ -1091,6 +1151,7 @@ _BAKE = {
     "shot_vulcan": _paint_shot_vulcan,
     "shot_plasma": _paint_shot_plasma,
     "shot_missile": _paint_shot_missile,
+    "shot_moon": _paint_shot_moon,
     "shot_enemy": _paint_shot_enemy,
     "fx_whip": _paint_fx_whip,
     "items": _paint_items,

@@ -749,6 +749,9 @@ class App:
         elif et == "missile":
             if self.audio:
                 self.audio.play(_audio_mod.MISSILE)
+        elif et == "moon":
+            if self.audio:
+                self.audio.play(_audio_mod.MOON)
         elif et == "whip_hit":
             if self.audio:
                 self.audio.play(_audio_mod.WHIP_HIT)
@@ -813,6 +816,12 @@ class App:
                                    (120, 210, 255), 30)
             self._begin_transition("GAME OVER", "", 1.2, "game_over")
         elif et == SIG_POWERUP:
+            if ev.get("kind") == C.ItemKind.MOON.value:
+                # Warm the blade's sheet now, while there is still time: the
+                # first auto-fire lands MOON_INTERVAL later, and loading a PNG
+                # on that frame is a hitch exactly when the player is waiting to
+                # hear the reward.
+                self.prefetch.request_art("shot_moon")
             if self.audio:
                 self.audio.play(_audio_mod.POWERUP)
         elif et == SIG_HAZARD:

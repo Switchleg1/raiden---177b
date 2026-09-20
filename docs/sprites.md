@@ -163,10 +163,11 @@ as a demo cycle); later anims index into that same grid.
 | `shot_vulcan`        | 12×16   | 4-frame amber tracer bolt                   |
 | `shot_plasma`        | 16×24   | violet beaded orb (Vulcan ≥ level 4)         |
 | `shot_missile`       | 14×22   | finned airframe, lit/shadow flank, two-tone exhaust |
+| `shot_moon`          | 26×26   | 4-frame spinning crescent (the piercing blade) |
 | `shot_enemy`         | 12×12   | orange orb, rippling counter-rotating rim    |
 | `fx_whip`            | 26×26   | magenta bead whose glow reaches `WHIP_BEAD_R` |
 | `fx_shield`          | 128×128 | 21 frames: 12-turn spin + 9 deploy pop — a bubble that wraps the hull |
-| `items`              | 28×28   | 9 pickup pods × 4 frames, one anim per kind (see below) |
+| `items`              | 28×28   | 10 pickup pods × 4 frames, one anim per kind (see below) |
 | `fx_item_aura`       | 36×36   | `orbit`, 12 frames @ 9 fps — one shared marker, tinted per kind |
 | `explosion_small`    | 48×48   | 8 frames @ 22 fps                           |
 | `explosion_mid`      | 80×80   | 12 frames @ 20 fps                          |
@@ -269,6 +270,42 @@ Pickup `ItemKind.WHIP` (weighted like other rare items) sets
 All whip constants live in `config.py` (`WHIP_*`), the simulation is
 pygame-free and covered by `tests/test_sprites.py` (attachment, expiry,
 forward reach, arc bounds).
+
+## Half-moon blades
+
+Pickup `ItemKind.MOON` raises a **third power track** (`Player.moon_level`,
+`MOON_MAX_LEVEL = 4`): the craft throws a fan of crescents on `MOON_INTERVAL`,
+automatically, next to the Vulcan and the missiles rather than instead of them.
+The tracks are independent — a crescent never changes gun spread or missile
+count — and, like every other power, the track is lost with the craft.
+
+The blade is the only bullet that does not stop. `Bullet.pierce` survives its
+own hit and keeps flying, remembering the hulls it has opened so a blade sitting
+on a boss charges for it once and not once per frame. That memory is held **by
+object identity, never by `id()`**: the deaths a blade causes free the very id it
+would later mistake for a hull it has already cut, and a new grunt wearing a dead
+grunt's number would be cut nothing. Ordinary shots allocate no memory at all
+(`Bullet.cut is None`), so the common case never pays for the rare one.
+
+The balance is the design, and `tests/test_moon_weapon.py` guards it: `MOON_DMG`
+is one shell's damage, `MOON_SPEED` is below every shell, `MOON_INTERVAL` is
+slower than the Vulcan's trigger. Not stopping is the whole advantage; if any of
+the other three ever grows, the weapon stops being a trade.
+
+Art (`_paint_shot_moon`, 26×26, 4 frames): a crescent is four concentric arcs
+whose angular windows shrink inwards. The silhouette is the **outermost** arc —
+the sharpened convex edge, and the two points it tapers to — and because each
+inner arc covers less of the circle, the band closes to a point by itself. A
+punched hole leaves a jagged inner edge at this size, and a constant-width
+tapered arc gives a blade with no edge on it. `Tile.arc` takes a centre angle and
+a **half**-angle, which is why the spans below look small. The frames turn the
+blade a quarter turn each about its own middle — the arcs are drawn about a
+centre pulled back along the spin axis, because a crescent's mass sits opposite
+its arc centre — so a fan reads as spinning steel instead of wobbling. Colour is
+cold steel over a cyan bloom: the palest projectile in the game, which is what
+keeps it readable over green fields and city glass. The pod glyph is the same
+construction at 28 px, and the HUD pip is two plain arcs, because the HUD line is
+15 px and a 26 px tile blitted into it droops out of the strip.
 
 ## Item pods and the shared orbiting marker
 

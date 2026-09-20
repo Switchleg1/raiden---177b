@@ -26,6 +26,34 @@ from .fonts import get_font
 from .menu import Menu
 
 
+def shield_lapse(remaining: float) -> float:
+    """Opacity of the shield bubble with ``remaining`` seconds of shield left.
+
+    One rule, shared by the baked bubble and the high-contrast pen ring: solid
+    until ``C.SHIELD_WARN_TIME`` seconds remain, then a strobe that says "this
+    is leaving" without anyone reading a timer, and over the last
+    ``C.SHIELD_FADE_TIME`` a sink to nothing so the effect ends as an event
+    instead of a cliff. The dark half of the strobe is dimmed, not hidden - a
+    bubble that blinks out completely reads as "shield gone" one flash early.
+    """
+    if remaining <= 0.0:
+        return 0.0
+    if remaining > C.SHIELD_WARN_TIME:
+        return 1.0
+    if remaining < C.SHIELD_FADE_TIME:
+        return remaining / C.SHIELD_FADE_TIME
+    dark = int((C.SHIELD_WARN_TIME - remaining) * 2.0 * C.SHIELD_FLASH_HZ)
+    return C.SHIELD_FLASH_DIM if dark % 2 else 1.0
+
+
+def _scale_rgb(col: tuple[int, int, int], k: float) -> tuple[int, int, int]:
+    """Dim an RGB triple by ``k`` (0.0 - 1.0) for a fading shield rim."""
+    r, g, b = col
+    return (max(0, min(255, int(r * k))),
+            max(0, min(255, int(g * k))),
+            max(0, min(255, int(b * k))))
+
+
 # ---------------------------------------------------------------------------
 # Renderer
 # ---------------------------------------------------------------------------
@@ -47,6 +75,8 @@ class Renderer:
         self._p_prev_t = 0.0
         self._p_vx = 0.0                 # smoothed player horizontal vel
         self._p_scale_cache: dict[int, Any] = {}  # display-scaled p_ship tiles
+        self._shield_fade: dict[tuple[int, int], Any] = {}
+        self._shield_fade_src: Any = None
 
     @property
     def palette(self) -> C.Palette:
@@ -376,6 +406,9 @@ class Renderer:
         surf = bank.sheet(SHIELD_SHEET)
         if surf is None:
             return
+        lapse = shield_lapse(pl.shield)
+        if lapse <= 0.0:
+            return                       # faded out: the craft is on its own
         deploy_frames, _fps, _loop = sprites.anim_spec(SHIELD_SHEET, "deploy")
         since = C.SHIELD_TIME - pl.shield
         if 0.0 <= since < SHIELD_DEPLOY_TIME:
@@ -385,7 +418,8 @@ class Renderer:
                                       / SHIELD_DEPLOY_TIME)]
         else:
             tile = self._anim_frame(SHIELD_SHEET, "spin", 0.0)
-        self._blit_center(bank.frame(surf, SHIELD_SHEET, tile), pl.x, pl.y)
+        self._blit_center(self._shield_frame(bank, surf, tile, lapse),
+                          pl.x, pl.y)
         # Where the nearest bullet is closing on the bubble, light that side of
         # the rim - a warning ring, not a hit counter.
         threat = None
@@ -405,10 +439,34 @@ class Renderer:
         box = pygame.Rect(0, 0, int(SHIELD_FX_RADIUS * 2),
                           int(SHIELD_FX_RADIUS * 2))
         box.center = (int(pl.x), int(pl.y))
-        pygame.draw.arc(self.canvas, (120, 205, 255), box,
+        # The warning ring lapses with the bubble it is painted on, or a shield
+        # that has faded to a whisper would still shout.
+        pygame.draw.arc(self.canvas, _scale_rgb((120, 205, 255), lapse), box,
                         ang - 0.5, ang + 0.5, 6)
-        pygame.draw.arc(self.canvas, (235, 250, 255), box,
+        pygame.draw.arc(self.canvas, _scale_rgb((235, 250, 255), lapse), box,
                         ang - 0.26, ang + 0.26, max(1, int(1 + 3 * glow)))
+
+    def _shield_frame(self, bank: Any, surf: Any, tile: int,
+                      lapse: float) -> Any:
+        """The bubble tile at ``lapse`` opacity, faded copies cached.
+
+        ``Bank.frame`` hands back a *sub-surface* of the sheet, so the alpha mod
+        cannot go on it - setting it there would set it for every tile the sheet
+        holds. Opacity is quantised to 1/8 steps, which keeps a strobing bubble
+        to four cached surfaces instead of one allocation per frame.
+        """
+        if lapse >= 1.0:
+            return bank.frame(surf, SHIELD_SHEET, tile)
+        if self._shield_fade_src is not surf:
+            self._shield_fade.clear()
+            self._shield_fade_src = surf
+        step = max(1, min(7, int(lapse * 8)))
+        cached = self._shield_fade.get((tile, step))
+        if cached is None:
+            cached = bank.frame(surf, SHIELD_SHEET, tile).copy()
+            cached.set_alpha(step * 32)
+            self._shield_fade[(tile, step)] = cached
+        return cached
 
     def _draw_player(self, pl: Any, bullets: Any = ()) -> None:
         import pygame
@@ -449,19 +507,27 @@ class Renderer:
             # High-contrast fallback: the same rule as the baked bubble, just
             # drawn with a pen - a wide ring that clears the hull rather than a
             # halo painted over the craft.
-            a = 1 if pl.shield > 1.0 or int(pl.shield * 10) % 2 == 0 else 0
-            if a:
-                pygame.draw.circle(self.canvas, (150, 200, 255), (x, y),
-                                   int(SHIELD_FX_RADIUS * 0.78), 3)
+            lapse = shield_lapse(pl.shield)
+            if lapse > 0.0:
+                pygame.draw.circle(self.canvas, _scale_rgb((150, 200, 255),
+                                                           lapse),
+                                   (x, y), int(SHIELD_FX_RADIUS * 0.78), 3)
 
-    def _bullet_frame(self, sheet: str) -> Any:
+    def _bullet_frame(self, sheet: str, spin: bool = True) -> Any:
+        """A bullet tile from the sheet bank, or None when art is unavailable.
+
+        ``spin`` keeps the classic shared-playhead animation that makes a stream
+        read as one travelling pattern; ``spin=False`` pins frame 0 for a static
+        icon such as the HUD readout, which must not fidget while it is read.
+        """
         bank = self._bank_of()
         surf = bank.sheet(sheet)
         if surf is None:
             return None
         import sprites
         frames, fps, _loop = sprites.anim_spec(sheet, "run")
-        tile = frames[int(self._scroll * fps) % len(frames)]
+        tile = frames[int(self._scroll * fps) % len(frames)] if spin \
+            else frames[0]
         return bank.frame(surf, sheet, tile)
 
     def _draw_bullet(self, b: Any, p: C.Palette) -> None:
@@ -470,10 +536,25 @@ class Renderer:
         # global playhead so a stream reads as one travelling pattern).
         sheet = ("shot_missile" if b.missile else
                  "shot_enemy" if not b.friendly else
+                 "shot_moon" if b.pierce else
                  "shot_plasma" if self._wpn_level >= 4 else "shot_vulcan")
         frame = self._bullet_frame(sheet)
         if frame is not None:
             self._blit_center(frame, b.x, b.y)
+            return
+        if b.friendly and b.pierce:
+            # No art: draw the crescent outright. The high-contrast pen mode is
+            # exactly where an unmistakable silhouette matters most, and a
+            # crescent is two lines of pygame - an arc for the cut edge, a
+            # thinner one for the shade behind it.
+            ix, iy = int(b.x), int(b.y)
+            rr = max(4, int(b.r))
+            pygame.draw.arc(self.canvas, (222, 242, 255),
+                            (ix - rr, iy - rr, rr * 2, rr * 2),
+                            math.tau * 0.16, math.tau * 0.84, 2)
+            pygame.draw.arc(self.canvas, (96, 140, 190),
+                            (ix - rr + 3, iy - rr + 2, rr * 2 - 6, rr * 2 - 4),
+                            math.tau * 0.2, math.tau * 0.8, 1)
             return
         if b.friendly:
             col = p.player_bullet if not b.missile else (255, 220, 120)
@@ -751,6 +832,22 @@ class Renderer:
                              border_radius=2)
         self.canvas.blit(wf.render(f"MIS {pl.missile_level}", True, p.hud_text),
                          (wx + 30 + C.WEAPON_MAX_LEVEL * 14 + 12, 30))
+        # Blades are a third track, so they get a third readout - drawn with the
+        # weapon's own art so it is identifiable without reading the number,
+        # and left blank at zero so a fresh craft does not advertise a weapon it
+        # has not picked up.
+        mx = wx + 30 + C.WEAPON_MAX_LEVEL * 14 + 12 + 58
+        if pl.moon_level > 0:
+            # Drawn, not blitted: the HUD line is 15 px and the blade tile is 26,
+            # so the sprite either gets resampled (soft) or droops out of the
+            # strip (it did). Two arcs are crisp at any size, cost nothing, and
+            # match the crescent the pen-mode bullet already falls back to.
+            pygame.draw.arc(self.canvas, (206, 234, 255), (mx, 32, 13, 12),
+                            math.tau * 0.16, math.tau * 0.84, 2)
+            pygame.draw.arc(self.canvas, (86, 128, 178), (mx + 3, 34, 7, 7),
+                            math.tau * 0.2, math.tau * 0.8, 1)
+            self.canvas.blit(wf.render(f"MOON {pl.moon_level}", True,
+                                       p.hud_text), (mx + 19, 30))
         bx = C.LOGICAL_W - C.FIELD_LEFT - 8
         for i in range(C.BOMB_MAX):
             on = i < pl.bomb_stock

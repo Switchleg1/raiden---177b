@@ -8,6 +8,7 @@ These tests cover the three pieces and the level-length budget they serve.
 
 import os
 import random
+import threading
 import time
 
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
@@ -168,6 +169,55 @@ def test_prefetch_cache_is_bounded():
         pf.request_sector(level, i + 1)
     _wait_idle(pf)
     assert len(pf._maps) <= pf.MAX_SECTORS
+
+
+def test_shutdown_waits_for_a_worker_still_inside_a_job():
+    """The App shuts the worker down and then calls ``pygame.quit()``.
+
+    A sentinel on the queue only speaks to a worker that is *idle*. A worker
+    sitting inside ``pygame.image.load()`` when SDL is torn down does not raise
+    an exception the caller can survive; it takes the process down with an
+    access violation. So shutdown must wait for the job in flight, and this is
+    the one place the wait itself is what is under test: shutdown may not return
+    while a job is still running, and the worker must be gone when it does.
+    """
+    inside = threading.Event()
+    release = threading.Event()
+
+    class SlowMap(FakeMap):
+        def __init__(self, theme, seed) -> None:
+            super().__init__(theme, seed)
+            inside.set()
+            assert release.wait(10.0)
+
+    pf = Prefetch(map_factory=SlowMap)
+    pf.request_sector(C.LEVELS[0], 1)
+    assert inside.wait(5.0), "the worker never entered the job"
+
+    closed = threading.Event()
+
+    def shut() -> None:
+        pf.shutdown()
+        closed.set()
+
+    threading.Thread(target=shut, daemon=True).start()
+    assert not closed.wait(0.3), "shutdown left while a worker was inside SDL"
+    release.set()
+    assert closed.wait(10.0), "shutdown never returned after the job finished"
+    assert pf._thread is not None and not pf._thread.is_alive()
+
+
+def test_a_shut_down_prefetcher_refuses_further_work():
+    """No restart behind the shutdown: a late request would put a fresh worker
+    back inside SDL just as the process is leaving it."""
+    pf = Prefetch(map_factory=FakeMap)
+    pf.request_sector(C.LEVELS[0], 1)
+    _wait_idle(pf)
+    pf.shutdown()
+    pf.request_sector(C.LEVELS[1], 1)
+    pf.request_art("shot_moon")
+    assert pf.pending() == 0
+    assert pf._thread is not None and not pf._thread.is_alive()
 
 
 def test_prefetch_warms_sprite_sheets():
@@ -393,6 +443,15 @@ def app(monkeypatch, tmp_path):
     a.sm.to(State.TITLE)
     yield a
     a.shutdown()
+
+
+def test_app_shutdown_stops_the_worker_before_sdl_teardown(app):
+    """Ordering, not cleanup: the worker has to be gone before pygame.quit()."""
+    app._start_game()
+    worker = app.prefetch._thread
+    assert worker is not None, "sector start queued no prefetch work"
+    app.shutdown()
+    assert not worker.is_alive(), "pygame.quit() ran with a worker still alive"
 
 
 def test_app_builds_a_prefetcher_with_the_renderer_bank(app):

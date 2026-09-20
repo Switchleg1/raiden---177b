@@ -46,11 +46,14 @@ class Prefetch:
         self._order: list[tuple] = []
         self._wanted: set[tuple] = set()
         self._thread: threading.Thread | None = None
+        self._stopping = False
         self.built = 0            # observability (tests, future debug overlay)
         self.misses = 0
 
     # ------------------------------------------------------------------ queue
     def _start(self) -> None:
+        if self._stopping:
+            return            # a shut-down prefetcher never raises from the dead
         if self._thread is not None and self._thread.is_alive():
             return
         self._thread = threading.Thread(target=self._run, name="raiden-prefetch",
@@ -59,7 +62,7 @@ class Prefetch:
 
     def request_sector(self, level: Any, seed: int = 1) -> None:
         """Queue one sector's terrain maps. Idempotent while queued or built."""
-        if not self._enabled:
+        if not self._enabled or self._stopping:
             return
         phases = sector_phases(level)
         key = sector_key(phases, seed)
@@ -76,7 +79,7 @@ class Prefetch:
         Sheets are counted in :meth:`pending` like sectors are, so a caller can
         wait for the queue honestly instead of guessing a frame count.
         """
-        if not self._enabled or self._bank is None:
+        if not self._enabled or self._bank is None or self._stopping:
             return
         for name in names:
             if not name:
@@ -119,6 +122,8 @@ class Prefetch:
     # ------------------------------------------------------------- the worker
     def _run(self) -> None:
         while True:
+            if self._stopping:
+                return        # queued behind a shutdown: drop, do not reload
             job = self._q.get()
             if job is None:
                 return
@@ -157,6 +162,24 @@ class Prefetch:
                 self._wanted.discard(("art", name))
                 self.built += 1
 
-    def shutdown(self) -> None:
-        """Ask the worker to stop. Daemon thread, so a stuck job is harmless."""
+    def shutdown(self, timeout: float = 3.0) -> None:
+        """Stop the worker and wait for it to actually stop.
+
+        The App calls this before ``pygame.quit()``, and the waiting is the
+        whole point. A sentinel on the queue only speaks to a worker that is
+        *idle*: a thread in the middle of ``pygame.image.load()`` never sees it,
+        and one parked behind a queue of jobs sees it last. So the main thread
+        would tear SDL down underneath a worker still inside SDL_image, and that
+        is not an exception a caller can handle — it is an access violation that
+        takes the process with it. Joining after the sentinel bounds the wait to
+        one job, and ``_stopping`` makes sure nothing is queued behind us to
+        start the same race a moment later.
+
+        Daemon threads stay a daemon thread: a job wedged in a driver for longer
+        than ``timeout`` must not hang the exit, it only gives up the wait.
+        """
+        self._stopping = True
         self._q.put(None)
+        thread = self._thread
+        if thread is not None and thread.is_alive():
+            thread.join(timeout)

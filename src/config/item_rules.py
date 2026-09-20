@@ -23,12 +23,24 @@ MAX_ITEMS = 24               # hard bound on simultaneous falling items
 SHIELD_TIME = 7.0            # seconds of invulnerability (SHIELD)
 
 
+# The bubble does not simply stop. For the last SHIELD_WARN_TIME seconds it
+# strobes - SHIELD_FLASH_HZ cycles per second, falling to SHIELD_FLASH_DIM on
+# the dark half instead of vanishing, because a bubble that blinks out entirely
+# reads as "shield gone" one flash early - and over the final SHIELD_FADE_TIME
+# it sinks to nothing, so the effect ends as an event rather than a cliff.
+# Presentation only: the model's countdown stays a plain timer.
+SHIELD_WARN_TIME = 5.0
+SHIELD_FADE_TIME = 1.0
+SHIELD_FLASH_HZ = 3.0
+SHIELD_FLASH_DIM = 0.28
+
+
 JAMMER_DROP_PENALTY = 1      # weapon levels lost to a JAMMER
 
 
 BENEFICIAL: frozenset[ItemKind] = frozenset({
     ItemKind.WEAPON, ItemKind.MISSILE, ItemKind.BOMB, ItemKind.SHIELD,
-    ItemKind.MEDAL, ItemKind.EXTRA_LIFE, ItemKind.WHIP,
+    ItemKind.MEDAL, ItemKind.EXTRA_LIFE, ItemKind.WHIP, ItemKind.MOON,
 })
 
 
@@ -55,6 +67,11 @@ ITEM_COLORS: dict[str, tuple[tuple[int, int, int], tuple[int, int, int]]] = {
     "whip":        ((78, 40, 92), (240, 150, 255)),
     "jammer":      ((92, 34, 48), (255, 120, 140)),
     "mine":        ((88, 46, 30), (255, 150, 90)),
+    # Polished steel: the palest accent on the sheet over the darkest hull, so
+    # the rim contrast does the work that saturation does for the other pods.
+    # Missile and shield already own mid blue, and the blade has to read as
+    # *metal thrown* rather than as a third blue power-up.
+    "moon":        ((34, 48, 70), (214, 240, 255)),
 }
 
 
@@ -71,6 +88,7 @@ ITEM_WEIGHTS: tuple[tuple[str, int], ...] = (
     ("medal", 16),
     ("extra_life", 2),
     ("whip", 9),
+    ("moon", 14),
     ("jammer", 7),
     ("mine", 5),
 )

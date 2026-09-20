@@ -6,7 +6,10 @@ correctly on any device. The mixer degrades gracefully to silence when no audio
 device is available (headless tests). Playback is rate-limited per sound and
 uses a small fixed channel pool so overlapping shots never clip or grow
 unbounded. Music is produced by :mod:`music` (unchanged synthwave engine) on a
-background thread so mixer-init never blocks.
+background thread so mixer-init never blocks - and so is each track's mixer
+Sound, because handing the frame thread a finished Sound is the difference
+between a sector handoff and a handoff with a hitch in it (see
+:meth:`AudioManager._make_sound`).
 """
 
 from __future__ import annotations
@@ -33,6 +36,7 @@ from audio_effects import (
     MENU_NAV,
     MIN_GAP,
     MISSILE,
+    MOON,
     POWERUP,
     SHOOT,
     VICTORY,
@@ -134,6 +138,11 @@ def build_samples(rate: int = MIXER_RATE) -> dict[str, bytes]:
         # crack-zap: noisy high sweep collapsing fast (energy lash contact)
         WHIP_HIT: _tone(1500, 0.07, vol=0.3, shape="noise", sweep=420,
                         rate=rate, decay=13.0),
+        # A thrown blade falls in pitch the way it falls away from the craft:
+        # struck high, collapsing fast, triangle so it rings instead of buzzing
+        # like the vulcan's square or hissing like the lash.
+        MOON: _tone(1560, 0.11, vol=0.22, shape="tri", sweep=360, rate=rate,
+                    decay=8.0),
     }
 
 
@@ -154,6 +163,9 @@ class AudioManager:
         self._last_level_key: str | None = None
         self._boss_keys: list[str] = []
         self._last_boss_key: str | None = None
+        # The music thread renders a cue and converts it to a mixer Sound, so
+        # the frame thread converts nothing. _track_bytes therefore only holds a
+        # cue whose conversion failed: the retry path, not the normal one.
         self._track_bytes: dict[str, bytes] = {}
         self._music_sounds: dict[str, Any] = {}
         self._track_lock = threading.Lock()
@@ -168,8 +180,15 @@ class AudioManager:
         if self.available:
             return True
         try:
-            pygame.mixer.init(frequency=MIXER_RATE, size=-16,
-                              channels=MIXER_CHANNELS)
+            # Ask for the format the sources are actually in: 22 kHz mono. Some
+            # drivers honour that, and then a cue is a copy rather than a
+            # conversion; Windows shared mode answers with the device's own
+            # format whatever you ask for, which is the real reason a cue gets
+            # converted on the music thread instead of between two frames.
+            # Passing MIXER_CHANNELS here - as an earlier version did - is a
+            # category error: pygame reads this argument as the frame channel
+            # count, so SDL opened a six-channel mix. Voices are the other knob.
+            pygame.mixer.init(frequency=MIXER_RATE, size=-16, channels=1)
         except pygame.error:
             self.available = False
             return False
@@ -280,18 +299,54 @@ class AudioManager:
                     buf = render(theme, MIXER_RATE)
                 except Exception:
                     continue          # one bad track must not kill the playlist
+                # Convert on this thread too. A rendered cue is ~1.7 MB of PCM
+                # and the mixer wants a Sound; paying for that wrap on the frame
+                # thread is what made every track change drop a frame. Holding
+                # both copies of a 40-second cue is not worth it either, so the
+                # Sound replaces the bytes and they are stashed only when
+                # conversion failed and the game thread may want to retry.
+                try:
+                    sound = None if self._music_stop else self._make_sound(buf)
+                except Exception:
+                    sound = None
                 keys = {MENU_KEY: self._menu_keys,
                         BOSS_KEY: self._boss_keys,
                         LEVEL_KEY: self._level_keys}[pool]
                 with self._track_lock:
-                    self._track_bytes[key] = buf
+                    if sound is None:
+                        self._track_bytes[key] = buf
+                    else:
+                        self._music_sounds[key] = sound
                     if key not in keys:
                         keys.append(key)
         except Exception:
             pass
 
-    def _ensure_music_sound(self, key: str) -> Any:
+    def _make_sound(self, buf: bytes) -> Any:
+        """Wrap PCM in the mixer's own format. Safe on any thread.
+
+        ``Sound(file=...)`` decodes into a fresh mixer buffer and never talks to
+        the output device, so the worker may do it; only ``play()`` belongs to
+        the game thread. Inverted, that cost the frame thread a WAV wrap plus a
+        decode at every track change - measured 10 ms on an eight-channel device
+        mix, 17 ms on a six-channel one, i.e. the frame that gets dropped at 60
+        fps. It always landed where a new cue starts: a sector handoff, a boss
+        entry, a continue. With the Sound built here, a track change costs the
+        frame thread the play() call, measured at 0.02 ms.
+        """
+        import io
+
         import pygame
+        return pygame.mixer.Sound(
+            file=io.BytesIO(wav_bytes(buf, self._mix_rate)))
+
+    def _ensure_music_sound(self, key: str) -> Any:
+        """The Sound for a cue: the worker's, if it got that far.
+
+        Building one here is the fallback for a cue whose conversion failed or
+        never ran, not the normal path. On the normal path this is a dict lookup
+        and the caller only pays ``play()``.
+        """
         with self._track_lock:
             snd = self._music_sounds.get(key)
             if snd is not None:
@@ -300,8 +355,7 @@ class AudioManager:
         if buf is None:
             return None
         try:
-            import io as _io
-            snd = pygame.mixer.Sound(file=_io.BytesIO(wav_bytes(buf, MIXER_RATE)))
+            snd = self._make_sound(buf)
         except Exception:
             return None
         with self._track_lock:
@@ -483,7 +537,8 @@ class AudioManager:
 
 __all__ = ["AudioManager", "build_samples", "wav_bytes", "MIXER_RATE",
            "MENU_KEY", "LEVEL_KEY", "BOSS_KEY", "EFFECT_NAMES", "MIN_GAP",
-           "SHOOT", "MISSILE", "EXPLOSION", "BOSS_EXPLOSION", "BOSS_WARN",
+           "SHOOT", "MISSILE", "MOON", "EXPLOSION", "BOSS_EXPLOSION",
+           "BOSS_WARN",
            "BOMB", "MEDAL", "LIFE_LOST", "LEVEL_COMPLETE", "MENU_NAV",
            "MENU_ACTIVATE", "GAME_OVER", "VICTORY", "POWERUP", "HAZARD",
            "WHIP_HIT"]

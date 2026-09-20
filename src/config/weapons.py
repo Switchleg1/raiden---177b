@@ -44,6 +44,24 @@ MISSILE_INTERVAL = 0.55                    # seconds between missile volleys
 MISSILE_STREAMS = (0, 1, 2, 3, 4)         # by level index
 
 
+# Half-moon blades: a third power track, separate from vulcan power and from
+# missiles. The blade is deliberately weak - one damage, and it flies slower
+# than a shell so the eye can follow it. What it buys is that it does not stop:
+# a crescent cuts through every hostile in its line, so its value is the number
+# of enemies in a column, not the number it kills per second. Level 1 already
+# throws two, because a single weak blade that misses is no weapon at all.
+MOON_MAX_LEVEL = 4
+
+
+MOON_BASE_LEVEL = 0
+
+
+MOON_INTERVAL = 0.62                   # seconds between blade volleys
+
+
+MOON_STREAMS = (0, 2, 3, 4, 5)         # blades per volley, by level index
+
+
 # Smart bombs: screen-clearing. Press to spend one from BOMB_STOCK.
 BOMB_START = 1
 
@@ -77,6 +95,13 @@ MISSILE_R = 4.0
 
 
 MISSILE_DMG = 2
+
+
+MOON_SPEED = 470.0                     # slower than any shell: read the line
+MOON_R = 9.0                           # wide crescent, generous contact box
+MOON_DMG = 1                           # weak by design; pierce is the payoff
+MOON_SPREAD = 17.0                     # lateral offset between blade streams
+MOON_FAN_DEG = 7.5                     # angular step across the fan
 
 
 # Energy whip: a timed power that REPLACES the vulcan while active (arcade
