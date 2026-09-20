@@ -281,9 +281,13 @@ one blade cuts through every hostile on its line — extra smart bombs,
 an energy shield you can see (a bubble that deploys around the craft and flares
 when a shot is closing in), medals, bonus lives — and the **energy whip**: for
 ~12 s
-your cannon is replaced by a crackling energy lash that you sweep through
-enemies by moving (aimed by the cursor/keys, whipping in an arc in front of
-the craft). Hazards too: jammers that downgrade your Vulcan and floating
+your cannon is replaced by a crackling 300 px energy lash that you sweep through
+enemies by moving (aimed by the cursor/keys, whipping in an arc in front of the
+craft). The lash **curls** — the handle stays where you point and the outer
+third hooks over — and it **reaches for the nearest hostile**, swinging onto its
+line at a visible speed rather than snapping to it, so it stays a weapon you can
+out-manoeuvre. All three power tracks (gun, missiles, blades) are read out the
+same way on the HUD: a glyph, a label, and one pip per level. Hazards too: jammers that downgrade your Vulcan and floating
 mines that cost a life unless you are shielded. The whole system can be turned
 off in Options (same toggle style as Breakout Classic). Weapon power is kept
 when you clear a sector and start the next one, and resets when your craft is

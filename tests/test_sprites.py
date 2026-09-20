@@ -19,7 +19,7 @@ pygame.display.set_mode((32, 32))
 import config as C  # noqa: E402
 import sprites  # noqa: E402
 import ui  # noqa: E402
-from entities import Whip  # noqa: E402
+from entities import Enemy, Whip  # noqa: E402
 from game import Game  # noqa: E402
 from items import Item  # noqa: E402
 
@@ -207,6 +207,161 @@ def test_whip_shape_is_forward_and_bounded():
         d = math.hypot(x - ax, y - ay)
         assert d <= C.WHIP_LEN + 1.0      # chord never exceeds lash length
     assert any(y < ay - C.WHIP_LEN * 0.5 for _, y in w.points)
+
+
+def test_the_lash_is_long_enough_to_be_a_weapon():
+    """Length is the reason to take the whip at all.
+
+    At 210 px the lash could not reach a hostile before it reached the craft,
+    so the power was a shorter gun with a nicer picture. The tip must actually
+    put beads where a hostile 250 px up is sitting.
+    """
+    w = Whip()
+    for _ in range(400):
+        w.update(1 / 120, 400.0, 500.0)
+    ax, ay = 400.0, 500.0 - 12.0
+    far = max(math.hypot(x - ax, y - ay) for x, y in w.points)
+    assert far >= 250.0, f"tip only reaches {far:.0f}px"
+    assert far <= C.WHIP_LEN + 1.0
+
+
+def _sway(power: float) -> list[float]:
+    """Lateral offset of every bead at one aim, with a fixed wave phase.
+
+    The wave term is identical in both samples because the clock is, so the two
+    profiles differ only in how the lean is distributed along the lash.
+    """
+    old = C.WHIP_CURL_POWER
+    C.WHIP_CURL_POWER = power
+    try:
+        w = Whip()
+        w.t = 0.75
+        w.aim = 0.85
+        return [x - 400.0 for x, _y in w._shape(400.0, 500.0)]
+    finally:
+        C.WHIP_CURL_POWER = old
+
+
+def test_the_lash_curls_instead_of_tilting():
+    """A rod tilts, a whip curls: the sway must grow faster than length.
+
+    With a linear lean the halfway bead carries half the tip's offset and the
+    whole lash is a straight stick rocking on a pivot. Curl is the outer section
+    doing more of the turning than the inner one, measured here as the midpoint
+    holding less than half the tip's sway - and less than the same whip would
+    hold with the power set to 1.0.
+    """
+    curl = _sway(C.WHIP_CURL_POWER)
+    rod = _sway(1.0)
+    mid = len(curl) // 2
+    assert curl[mid] < 0.5 * curl[-1], "the lean is still linear"
+    assert curl[mid] < rod[mid], "the curl power is not reaching the shape"
+
+
+def test_the_whip_turns_toward_a_hostile():
+    """The lash settles on the *bearing* to the hostile, not on its position.
+
+    A whip has no reach beyond its length, so "aim" means "lean along the line
+    to the target": the anchor, the handle and the target should be collinear,
+    which is what atan2 of the offset says. That is a stronger claim than "the
+    tip got near", and it is the claim the design makes.
+    """
+    w = Whip()
+    ax, ay = 400.0, 500.0
+    target = (180.0, 260.0)             # up and to the left
+    for _ in range(180):
+        w.update(1 / 60, ax, ay, target)
+    bearing = math.atan2(target[0] - ax, ay - target[1])
+    assert w.aim == pytest.approx(bearing, abs=0.05), "not leaning at the hostile"
+    tip_x, tip_y = w.tip
+    assert tip_x < ax - 40.0, "the tip is still on the wrong side of the craft"
+    assert tip_y < ay - 100.0, "a thrown lash does not droop"
+
+    # and it genuinely closed on the target rather than waving nearby
+    free = Whip()
+    for _ in range(180):
+        free.update(1 / 60, ax, ay, None)
+    d_locked = math.hypot(tip_x - target[0], tip_y - target[1])
+    d_free = math.hypot(free.tip[0] - target[0], free.tip[1] - target[1])
+    assert d_locked < d_free
+
+
+def test_the_turn_is_a_slew_and_not_a_snap():
+    """Homing that arrives in one frame is a missile wearing a rope.
+
+    The lash may move at most WHIP_AIM_RATE * dt per update, so the swing is
+    visible and dodgeable and the whip keeps its risk.
+    """
+    w = Whip()
+    dt = 1 / 60
+    before = w.aim
+    w.update(dt, 400.0, 500.0, (60.0, 120.0))
+    assert abs(w.aim - before) <= C.WHIP_AIM_RATE * dt + 1e-9
+
+
+def test_a_hostile_below_the_craft_is_not_a_target():
+    """The lash is thrown upward; folding it back through the hull is not aim."""
+    w = Whip()
+    for _ in range(30):
+        w.update(1 / 60, 400.0, 500.0, None)
+    held = w.aim
+    for _ in range(10):
+        w.update(1 / 60, 400.0, 500.0, (400.0, 560.0))
+    assert w.aim == held
+
+
+def test_with_nothing_to_chase_the_lash_sweeps():
+    w = Whip()
+    seen = []
+    for _ in range(300):
+        w.update(1 / 60, 400.0, 500.0, None)
+        seen.append(w.aim)
+    assert min(seen) < -0.5 and max(seen) > 0.5, "the sweep never crossed over"
+
+
+def test_the_whip_is_deterministic():
+    """Same clock, same targets, same curve: no RNG anywhere in the lash."""
+    def run() -> list[float]:
+        w = Whip()
+        out: list[float] = []
+        for step in range(120):
+            target = (300.0 + 90.0 * (step % 3), 200.0) if step % 7 else None
+            w.update(1 / 60, 400.0, 500.0, target)
+            out.extend(w.tip)
+        return out
+
+    assert run() == run()
+
+
+def test_the_game_chooses_the_nearest_reachable_hostile():
+    g = _game()
+    g.whip_timer = C.WHIP_TIME
+    for e in list(g.enemies):
+        e.alive = False
+    near = Enemy(C.EnemyKind.GRUNT, 300.0, g.player.y - 150.0)
+    far = Enemy(C.EnemyKind.GRUNT, 520.0, g.player.y - 350.0)
+    g.enemies.extend([near, far])
+    assert g._whip_target() == (near.x, near.y)
+
+    near.alive = False
+    assert g._whip_target() == (far.x, far.y), "a dead hostile is still a target"
+
+    far.y = g.player.y - (C.WHIP_SEEK_RANGE + 40.0)
+    assert g._whip_target() is None, "reached past the seeking range"
+
+
+def test_the_game_ignores_the_hostiles_below_the_craft():
+    g = _game()
+    g.whip_timer = C.WHIP_TIME
+    for e in list(g.enemies):
+        e.alive = False
+    below = Enemy(C.EnemyKind.GRUNT, 400.0, g.player.y + 80.0)
+    g.enemies.append(below)
+    assert g._whip_target() is None
+    below.y = g.player.y - 100.0
+    assert g._whip_target() == (below.x, below.y)
+    below.alive = False
+    assert g._whip_target() is None
 
 
 def test_whip_contact_damage_with_cooldown():

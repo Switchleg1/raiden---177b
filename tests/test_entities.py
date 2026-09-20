@@ -44,6 +44,30 @@ def test_full_restore_resets_power_and_grants_invuln():
     assert pl.protected
 
 
+def test_the_loadout_covers_every_power_track():
+    """A track outside the loadout is silently eaten by a sector clear.
+
+    Not hypothetical: the blade track reached the player and the pickups, while
+    the copy that carries power across a sector still named two fields by hand,
+    so clearing a sector dropped moon levels to base and no test noticed. The
+    tracks are now one named concept, and this walks the player's own slots so a
+    fourth one cannot be added and forgotten the same way.
+    """
+    tracks = {name for name in Player.__slots__ if name.endswith("_level")}
+    assert tracks == set(Player.LOADOUT_SLOTS)
+
+
+def test_loadout_round_trips_through_a_wipe():
+    pl = Player()
+    pl.weapon_level, pl.missile_level, pl.moon_level = 5, 2, 4
+    snapshot = pl.loadout()
+    pl.full_restore()
+    assert pl.moon_level == C.MOON_BASE_LEVEL
+    pl.apply_loadout(snapshot)
+    assert (pl.weapon_level, pl.missile_level,
+            pl.moon_level) == (5, 2, 4)
+
+
 def test_tick_timers_count_down():
     pl = Player()
     pl.full_restore()

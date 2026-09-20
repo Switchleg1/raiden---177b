@@ -259,9 +259,23 @@ Pickup `ItemKind.WHIP` (weighted like other rare items) sets
 
 - the Vulcan is **replaced** by the lash (no bullets — Raiden's
   Strike-Weapon tradeoff: aggressive damage for losing range),
-- `entities.Whip` models it as N=14 points on an arc swept ±64° at
-  `WHIP_SWEEP_HZ` (phase-lagged so the tip trails the sweep), rippled by a
-  traveling sine (`WHIP_WAVE_*`) for the crackling snake look,
+- `entities.Whip` models it as `WHIP_POINTS` (18) points along a 300 px lash,
+  rippled by a traveling sine (`WHIP_WAVE_*`) for the crackling snake look,
+- **it leans where the lean is put**: the shape is `aim * f ** WHIP_CURL_POWER`,
+  so the handle stays where the craft points and the outer section hooks over.
+  A linear lean is a rod tilting on a pivot; a power above one is a curl, and
+  the wave tapers the same way (`WHIP_WAVE_TAPER`) so the crackle lives at the
+  tip instead of shaking the handle,
+- **it looks for work**: `Game._whip_target()` offers the nearest live hostile
+  inside `WHIP_SEEK_RANGE` and the lash steers onto its *bearing* — the anchor,
+  the handle and the hostile collinear — at `WHIP_AIM_RATE` radians a second.
+  Slewing rather than snapping is the balance: a whip that arrived at a target
+  in one frame would be a homing missile wearing a rope, and undodgeable. With
+  nothing in range it falls back to the `WHIP_SWEEP_HZ` side-to-side sweep, and
+  a hostile **below** the craft is refused, because the lash is anchored above
+  the cockpit and folding it back through the hull cuts nothing but the
+  player's own silhouette. The choice is made by position and list order and
+  never by RNG, so a seeded replay reproduces every swing,
 - contact damage: `WHIP_DMG` per enemy per `WHIP_HIT_CD` seconds
   (`Game._whip_cd`),
 - rendering: one `fx_whip` bead per point (pulsing scale) over a two-pass
@@ -269,7 +283,11 @@ Pickup `ItemKind.WHIP` (weighted like other rare items) sets
 
 All whip constants live in `config.py` (`WHIP_*`), the simulation is
 pygame-free and covered by `tests/test_sprites.py` (attachment, expiry,
-forward reach, arc bounds).
+forward reach, arc bounds, the reach the length is supposed to buy, curl
+measured against the same lash with the power set to 1.0, bearing-lock onto a
+target, the slew limit, the refused target below the craft, the sweep that
+resumes with nothing to chase, and the game-side choice of nearest reachable
+hostile).
 
 ## Half-moon blades
 

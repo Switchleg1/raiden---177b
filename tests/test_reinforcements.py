@@ -127,23 +127,29 @@ def test_cleared_sector_keeps_the_loadout():
     g = make_game()
     g.player.weapon_level = 4
     g.player.missile_level = 2
+    g.player.moon_level = 3
     g.advance_level()
     assert g.level_index == 1
     assert g.player.weapon_level == 4
     assert g.player.missile_level == 2
+    assert g.player.moon_level == 3, "sector clear ate the blade track"
 
 
 def test_death_and_new_game_still_wipe_the_loadout():
     g = make_game()
     g.player.weapon_level = 5
     g.player.missile_level = 3
+    g.player.moon_level = C.MOON_MAX_LEVEL
     g.start_level(g.level_index)          # respawn path: no carry
     assert g.player.weapon_level == C.WEAPON_BASE_LEVEL
     assert g.player.missile_level == C.MISSILE_BASE_LEVEL
+    assert g.player.moon_level == C.MOON_BASE_LEVEL
 
     g.player.weapon_level = 5
+    g.player.moon_level = C.MOON_MAX_LEVEL
     g.new_game()
     assert g.player.weapon_level == C.WEAPON_BASE_LEVEL
+    assert g.player.moon_level == C.MOON_BASE_LEVEL
 
 
 def test_retention_does_not_resurrect_the_battlefield():

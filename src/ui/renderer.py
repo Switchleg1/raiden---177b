@@ -807,6 +807,89 @@ class Renderer:
             self.canvas.blit(surf, (0, 0))
 
     # ---- HUD --------------------------------------------------------------
+    # The power tracks in the order they are displayed: shape, then the label
+    # that says it again without relying on colour.
+    POWER_TRACKS = (("vulcan", "WPN", "weapon_level", C.WEAPON_MAX_LEVEL),
+                    ("rocket", "MIS", "missile_level", C.MISSILE_MAX_LEVEL),
+                    ("moon", "MOON", "moon_level", C.MOON_MAX_LEVEL))
+
+    def power_readouts(self, game: Any) -> list[dict[str, Any]]:
+        """Where the three power tracks sit on the HUD line.
+
+        The HUD used three shapes for three identical ideas: pips for the gun, a
+        bare number for the missiles, an icon-plus-number for the blades - which
+        is why the blade readout looked like the only one that existed. One
+        layout computes every track the same way, so a fourth is displayed the
+        moment it is added to POWER_TRACKS, and so the boxes below can be tested
+        for overlap instead of eyeballed out of a pixel diff.
+
+        A track at zero is drawn empty rather than hidden: an empty row of pips
+        says "there is a weapon here, and you do not have it yet", which is an
+        invitation, while a missing readout is a weapon the player never learns
+        to look for.
+        """
+        import pygame
+        wf = get_font(15)
+        pl = game.player
+        gap = 16
+        specs = [(kind, label, getattr(pl, slot), cap)
+                 for kind, label, slot, cap in self.POWER_TRACKS]
+        label_w = [wf.size(label)[0] for _k, label, _l, _c in specs]
+        # 18 px glyph + 4 gap + label + 6 gap + one 14 px cell per level.
+        widths = [18 + 4 + lw + 6 + cap * 14
+                  for lw, (_k, _l, _lv, cap) in zip(label_w, specs,
+                                                     strict=True)]
+        total = sum(widths) + gap * (len(specs) - 1)
+        # Centred in the free ground between "HIGH n" and the bomb pips.
+        left = C.FIELD_LEFT + 84
+        right = C.LOGICAL_W - C.FIELD_LEFT - C.BOMB_MAX * 16 - 48
+        x = left + max(0, ((right - left) - total) // 2)
+        out: list[dict[str, Any]] = []
+        for (kind, label, level, cap), lw, w in zip(specs, label_w, widths,
+                                                    strict=True):
+            label_x = x + 22
+            out.append({"kind": kind, "label": label, "level": level,
+                        "max": cap, "glyph_x": int(x), "label_x": int(label_x),
+                        "pip_x": int(label_x + lw + 6),
+                        "box": pygame.Rect(int(x), 28, int(w), 20)})
+            x += w + gap
+        return out
+
+    def _power_glyph(self, kind: str, x: int, y: int, col: Any) -> None:
+        """A 14 px weapon glyph, drawn and not blitted.
+
+        The HUD line is 15 px tall: a 26 px sprite tile is either resampled
+        (soft) or droops out of the strip, which is what the blade icon did
+        before it was drawn. Vector glyphs stay crisp, cost nothing, match the
+        pen-mode shapes the field falls back to, and let the three tracks be
+        one family instead of three art assets with different optics.
+        """
+        import pygame
+        if kind == "moon":
+            pygame.draw.arc(self.canvas, col, (x, y, 13, 12),
+                            math.tau * 0.16, math.tau * 0.84, 2)
+            pygame.draw.arc(self.canvas, _scale_rgb(col, 0.55),
+                            (x + 3, y + 2, 7, 7),
+                            math.tau * 0.2, math.tau * 0.8, 1)
+        elif kind == "rocket":
+            # Nose, body, fins: a missile at 14 px is a nose and two fins, and
+            # anything finer turns into a smudge that reads as "not the bolt".
+            pygame.draw.polygon(self.canvas, col,
+                                [(x + 7, y), (x + 11, y + 6), (x + 3, y + 6)])
+            pygame.draw.rect(self.canvas, col, (x + 4, y + 6, 6, 6))
+            pygame.draw.polygon(self.canvas, _scale_rgb(col, 0.6),
+                                [(x + 4, y + 8), (x + 1, y + 13),
+                                 (x + 4, y + 13)])
+            pygame.draw.polygon(self.canvas, _scale_rgb(col, 0.6),
+                                [(x + 10, y + 8), (x + 13, y + 13),
+                                 (x + 10, y + 13)])
+        else:
+            # Vulcan: a bolt, which is what the gun throws.
+            pygame.draw.polygon(self.canvas, col,
+                                [(x + 8, y), (x + 2, y + 8), (x + 6, y + 8),
+                                 (x + 5, y + 14), (x + 12, y + 6),
+                                 (x + 8, y + 6)])
+
     def draw_hud(self, game: Any, elapsed: float) -> None:
         import pygame
         p = self.palette
@@ -820,34 +903,20 @@ class Renderer:
         hf = get_font(15)
         hs = hf.render(f"HIGH {game.high_score}", True, p.hud_text)
         self.canvas.blit(hs, (C.FIELD_LEFT + 4, 32))
-        # weapon power bar + missile + bombs (icons + text, not colour-only)
+        # Bombs stay a row of pips on the right; the three power tracks share
+        # the readout below (icons + text, not colour-only).
         pl = game.player
-        wx = C.LOGICAL_W // 2 - 60
         wf = get_font(15)
-        self.canvas.blit(wf.render("WPN", True, p.hud_text), (wx, 30))
-        for i in range(C.WEAPON_MAX_LEVEL):
-            on = i < pl.weapon_level
-            col = p.ui_selected if on else (60, 66, 86)
-            pygame.draw.rect(self.canvas, col, (wx + 30 + i * 14, 32, 10, 10),
-                             border_radius=2)
-        self.canvas.blit(wf.render(f"MIS {pl.missile_level}", True, p.hud_text),
-                         (wx + 30 + C.WEAPON_MAX_LEVEL * 14 + 12, 30))
-        # Blades are a third track, so they get a third readout - drawn with the
-        # weapon's own art so it is identifiable without reading the number,
-        # and left blank at zero so a fresh craft does not advertise a weapon it
-        # has not picked up.
-        mx = wx + 30 + C.WEAPON_MAX_LEVEL * 14 + 12 + 58
-        if pl.moon_level > 0:
-            # Drawn, not blitted: the HUD line is 15 px and the blade tile is 26,
-            # so the sprite either gets resampled (soft) or droops out of the
-            # strip (it did). Two arcs are crisp at any size, cost nothing, and
-            # match the crescent the pen-mode bullet already falls back to.
-            pygame.draw.arc(self.canvas, (206, 234, 255), (mx, 32, 13, 12),
-                            math.tau * 0.16, math.tau * 0.84, 2)
-            pygame.draw.arc(self.canvas, (86, 128, 178), (mx + 3, 34, 7, 7),
-                            math.tau * 0.2, math.tau * 0.8, 1)
-            self.canvas.blit(wf.render(f"MOON {pl.moon_level}", True,
-                                       p.hud_text), (mx + 19, 30))
+        for ro in self.power_readouts(game):
+            self._power_glyph(ro["kind"], ro["glyph_x"], 31, p.hud_text)
+            self.canvas.blit(wf.render(ro["label"], True, p.hud_text),
+                             (ro["label_x"], 30))
+            for i in range(ro["max"]):
+                on = i < ro["level"]
+                col = p.ui_selected if on else (60, 66, 86)
+                pygame.draw.rect(self.canvas, col,
+                                 (ro["pip_x"] + i * 14, 32, 10, 10),
+                                 border_radius=2)
         bx = C.LOGICAL_W - C.FIELD_LEFT - 8
         for i in range(C.BOMB_MAX):
             on = i < pl.bomb_stock

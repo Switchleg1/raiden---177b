@@ -111,22 +111,34 @@ MOON_FAN_DEG = 7.5                     # angular step across the fan
 WHIP_TIME = 12.0            # seconds the power lasts (pickup refreshes)
 
 
-WHIP_LEN = 210.0            # lash length in logical units
+WHIP_LEN = 300.0            # lash length in logical units
 
 
-WHIP_POINTS = 14            # sampled link points along the curve
+WHIP_POINTS = 18            # sampled link points along the curve
 
 
-WHIP_SWEEP_HZ = 0.85        # side-to-side sweep rate
+WHIP_SWEEP_HZ = 0.85        # side-to-side sweep rate with nothing to chase
 
 
-WHIP_MAX_ANGLE = 64.0       # sweep extent from vertical, degrees
+WHIP_MAX_ANGLE = 92.0       # how far the lash may lean from vertical, degrees
+
+
+WHIP_CURL_POWER = 2.3       # lean grows toward the tip as f ** this (>1 = curl)
 
 
 WHIP_WAVE_HZ = 1.6          # snake-wave travelling down the lash
 
 
-WHIP_WAVE_AMP = 0.30        # wave amplitude, radians
+WHIP_WAVE_AMP = 0.40        # wave amplitude, radians
+
+
+WHIP_WAVE_TAPER = 1.5       # wave amplitude also grows toward the tip
+
+
+WHIP_AIM_RATE = 3.4         # rad/s: how fast the lash can swing onto a target
+
+
+WHIP_SEEK_RANGE = 460.0     # px: the whip reaches for a hostile this near
 
 
 WHIP_DMG = 4                # damage per contact

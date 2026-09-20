@@ -13,6 +13,23 @@ class Player:
                  "fire_timer", "missile_timer", "moon_timer", "invuln",
                  "shield")
 
+    # The power tracks, as one value. Clearing a sector carries them, dying
+    # wipes them. They used to be copied by hand, two names at a time, and when
+    # the blade track arrived it was simply not in the copy: a sector clear ate
+    # it. Named once, here, and read/written by name, so a fourth track is
+    # carried the moment it exists (tests/test_entities.py walks __slots__ and
+    # fails if a level ever sits outside the loadout).
+    LOADOUT_SLOTS = ("weapon_level", "missile_level", "moon_level")
+
+    def loadout(self) -> tuple[int, ...]:
+        """The power tracks, in LOADOUT_SLOTS order."""
+        return tuple(getattr(self, name) for name in self.LOADOUT_SLOTS)
+
+    def apply_loadout(self, loadout: tuple[int, ...]) -> None:
+        """Restore a loadout taken from loadout()."""
+        for name, value in zip(self.LOADOUT_SLOTS, loadout, strict=True):
+            setattr(self, name, value)
+
     def __init__(self) -> None:
         self.half = C.PLAYER_HALF
         self.r = C.PLAYER_HITBOX_R

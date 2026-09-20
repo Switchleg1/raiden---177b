@@ -95,9 +95,7 @@ class Game:
         reward, not a wipe - the weapon and missile levels you earned roll into
         the next sector with you.
         """
-        carried = None
-        if keep_power:
-            carried = (self.player.weapon_level, self.player.missile_level)
+        carried = self.player.loadout() if keep_power else None
         self.level_index = max(0, min(index, C.FINAL_LEVEL_INDEX))
         self._wave_timer = 0.0
         self._spawn_timer = 0.35
@@ -110,7 +108,7 @@ class Game:
         self.items = []
         self._serve_craft()
         if carried is not None:
-            self.player.weapon_level, self.player.missile_level = carried
+            self.player.apply_loadout(carried)
 
     def advance_level(self) -> None:
         # Sector cleared: the loadout comes with the player.
@@ -150,6 +148,34 @@ class Game:
         i = (self.level_index if index is None else
              max(0, min(int(index), C.FINAL_LEVEL_INDEX)))
         return C.LEVELS[i].boss
+
+    def _whip_target(self) -> tuple[float, float] | None:
+        """The hostile the lash should bend toward, or None to sweep freely.
+
+        The nearest live hostile within ``WHIP_SEEK_RANGE`` of the craft. The
+        choice is made by position and list order, never by RNG: the model is a
+        seeded simulation and a whip that flickered between two equally close
+        enemies on float noise would make a replay lie.
+
+        A hostile below the craft is skipped rather than tracked. The lash is
+        anchored above the cockpit and thrown upward, so "aim at that mine
+        behind me" would only fold the whip through the player's own hull.
+        """
+        pl = self.player
+        best: tuple[float, float] | None = None
+        best_d = C.WHIP_SEEK_RANGE * C.WHIP_SEEK_RANGE
+        for e in self.enemies:
+            if not e.alive:
+                continue
+            dy = e.y - pl.y
+            if dy >= 0.0:
+                continue
+            dx = e.x - pl.x
+            d = dx * dx + dy * dy
+            if d < best_d:
+                best_d = d
+                best = (e.x, e.y)
+        return best
 
     def _serve_craft(self) -> None:
         self.player.full_restore()
@@ -474,7 +500,7 @@ class Game:
         if self.whip_timer > 0.0:
             self.whip_clock += dt
             self.whip_timer = max(0.0, self.whip_timer - dt)
-            self.whip.update(dt, pl.x, pl.y)
+            self.whip.update(dt, pl.x, pl.y, self._whip_target())
         else:
             self.whip.points = []
             if self._whip_cd:

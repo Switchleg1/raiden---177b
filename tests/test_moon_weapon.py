@@ -344,7 +344,7 @@ def test_the_crescent_survives_the_high_contrast_pen():
     """
     canvas = pygame.Surface((C.LOGICAL_W, C.LOGICAL_H))
     rend = ui.Renderer(canvas, C.Settings(high_contrast=True))
-    rend._bullet_frame = lambda sheet, spin=True: None  # type: ignore[assignment]
+    rend._bullet_frame = lambda sheet: None  # type: ignore[assignment]
     bx, by = 400.0, 300.0
     blade = Bullet(bx, by, 0.0, -C.MOON_SPEED, C.MOON_R, C.MOON_DMG,
                    friendly=True, pierce=True)
@@ -357,27 +357,54 @@ def test_the_crescent_survives_the_high_contrast_pen():
     assert sum(centre) < sum(belly), "a crescent is hollow, not a blob"
 
 
-def test_the_hud_shows_the_blade_track_and_only_when_it_is_held():
-    wx = C.LOGICAL_W // 2 - 60
-    mx = wx + 30 + C.WEAPON_MAX_LEVEL * 14 + 12 + 58
-    strip = (mx - 4, 26, 100, 20)
-    a_off, a_on = (hud_surface(n).subsurface(strip) for n in (0, 2))
-    # The HUD draws on a bare canvas, so an empty strip is a black strip: the
-    # track is silent until the first pod, and loud afterwards.
-    assert not any(a_off.get_at((x, y))[:3] != (0, 0, 0)
-                   for x in range(0, 100, 2) for y in range(0, 20, 2))
-    assert _bytes(a_off) != _bytes(a_on)
+def test_every_power_track_gets_the_same_readout():
+    """Three tracks, one shape: glyph, label, pips.
+
+    The HUD showed the gun as pips, the missiles as a bare number and the blades
+    as an icon-plus-number, so the one track a player had just discovered looked
+    like the only one that existed. The layout is now a single function over
+    POWER_TRACKS, and this is what it promises: all three, in order, each with a
+    glyph before its label and pips after it.
+    """
+    canvas, readouts = _hud({})
+    assert [ro["kind"] for ro in readouts] == ["vulcan", "rocket", "moon"]
+    for ro in readouts:
+        assert ro["glyph_x"] < ro["label_x"] < ro["pip_x"]
+        assert ro["max"] >= 1
+        assert ro["label"], "a glyph alone is colour-only reasoning by another name"
+    # A fourth track would have to be added to POWER_TRACKS to render at all.
+    assert len(readouts) == len(ui.Renderer.POWER_TRACKS)
+    assert canvas is not None
 
 
-def test_the_blade_readout_does_not_disturb_the_missile_readout():
-    """Three tracks on one line: adding one may not cover its neighbour."""
-    def mis_strip(level: int) -> bytes:
-        canvas = hud_surface(level)
-        wx = C.LOGICAL_W // 2 - 60
-        x = wx + 30 + C.WEAPON_MAX_LEVEL * 14 + 8
-        return _bytes(canvas.subsurface((x, 26, 52, 20)))
+def test_the_readouts_fit_the_hud_line_without_touching_each_other():
+    """Boxes, not pixels: neighbours must not overlap, or cover the bombs."""
+    _canvas, readouts = _hud({})
+    # A tail-shift is deliberately one shorter: pairs, not siblings.
+    for first, second in zip(readouts, readouts[1:], strict=False):
+        assert first["box"].right <= second["box"].left, (
+            f'{first["kind"]} covers {second["kind"]}')
+    bomb_left = (C.LOGICAL_W - C.FIELD_LEFT - C.BOMB_MAX * 16 - 30)
+    assert readouts[-1]["box"].right <= bomb_left, "the strip reaches the bombs"
+    for ro in readouts:
+        assert ro["box"].top >= 26 and ro["box"].bottom <= 48, (
+            f'{ro["kind"]} sits outside the HUD line')
 
-    assert mis_strip(0) == mis_strip(C.MOON_MAX_LEVEL)
+
+def test_raising_a_track_changes_its_own_readout_and_no_other():
+    """The pips are per track: a blade must not brighten the gun."""
+    for kind, _label, _slot, cap in ui.Renderer.POWER_TRACKS:
+        plain, boxes = _hud({})
+        raised, _ = _hud({kind: cap})
+        box = next(ro["box"] for ro in boxes if ro["kind"] == kind)
+        assert _bytes(plain.subsurface(box)) != _bytes(raised.subsurface(box)), (
+            f'{kind} never redraws for its level')
+        for ro in boxes:
+            if ro["kind"] == kind:
+                continue
+            other = ro["box"]
+            assert _bytes(plain.subsurface(other)) == _bytes(
+                raised.subsurface(other)), f'{kind} spilled into {ro["kind"]}'
 
 
 # ----------------------------------------------------------------- helpers
@@ -387,10 +414,18 @@ def _bytes(surf: pygame.Surface) -> bytes:
     return pygame.image.tostring(surf, "RGBA")
 
 
-def hud_surface(level: int) -> pygame.Surface:
+def _hud(levels: dict[str, int]) -> tuple[pygame.Surface, list[dict]]:
+    """The HUD with power tracks set by kind, plus the layout it was drawn on.
+
+    The layout comes back because it is the contract under test: the boxes are
+    computed by the renderer, so the assertions are about its own geometry
+    rather than about coordinates the test invented.
+    """
     canvas = pygame.Surface((C.LOGICAL_W, C.LOGICAL_H))
     rend = ui.Renderer(canvas, C.Settings())
     game = _game()
-    game.player.moon_level = level
+    for kind, _label, slot, _cap in ui.Renderer.POWER_TRACKS:
+        if kind in levels:
+            setattr(game.player, slot, levels[kind])
     rend.draw_hud(game, 3.0)
-    return canvas
+    return canvas, rend.power_readouts(game)
