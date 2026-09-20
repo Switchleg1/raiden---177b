@@ -385,7 +385,8 @@ THEMES: tuple[dict, ...] = (
     {"name": "Turbo Drift", "root": 53, "bpm": 128, "lead": "saw",
      "prog": (0, 5, 3, 6, 0, 4, 5, 6), "groove": "drive16", "kit": "crisp"},
     {"name": "Final Wave",  "root": 58, "bpm": 134, "lead": "pulse",
-     "prog": (0, 6, 5, 4, 3, 6, 5, 4)},
+     "prog": (0, 6, 5, 4, 3, 6, 5, 4),
+     "instruments": {"pad": "strings"}, },
     # Extra level cues: the level playlist picks a random track per level (never
     # the same one back-to-back), so the pool is deliberately larger than the
     # number of levels. New original progressions in classic synthwave archetypes
@@ -396,9 +397,11 @@ THEMES: tuple[dict, ...] = (
     {"name": "Midnight Run", "root": 57, "bpm": 122, "lead": "saw",
      "prog": (0, 6, 5, 0, 6, 4, 5, 6)},
     {"name": "Daydream Vector", "root": 62, "bpm": 118, "lead": "pulse",
-     "prog": (0, 5, 2, 4, 5, 3, 2, 6), "kit": "soft"},
+     "prog": (0, 5, 2, 4, 5, 3, 2, 6), "kit": "soft",
+     "instruments": {"arp": "bell"}, },
     {"name": "Sunset Circuit", "root": 55, "bpm": 126, "lead": "triangle",
-     "prog": (0, 3, 6, 5, 3, 0, 4, 6), "kit": "soft"},
+     "prog": (0, 3, 6, 5, 3, 0, 4, 6), "kit": "soft",
+     "instruments": {"lead": "flute"}, },
     {"name": "Hyper Grid", "root": 60, "bpm": 138, "lead": "square",
      "prog": (0, 4, 5, 6, 3, 4, 5, 0)},
     # Original cues channelled from classic NES/SNES action-score archetypes
@@ -410,19 +413,23 @@ THEMES: tuple[dict, ...] = (
      "prog": (0, 6, 5, 6, 0, 6, 5, 4)},          # driving belt-scroll riff
     {"name": "Back Alley", "root": 53, "bpm": 126, "lead": "square",
      "scale": "dorian", "groove": "halftime", "kit": "heavy",
-     "prog": (0, 0, 5, 6, 3, 0, 6, 4)},          # tense verse/chorus brawl
+     "prog": (0, 0, 5, 6, 3, 0, 6, 4),  # tense verse/chorus brawl
+     "instruments": {"arp": "pluck"}, },
     {"name": "Cathedral Run", "root": 55, "bpm": 130, "lead": "saw",
      "kit": "metal",
-     "prog": (0, 5, 6, 5, 0, 3, 6, 4)},          # gothic heroic gallop
+     "prog": (0, 5, 6, 5, 0, 3, 6, 4),  # gothic heroic gallop
+     "instruments": {"pad": "strings", "arp": "bell"}, },
     {"name": "Crypt March", "root": 57, "bpm": 116, "lead": "pulse",
      "scale": "phrygian", "groove": "march", "kit": "heavy",
-     "prog": (0, 6, 5, 0, 3, 6, 5, 4)},          # brooding dungeon crawl
+     "prog": (0, 6, 5, 0, 3, 6, 5, 4),  # brooding dungeon crawl
+     "instruments": {"bass": "pluck"}, },
     {"name": "Clockwork Tide", "root": 60, "bpm": 124, "lead": "pulse",
      "groove": "drive16",
      "prog": (0, 2, 5, 4, 0, 2, 6, 4)},          # hopeful mediant (III) lift
     {"name": "Knight's Resolve", "root": 58, "bpm": 120, "lead": "triangle",
      "groove": "march", "kit": "punch",
-     "prog": (0, 3, 2, 4, 5, 3, 0, 6)},          # noble quest fanfare
+     "prog": (0, 3, 2, 4, 5, 3, 0, 6),  # noble quest fanfare
+     "instruments": {"lead": "flute", "lead_b": "violin"}, },
     # ---- researched NES/SNES archetypes (see docs) -------------------------------
     # Original degree progressions channelled from real chord *analyses* of these
     # scores (structure only, never copied melodies, never trademarked titles).
@@ -430,52 +437,65 @@ THEMES: tuple[dict, ...] = (
     # gothic cadence that defines Castlevania and JRPG battle music.
     {"name": "Blood Moon Rite", "root": 57, "bpm": 128, "lead": "saw",
      "scale": "harmonic", "groove": "halftime", "kit": "heavy",
-     "prog": (0, 5, 6, 4, 0, 5, 6, 4)},   # i-VI-vii degree-V ritual
+     "prog": (0, 5, 6, 4, 0, 5, 6, 4),  # i-VI-vii degree-V ritual
+     "instruments": {"arp": "bell"}, },
     {"name": "Candelabra Hall", "root": 55, "bpm": 122, "lead": "saw",
      "scale": "harmonic", "kit": "soft",
-     "prog": (0, 3, 4, 0, 0, 3, 4, 5)},   # i-iv-V-i
+     "prog": (0, 3, 4, 0, 0, 3, 4, 5),  # i-iv-V-i
+     "instruments": {"lead": "bell"}, },
     {"name": "Night Fortress", "root": 57, "bpm": 134, "lead": "pulse",
      "scale": "harmonic", "kit": "metal",
-     "prog": (0, 6, 5, 4, 0, 3, 5, 4)},   # descending gothic
+     "prog": (0, 6, 5, 4, 0, 3, 5, 4),  # descending gothic
+     "instruments": {"pad": "strings"}, },
     {"name": "Battle Verge", "root": 62, "bpm": 130, "lead": "square",
-     "scale": "harmonic", "prog": (0, 3, 4, 0, 5, 3, 4, 0)},   # i-iv-V (CT battle)
+     "scale": "harmonic", "prog": (0, 3, 4, 0, 5, 3, 4, 0),  # i-iv-V (CT battle)
+     "instruments": {"bass": "pluck"}, },
     {"name": "Magus Gate", "root": 64, "bpm": 126, "lead": "saw",
      "scale": "harmonic", "groove": "halftime", "kit": "soft",
-     "prog": (0, 2, 0, 4, 0, 5, 2, 4)},   # III+ aug mystery
+     "prog": (0, 2, 0, 4, 0, 5, 2, 4),  # III+ aug mystery
+     "instruments": {"lead": "violin", "pad": "strings"}, },
     {"name": "Hyrule Ascent", "root": 60, "bpm": 124, "lead": "pulse",
      "scale": "lydian", "groove": "march", "kit": "punch",
-     "prog": (0, 4, 5, 3, 0, 4, 1, 0)},      # heroic Lydian
+     "prog": (0, 4, 5, 3, 0, 4, 1, 0),  # heroic Lydian
+     "instruments": {"lead": "flute"}, },
     {"name": "Kakariko Heights", "root": 62, "bpm": 130, "lead": "triangle",
      "scale": "lydian", "groove": "break", "kit": "punch",
      "prog": (0, 1, 3, 4, 0, 1, 4, 0)},      # Lydian II lift
     {"name": "Rooftop Duel", "root": 53, "bpm": 128, "lead": "saw",
      "kit": "heavy",
-     "prog": (0, 6, 0, 5, 6, 0, 4, 0)},                          # belt-scroll i-VII
+     "prog": (0, 6, 0, 5, 6, 0, 4, 0),  # belt-scroll i-VII
+     "instruments": {"lead": "violin"}, },
     # Secret of Mana "Fear of the Heavens" homage: analyses give Am with a major
     # V (D/E) and chromatic mediants -> A harmonic minor, i-VI-iv-V.
     {"name": "Empyrean Dread", "root": 57, "bpm": 118, "lead": "saw",
      "scale": "harmonic", "groove": "halftime", "kit": "heavy",
-     "prog": (0, 5, 3, 4, 0, 5, 3, 4)},   # i-VI-iv-V (SoM)
+     "prog": (0, 5, 3, 4, 0, 5, 3, 4),  # i-VI-iv-V (SoM)
+     "instruments": {"pad": "strings"}, },
     # ---- more classics -----------------------------------------------------------
     # Original degree progressions in the spirit of these scores (structure only;
     # no copied melodies, no trademarked names as track titles).
     {"name": "Oath of Flame", "root": 57, "bpm": 130, "lead": "saw",      # Soul Blazer
      "scale": "harmonic", "kit": "metal",
-     "prog": (0, 3, 4, 0, 0, 5, 3, 4)},              # noble i-iv-V
+     "prog": (0, 3, 4, 0, 0, 5, 3, 4),  # noble i-iv-V
+     "instruments": {"lead": "violin"}, },
     {"name": "Peak of Regret", "root": 55, "bpm": 124, "lead": "saw",     # Soul Blazer
      "groove": "halftime", "kit": "heavy",
-     "prog": (0, 6, 5, 4, 0, 6, 3, 4)},                                   # epic descent
+     "prog": (0, 6, 5, 4, 0, 6, 3, 4),  # epic descent
+     "instruments": {"lead": "flute", "lead_b": "violin", "pad": "strings"}, },
     {"name": "Overture of Field", "root": 61, "bpm": 126, "lead": "triangle",  # ALttP
      "scale": "major", "groove": "march",
-     "prog": (0, 3, 4, 0, 5, 3, 4, 0)},                 # bright heroic
+     "prog": (0, 3, 4, 0, 5, 3, 4, 0),  # bright heroic
+     "instruments": {"lead": "flute", "pad": "strings"}, },
     {"name": "Neon Freeway", "root": 62, "bpm": 140, "lead": "square",    # Mega Man X
-     "prog": (0, 0, 3, 4, 0, 5, 3, 4)},                                   # driving i-VII
+     "prog": (0, 0, 3, 4, 0, 5, 3, 4),  # driving i-VII
+     "instruments": {"arp": "bell"}, },
     {"name": "Crater Wastes", "root": 53, "bpm": 110, "lead": "saw",      # Metroid
      "scale": "dorian", "groove": "halftime", "kit": "soft",
      "prog": (0, 6, 5, 0, 3, 6, 5, 4)},                                   # eerie expanse
     {"name": "Gearwork Cathedral", "root": 57, "bpm": 134, "lead": "pulse",   # Castlevania
      "scale": "harmonic", "kit": "metal",
-     "prog": (0, 4, 5, 6, 0, 4, 3, 4)},              # clockwork gothic
+     "prog": (0, 4, 5, 6, 0, 4, 3, 4),  # clockwork gothic
+     "instruments": {"arp": "bell"}, },
     # ---- SNES action-score profiles, driving-bass arrangements --------------
     # Structural homages only: mode, meter, cadence shape and layer roles were
     # taken from analyses of the scores; the notes here are written, the titles
@@ -487,14 +507,16 @@ THEMES: tuple[dict, ...] = (
     {"name": "Knight of the Marsh", "root": 57, "bpm": 132, "lead": "square",
      "scale": "natural", "motifs": "hero", "bass": "chug",
      "groove": "march", "kit": "heavy",
-     "prog": (0, 5, 6, 0, 3, 5, 6, 4)},
+     "prog": (0, 5, 6, 0, 3, 5, 6, 4),
+     "instruments": {"lead": "flute", "lead_b": "violin", "pad": "strings"}, },
     # Seeress profile in a level arrangement: Lydian whole-note melody over the
     # running bass - the slow line and the fast line never share a rhythm, so
     # the cue can be tender and fast at the same time.
     {"name": "Starfall Vale", "root": 60, "bpm": 138, "lead": "triangle",
      "scale": "lydian", "motifs": "lyric", "bass": "run",
      "groove": "drive16", "kit": "soft",
-     "prog": (0, 3, 4, 0, 5, 3, 4, 0)},
+     "prog": (0, 3, 4, 0, 5, 3, 4, 0),
+     "instruments": {"lead": "violin", "pad": "strings"}, },
 )
 
 MENU_THEMES: tuple[dict, ...] = (
@@ -517,9 +539,11 @@ MENU_THEMES: tuple[dict, ...] = (
     {"name": "Moonlit Keep", "root": 55, "bpm": 90, "lead": "triangle",
      "prog": (0, 5, 3, 6, 0, 6, 5, 4), "drums": False, "layout": MENU_LAYOUT},
     {"name": "Wandering Star", "root": 60, "bpm": 94, "lead": "pulse",
-     "prog": (0, 2, 4, 5, 0, 3, 2, 4), "drums": False, "layout": MENU_LAYOUT},
+     "prog": (0, 2, 4, 5, 0, 3, 2, 4), "drums": False, "layout": MENU_LAYOUT,
+     "instruments": {"lead": "flute"}, },
     {"name": "Old Chapel", "root": 58, "bpm": 88, "lead": "triangle",
-     "prog": (0, 3, 4, 0, 2, 5, 4, 3), "drums": False, "layout": MENU_LAYOUT},
+     "prog": (0, 3, 4, 0, 2, 5, 4, 3), "drums": False, "layout": MENU_LAYOUT,
+     "instruments": {"pad": "strings", "arp": "bell"}, },
     # Calm menu homages in the same researched NES/SNES spirit (major / Lydian
     # town-and-overworld themes for the bright ones, harmonic-minor for the
     # gothic ballad) -- original progressions, drums off.
@@ -542,7 +566,8 @@ MENU_THEMES: tuple[dict, ...] = (
      "drums": False, "layout": MENU_LAYOUT},
     {"name": "Prelude to Memory", "root": 60, "bpm": 96, "lead": "triangle",   # Final Fantasy
      "scale": "major", "prog": (0, 4, 5, 3, 0, 4, 3, 0),
-     "drums": False, "layout": MENU_LAYOUT},
+     "drums": False, "layout": MENU_LAYOUT,
+     "instruments": {"lead": "flute", "pad": "strings"}, },
     {"name": "Home Town Haze", "root": 62, "bpm": 90, "lead": "pulse",    # EarthBound/Mother
      "scale": "major", "prog": (0, 3, 5, 4, 0, 5, 3, 0),
      "drums": False, "layout": MENU_LAYOUT},
@@ -551,7 +576,8 @@ MENU_THEMES: tuple[dict, ...] = (
      "drums": False, "layout": MENU_LAYOUT},
     {"name": "Gaia's Lament", "root": 57, "bpm": 92, "lead": "triangle",  # Illusion of Gaia
      "prog": (0, 5, 3, 4, 0, 6, 5, 4),
-     "drums": False, "layout": MENU_LAYOUT},
+     "drums": False, "layout": MENU_LAYOUT,
+     "instruments": {"lead": "violin", "pad": "strings"}, },
     # The seeress profile again, arranged as a menu cue: no drums at all, but
     # the running bass line keeps moving under the whole-note melody. Proof that
     # "driving" is a bass-line decision, not a percussion decision.
@@ -582,14 +608,39 @@ BOSS_THEMES: tuple[dict, ...] = (
     # not a long loop; the drive bed keeps it moving regardless.
     {"name": "Angel of Fear", "root": 62, "bpm": 156, "lead": "saw",
      "scale": "harmonic", "prog": (0, 0, 3, 0, 5, 5, 4, 4),
-     "drive": True, "layout": BOSS_LAYOUT},
+     "drive": True, "layout": BOSS_LAYOUT,
+     "instruments": {"pad": "strings"}, },
     {"name": "Death Gaze", "root": 60, "bpm": 168, "lead": "square",
      "scale": "harmonic", "prog": (0, 6, 5, 4, 0, 6, 5, 3),
      "drive": True, "layout": BOSS_LAYOUT},
 )
 
+# Which cues each sector may play, by name. A sector owns a short pool of cues
+# that suit the ground it flies over, and picks one at random per visit, so a
+# sector has a sound without always being the same tune.
+#
+# The first name is the sector's identity cue: it is the one played when the
+# rest of the pool has not rendered yet, so every sector sounds right from the
+# first second of launch. Every cue in THEMES appears in at least one pool - an
+# unreachable cue would be a cue that never gets played or heard.
+LEVEL_CUES: dict[int, tuple[str, ...]] = {
+    0: ("Overture of Field", "Daydream Vector", "Sunset Circuit",
+        "Starfall Vale"),
+    1: ("Knight of the Marsh", "Back Alley", "Crypt March", "Crater Wastes"),
+    2: ("Neon Grid", "Midnight Run", "Neon Freeway", "Rooftop Duel"),
+    3: ("Peak of Regret", "Empyrean Dread", "Hyrule Ascent",
+        "Kakariko Heights", "Clockwork Tide"),
+    4: ("Cathedral Run", "Gearwork Cathedral", "Candelabra Hall",
+        "Magus Gate", "Night Fortress"),
+    5: ("Oath of Flame", "Blood Moon Rite", "Battle Verge", "Steel Fist"),
+    6: ("Laser Night", "Hyper Grid", "Chrome Run", "Retro Cascade"),
+    7: ("Clockwork Tide", "Gearwork Cathedral", "Turbo Drift", "Cathedral Run"),
+    8: ("Final Wave", "Knight's Resolve", "Neon Freeway", "Night Fortress"),
+}
+
 __all__ = ["SCALE", "SCALES", "MOTIFS", "MOTIF_SETS", "CADENCE", "BASS",
            "BASS_LINES", "KITS", "GROOVES",
            "GROOVE_BY_TEMPO", "KIT_BY_TEMPO", "GROOVE_BOSS", "KIT_BOSS",
            "LAYOUT", "MENU_LAYOUT", "BOSS_LAYOUT",
-           "THEMES", "MENU_THEMES", "MENU_THEME", "BOSS_THEMES"]
+           "THEMES", "MENU_THEMES", "MENU_THEME", "BOSS_THEMES",
+           "LEVEL_CUES"]

@@ -188,7 +188,7 @@ class AudioManager:
         try:
             import music as _music_mod
             self._music_ch = pygame.mixer.Channel(MUSIC_CHANNEL)
-            self._ntracks = len(_music_mod.THEMES)
+            self._ntracks = len(self._music_build_plan(_music_mod))
             self._music_thread = threading.Thread(
                 target=self._build_music_bytes, name="raiden-music", daemon=True)
             self._music_thread.start()
@@ -199,33 +199,62 @@ class AudioManager:
         self.apply_settings(self.settings)
         return True
 
-    def _music_build_plan(self, _music_mod: Any) -> list[tuple[str, int, dict]]:
-        """Ordered (pool, key-ident, theme) render steps.
+    def _music_build_plan(self, _music_mod: Any) -> list[tuple[str, str, dict]]:
+        """Ordered (pool, buffer-key, theme) render steps.
 
-        First menu track, first level track and first boss cue go first (so all
-        three pools can start playing within a few seconds of launch), then the
-        remainder of each pool. Level pool is shuffled for variety (seeded by
-        module RNG, not gameplay). The boss pool rides early because a boss can
-        warp in during the first minute, and silence during the fight is the
-        worst possible place to be still rendering.
+        The order is a startup-latency decision, not a cosmetic one. Three cues
+        must exist before the player does anything: one menu cue, the identity
+        cue of the sector a run starts on, and one boss cue (a boss can warp in
+        during the first minute, and silence during the fight is the worst place
+        to still be rendering). After those the level pool is scheduled
+        *round-robin across sectors*, so every sector has a cue of its own ready
+        within seconds instead of sector 1 getting four while sector nine waits
+        behind all of them.
+
+        A cue name that the table cannot resolve is skipped: a typo should cost
+        one cue, never the soundtrack.
         """
-        menu_plan = list(_music_mod.MENU_THEMES)
-        boss_pool = list(getattr(_music_mod, "BOSS_THEMES", ()))
-        boss_plan = list(range(len(boss_pool)))
-        level_plan = list(range(self._ntracks))
-        random.shuffle(level_plan)
-        steps: list[tuple[str, int, dict]] = []
-        if menu_plan:
-            steps.append(("menu", 0, menu_plan.pop(0)))
-        if level_plan:
-            idx = level_plan.pop(0)
-            steps.append(("level", idx, _music_mod.THEMES[idx]))
-        if boss_plan:
-            steps.append(("boss", 0, boss_pool[boss_plan.pop(0)]))
-        steps += [("menu", n, t) for n, t in enumerate(menu_plan, start=1)]
-        steps += [("level", i, _music_mod.THEMES[i]) for i in level_plan]
-        steps += [("boss", i, boss_pool[i]) for i in boss_plan]
-        return steps
+        menu_steps = [(MENU_KEY, f"{MENU_KEY}{i}", t)
+                      for i, t in enumerate(_music_mod.MENU_THEMES)]
+        boss_steps = [(BOSS_KEY, f"{BOSS_KEY}{i}", t)
+                      for i, t in enumerate(getattr(_music_mod, "BOSS_THEMES", ()))]
+        pools: dict[int, tuple[str, ...]] = {
+            i: tuple(getattr(_music_mod, "LEVEL_CUES", {}).get(i, ()))
+            for i in range(len(C.LEVELS))
+        }
+        steps: list[tuple[str, str, dict]] = []
+        done: set[str] = set()
+
+        def add_level(name: str) -> None:
+            if name in done:
+                return
+            theme = _music_mod.theme_by_name(name)
+            if theme is None:
+                return
+            done.add(name)
+            steps.append((LEVEL_KEY, f"{LEVEL_KEY}{name}", theme))
+
+        if menu_steps:
+            steps.append(menu_steps[0])
+        if pools:
+            add_level(pools[0][0] if pools[0] else "")
+        if boss_steps:
+            steps.append(boss_steps[0])
+        depth = 0
+        while True:
+            before = len(steps)
+            for i in sorted(pools):
+                pool = pools[i]
+                if depth < len(pool):
+                    add_level(pool[depth])
+            if len(steps) == before:
+                break
+            depth += 1
+        for name in _music_mod.cue_names():    # cues in no pool still get played
+            add_level(name)
+        steps += menu_steps[1:]
+        steps += boss_steps[1:]
+        return [s for s in steps if s[2]]
 
     def _build_music_bytes(self) -> None:
         """Background worker: render tracks and publish EACH one as soon as
@@ -242,22 +271,20 @@ class AudioManager:
             import music as _music_mod
             render = _music_mod.render_track
             steps = self._music_build_plan(_music_mod)
-            for pool, ident, theme in steps:
+            for pool, key, theme in steps:
                 if self._music_stop:
                     return
                 try:
                     buf = render(theme, MIXER_RATE)
                 except Exception:
                     continue          # one bad track must not kill the playlist
-                if pool == "menu":
-                    k, keys = f"{MENU_KEY}{ident}", self._menu_keys
-                elif pool == "boss":
-                    k, keys = f"{BOSS_KEY}{ident}", self._boss_keys
-                else:
-                    k, keys = f"{LEVEL_KEY}{ident}", self._level_keys
+                keys = {MENU_KEY: self._menu_keys,
+                        BOSS_KEY: self._boss_keys,
+                        LEVEL_KEY: self._level_keys}[pool]
                 with self._track_lock:
-                    self._track_bytes[k] = buf
-                    keys.append(k)
+                    self._track_bytes[key] = buf
+                    if key not in keys:
+                        keys.append(key)
         except Exception:
             pass
 
@@ -326,7 +353,33 @@ class AudioManager:
         self._play_music(key, loops=0)
 
     def play_level_music(self, level_index: int = 0) -> None:
-        self._play_random(LEVEL_KEY)
+        """Start a cue for this sector, chosen from the sector's own pool.
+
+        Each sector owns a short list of cues that suit the ground it flies over
+        (``music_content.LEVEL_CUES``) and draws one at random per visit, so a
+        sector keeps its identity without every lap through it being the same
+        tune. Only cues that have finished rendering are eligible; when this
+        sector's pool is still all rendering, *any* ready cue plays rather than
+        leaving a live sector silent, and the cue that just played is skipped.
+        """
+        if not self.available or self._music_ch is None:
+            return
+        cue: str | None = None
+        try:
+            import music as _music_mod
+            ready = [k[len(LEVEL_KEY):] for k in self._level_keys]
+            last = (self._last_level_key[len(LEVEL_KEY):]
+                    if self._last_level_key else None)
+            cue = _music_mod.pick_level_cue(level_index, ready, last)
+        except Exception:
+            cue = None
+        if cue is None:
+            self._play_random(LEVEL_KEY)     # nothing for this sector yet
+            return
+        key = f"{LEVEL_KEY}{cue}"
+        self._play_music(key, loops=0)
+        if self._music_key == key:
+            self._mark_pool_key(LEVEL_KEY, key)
 
     def play_menu_music(self) -> None:
         self._play_random(MENU_KEY)

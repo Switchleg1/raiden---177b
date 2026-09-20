@@ -123,9 +123,12 @@ def mgr(monkeypatch):
     m = AudioManager(__import__("config").Settings())
     m._ntracks = 5
     monkeypatch.setattr("music.MENU_THEMES",
-                        tuple({"n": i} for i in range(3)))
+                        tuple({"name": f"m{i}"} for i in range(3)))
     monkeypatch.setattr("music.THEMES",
-                        tuple({"n": 100 + i} for i in range(5)))
+                        tuple({"name": f"c{i}"} for i in range(5)))
+    monkeypatch.setattr("music.LEVEL_CUES",
+                        {0: ("c0", "c1"), 1: ("c2",), 2: ("c3", "c4")},
+                        raising=False)
     return m
 
 
@@ -135,8 +138,9 @@ def test_boss_pool_rides_early_in_the_build_plan(mgr):
     assert pools[:3] == [MENU_KEY, LEVEL_KEY, BOSS_KEY], \
         "a boss can appear in the first minute; its cue must render early"
     assert pools.count(BOSS_KEY) == len(music.BOSS_THEMES)
-    boss_idents = [i for p, i, _t in plan if p == BOSS_KEY]
-    assert sorted(boss_idents) == list(range(len(music.BOSS_THEMES)))
+    boss_keys = [k for p, k, _t in plan if p == BOSS_KEY]
+    assert sorted(boss_keys) == [f"{BOSS_KEY}{i}"
+                                 for i in range(len(music.BOSS_THEMES))]
 
 
 def test_worker_publishes_boss_keys(mgr, monkeypatch):

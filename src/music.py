@@ -19,9 +19,13 @@ The module is free of pygame so it can be unit-tested headlessly; the
 from __future__ import annotations
 
 import math
+import random
 import threading
+from collections.abc import Sequence
+from typing import Any
 
 import drum_kit
+import instruments
 from audio import MIXER_RATE as RATE
 from music_content import (
     BASS,
@@ -35,6 +39,7 @@ from music_content import (
     KIT_BY_TEMPO,
     KITS,
     LAYOUT,
+    LEVEL_CUES,
     MENU_THEME,
     MENU_THEMES,
     MOTIF_SETS,
@@ -183,6 +188,25 @@ class _Mix:
             drum_kit.play(self.buf, self.rate, s0, voice, vel, self.drums,
                           freq=freq)
 
+    def instr(self, s0: int, dur: float, freq: float, name: str,
+              vol: float) -> None:
+        """Add one note of a synthesised instrument (see ``instruments``).
+
+        The instrument owns its envelope - attack, vibrato, release all arrive on
+        their own schedule - so this is one multiply-add per sample, exactly like
+        a drum hit. Rendering the same pitch and length twice is free: the
+        instrument module caches by ``(name, pitch, length)``.
+        """
+        if s0 >= len(self.buf) or dur <= 0 or vol <= 0:
+            return
+        samples = instruments.note(name, freq, dur, self.rate)
+        if not samples:
+            return
+        buf = self.buf
+        end = min(s0 + len(samples), len(buf))
+        for i in range(s0, end):
+            buf[i] += samples[i - s0] * vol
+
     def normalise(self, peak: float = 0.9, knee: float = 0.68) -> bytes:
         """Soft-clip, scale to ``peak``, then quantise to 16-bit mono.
 
@@ -286,11 +310,27 @@ def _drum_bar(mix, groove: dict, section: str, bar_in_sec: int, at,
         mix.drum(voice, at(beat), vel, freq=tom_pitches.get(i))
 
 
+def _play(mix, s0: int, dur: float, freq: float, spec: str | None, vol: float,
+          *, wave: str = "sine", **kw: Any) -> None:
+    """Play one note: a synthesised instrument if ``spec`` names one, else a wave.
+
+    Arrangement data may name an instrument from ``instruments.NAMES`` ("flute",
+    "violin") or a raw wave ("pulse"), and both live in the same slot. That is
+    what lets a cue be re-voiced by editing one string, and what keeps every cue
+    written before instruments existed rendering exactly as it did.
+    """
+    if spec and instruments.is_instrument(spec):
+        mix.instr(s0, dur, freq, spec, vol)
+    else:
+        mix.voice(s0, dur, freq, spec or wave, vol, **kw)
+
+
 def _add_bar(mix, section, bar_in_sec, root, prog, lead_wave,
              spb, bar_t, drums: bool = True, groove: dict | None = None,
              scale: tuple[int, ...] = SCALE, drive: bool = False,
              motif_keys: tuple[str, str] = ("A", "B"),
-             bass_line: dict[str, tuple[tuple[int, int], ...]] | None = None
+             bass_line: dict[str, tuple[tuple[int, int], ...]] | None = None,
+             voices: dict[str, str] | None = None
              ) -> None:
     """Render one bar's voices into the mix.
 
@@ -302,7 +342,13 @@ def _add_bar(mix, section, bar_in_sec, root, prog, lead_wave,
     ``motif_keys`` selects which ``MOTIFS`` melodies the lead plays (a cue's
     ``motifs`` tag) and ``bass_line`` a named ``BASS_LINES`` pattern (its
     ``bass`` tag); both fall back to the stock tables when the cue is untagged.
+
+    ``voices`` gives a slot an instrument instead of a wave - ``{"lead":
+    "flute", "lead_b": "violin", "pad": "strings"}`` - where ``lead_b`` colours
+    the B section only. A two-voice cue (the flute line of the A phrase taken up
+    by the violin in the answer) is the reason that key exists.
     """
+    voices = voices or {}
     eighth = spb / 2.0
     degree = prog[bar_in_sec % len(prog)]
     chord = _triad(root, degree, scale)
@@ -313,8 +359,8 @@ def _add_bar(mix, section, bar_in_sec, root, prog, lead_wave,
     # --- pad: two sustained chord tones (root + third) ---
     if section in ("A", "B", "outro"):
         for tone in (chord[0], chord[1]):
-            mix.voice(at(0), spb * 3.9, _freq(tone), "tri", 0.055,
-                      decay=0.6, attack=0.08)
+            _play(mix, at(0), spb * 3.9, _freq(tone), voices.get("pad"), 0.055,
+                  wave="tri", decay=0.6, attack=0.08)
 
     # --- bass: 8ths, one octave below the pad, pattern per section or named ---
     line = (bass_line or {}).get(section)
@@ -325,8 +371,8 @@ def _add_bar(mix, section, bar_in_sec, root, prog, lead_wave,
     for e, (tone, octv) in enumerate(tones):
         note = _bass_tone(chord, tone) + bass_oct + octv
         # An octave pop sits a hair louder, or it just reads as a wrong note.
-        mix.voice(at(e * 0.5), eighth * 0.92, _freq(note), "square",
-                  bvol * (1.12 if octv else 1.0), decay=7.0)
+        _play(mix, at(e * 0.5), eighth * 0.92, _freq(note), voices.get("bass"),
+              bvol * (1.12 if octv else 1.0), wave="square", decay=7.0)
 
     # --- drive (boss): 16th octave ghosts under the bass line ---
     if drive and section in ("A", "B"):
@@ -342,8 +388,8 @@ def _add_bar(mix, section, bar_in_sec, root, prog, lead_wave,
         arps = (0, 1, 2, 1, 0, 1, 2, 1)
         for e in range(8):
             tone = chord[arps[e] % 3] + 12
-            mix.voice(at(e * 0.5), eighth * 0.8, _freq(tone), "pulse",
-                      0.09, duty=0.15, decay=10.0)
+            _play(mix, at(e * 0.5), eighth * 0.8, _freq(tone),
+                  voices.get("arp"), 0.09, wave="pulse", duty=0.15, decay=10.0)
 
     # --- lead melody: motif-based, cadence on the last bar of each phrase ---
     if section == "A":
@@ -360,10 +406,11 @@ def _add_bar(mix, section, bar_in_sec, root, prog, lead_wave,
     else:
         motif = ()
         octv = 12
+    lead = voices.get("lead_b" if section == "B" else "lead") or lead_wave
     for start, dur, off in motif:
         note = _scale_tone(root, degree + off, scale) + octv
-        mix.voice(at(start), dur * spb * 0.9, _freq(note), lead_wave, 0.14,
-                  duty=0.2, decay=5.5)
+        _play(mix, at(start), dur * spb * 0.9, _freq(note), lead, 0.14,
+              wave=lead_wave, duty=0.2, decay=5.5)
 
     # --- boss alarm stabs (rhythm bed, not a new tune) ---
     if drive and section in ("A", "B"):
@@ -439,6 +486,9 @@ def render_track(theme: dict, rate: int = RATE) -> bytes:
     motif_keys = MOTIF_SETS.get(theme.get("motifs", "base"),
                                 MOTIF_SETS["base"])
     bass_line = BASS_LINES.get(theme.get("bass", ""))
+    # Voicing lives in one dict per cue so a slot can name an instrument without
+    # colliding with the wave name in "lead" or the bass-pattern name in "bass".
+    voices = theme.get("instruments") or {}
     mix = _Mix(int(bar * total_bars * rate) + 2048, rate=rate, drums=samples)
 
     bar_index = 0
@@ -446,7 +496,7 @@ def render_track(theme: dict, rate: int = RATE) -> bytes:
         for k in range(nbars):
             _add_bar(mix, section, k, root, prog, lead, spb, bar_index * bar,
                      drums=drums, groove=groove, scale=scale, drive=drive,
-                     motif_keys=motif_keys, bass_line=bass_line)
+                     motif_keys=motif_keys, bass_line=bass_line, voices=voices)
             bar_index += 1
 
     return mix.normalise()
@@ -456,20 +506,74 @@ def render_track(theme: dict, rate: int = RATE) -> bytes:
 # is a multi-second loop) and the values are immutable, so every App instance
 # and every test reuses the same buffers instead of re-rendering. The App's
 # background thread reads through these, so only the first caller pays.
-_TRACKS_CACHE: dict[int, dict[int, bytes]] = {}
+_TRACKS_CACHE: dict[int, dict[str, bytes]] = {}
 _MENU_PL_CACHE: dict[int, tuple[bytes, ...]] = {}
 _BUILD_LOCK = threading.Lock()
 
 
-def build_tracks(rate: int = RATE) -> dict[int, bytes]:
-    """Build (or return cached) every level's loop buffer once (index 0..4)."""
+# --------------------------------------------------------------------------
+# Which cue a sector plays: a sector owns a pool (LEVEL_CUES) and draws from it,
+# so a sector has a sound of its own without always being the same tune. The
+# table is names only; everything that decides is here.
+# --------------------------------------------------------------------------
+
+def cue_names() -> tuple[str, ...]:
+    """Every level cue name, in table order."""
+    return tuple(str(t["name"]) for t in THEMES)
+
+
+def theme_by_name(name: str) -> dict | None:
+    """The cue called ``name``, or None. Looked up fresh so a patched THEMES
+    (tests) cannot be shadowed by a stale index."""
+    for theme in THEMES:
+        if theme.get("name") == name:
+            return dict(theme)
+    return None
+
+
+def level_cues(level_index: int) -> tuple[str, ...]:
+    """The cues a sector may play. A sector without a listed pool gets the
+    whole table rather than silence - an unassigned sector is a table edit, not
+    a reason to stop the music."""
+    pool = LEVEL_CUES.get(level_index)
+    return pool if pool else cue_names()
+
+
+def levels_for_cue(name: str) -> tuple[int, ...]:
+    """Which sectors may play this cue (the inverse of :func:`level_cues`).
+
+    A cue shared by two sectors is registered under both, which is what lets a
+    sector fall back to a cue that happens to be ready instead of waiting.
+    """
+    return tuple(i for i, pool in sorted(LEVEL_CUES.items()) if name in pool)
+
+
+def pick_level_cue(level_index: int, ready: Sequence[str],
+                   exclude: str | None = None, rng: Any = random) -> str | None:
+    """Choose which of a sector's cues plays now, from the ones that are ready.
+
+    In order: only this sector's cues; never the cue that just played (hearing
+    the same tune every sector is the mistake the old shared pool made); the
+    sector's identity cue when it is the only thing rendered yet. ``None`` means
+    nothing for this sector exists yet - the caller's signal to fall back.
+    """
+    pool = level_cues(level_index)
+    mine = [name for name in pool if name in set(ready)]
+    choices = [name for name in mine if name != exclude]
+    if not choices:
+        return mine[0] if mine else None
+    return rng.choice(choices)
+
+
+def build_cues(rate: int = RATE) -> dict[str, bytes]:
+    """Build (or return cached) every level cue, keyed by cue name."""
     cached = _TRACKS_CACHE.get(rate)
     if cached is not None:
         return cached
     with _BUILD_LOCK:
         cached = _TRACKS_CACHE.get(rate)
         if cached is None:
-            cached = {i: render_track(t, rate) for i, t in enumerate(THEMES)}
+            cached = {str(t["name"]): render_track(t, rate) for t in THEMES}
             _TRACKS_CACHE[rate] = cached
     return cached
 
@@ -522,6 +626,7 @@ def build_boss(rate: int = RATE) -> bytes:
     return tracks[0] if tracks else b""
 
 
-__all__ = ["THEMES", "BOSS_THEMES", "MENU_THEMES", "MENU_THEME",
-           "render_track", "build_tracks", "build_menu", "build_menu_playlist",
-           "build_bosses", "build_boss"]
+__all__ = ["THEMES", "BOSS_THEMES", "MENU_THEMES", "MENU_THEME", "LEVEL_CUES",
+           "render_track", "build_cues", "build_menu", "build_menu_playlist",
+           "build_bosses", "build_boss", "cue_names", "theme_by_name",
+           "level_cues", "levels_for_cue", "pick_level_cue"]

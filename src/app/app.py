@@ -61,6 +61,7 @@ class App:
         self.effects = ui.Effects(random.Random((seed if seed is not None else 0) + 1))
         self.audio: Any = None  # built in init_display()
         self._music_want: str | None = None
+        self._music_level: int = 0        # sector whose cue pool is wanted
         # High-score table + the arcade initials entry.
         self._scores: list[Pers.ScoreEntry] = []
         self._scores_loaded = False
@@ -493,7 +494,8 @@ class App:
             self._music_want = None
             return
         self._music_want = LEVEL_KEY
-        self.audio.play_level_music()
+        self._music_level = level_index
+        self.audio.play_level_music(level_index)
 
     def _set_menu_music(self) -> None:
         if self.audio is None:
@@ -1026,7 +1028,7 @@ class App:
                     self.audio.play_menu_music()
             elif self._music_want == LEVEL_KEY:
                 if not self.audio.level_playing():
-                    self.audio.play_level_music()
+                    self.audio.play_level_music(self._music_level)
             elif self._music_want == BOSS_KEY:
                 if not self.audio.boss_playing():
                     self.audio.play_boss_music()

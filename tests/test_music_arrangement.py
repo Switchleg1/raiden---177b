@@ -11,11 +11,14 @@ import math
 
 import pytest
 
+import config as C
+import instruments
 import music
 from music_content import (
     BASS,
     BASS_LINES,
     BOSS_THEMES,
+    LEVEL_CUES,
     MENU_THEMES,
     MOTIF_SETS,
     MOTIFS,
@@ -54,9 +57,13 @@ class VoiceLog:
 
     def __init__(self) -> None:
         self.calls: list[tuple[float, float, float, str, float]] = []
+        self.instrs: list[tuple[float, float, float, str, float]] = []
 
     def voice(self, s0, dur, freq, wave, vol, **_kw) -> None:
         self.calls.append((s0, dur, freq, wave, vol))
+
+    def instr(self, s0, dur, freq, name, vol) -> None:
+        self.instrs.append((s0, dur, freq, name, vol))
 
     def drum(self, *_a, **_kw) -> None:
         pass
@@ -224,3 +231,176 @@ def test_a_tagged_cue_differs_from_the_same_cue_untagged():
     hero = _by_name("Knight of the Marsh")
     stripped = {k: v for k, v in hero.items() if k not in ("motifs", "bass")}
     assert _pcm(hero).tobytes() != _pcm(stripped).tobytes()
+
+
+# ------------------------------------------------------ per-sector cue pools
+# A sector owns a pool of cues and draws one at random, so it keeps an identity
+# without every lap through it being the same tune. The table is names; these
+# keep the names honest and the drawing honest.
+
+def test_sector_pools_name_cues_that_exist():
+    known = {t["name"] for t in THEMES}
+    for level, pool in LEVEL_CUES.items():
+        assert pool, f"sector {level} has an empty pool"
+        for name in pool:
+            assert name in known, f"sector {level} lists unknown cue {name!r}"
+
+
+def test_no_cue_is_unreachable():
+    """A cue no sector lists is a cue that never gets played."""
+    reachable = {name for pool in LEVEL_CUES.values() for name in pool}
+    missing = {t["name"] for t in THEMES} - reachable
+    assert not missing, f"cues in no sector pool: {sorted(missing)}"
+
+
+def test_every_sector_has_pools_covering_the_whole_campaign():
+    assert set(LEVEL_CUES) == set(range(len(C.LEVELS)))
+
+
+def test_pools_are_big_enough_to_vary_and_small_enough_to_mean_something():
+    for level, pool in LEVEL_CUES.items():
+        assert 3 <= len(pool) <= 5, f"sector {level} pool is {len(pool)} cues"
+        assert len(set(pool)) == len(pool), f"sector {level} lists a cue twice"
+
+
+def test_no_two_sectors_share_the_same_identity_cue():
+    """The first name is what a sector plays before its pool finishes
+        rendering, so two sectors opening on the same cue is two sectors with no
+        identity."""
+    identities = [LEVEL_CUES[i][0] for i in sorted(LEVEL_CUES)]
+    assert len(set(identities)) == len(identities)
+
+
+def test_landmark_cues_stay_where_the_ground_says_they_belong():
+    """The pools are curated to the terrain, not shuffled."""
+    assert "Overture of Field" in music.level_cues(0)      # the approach
+    assert "Knight of the Marsh" in music.level_cues(1)    # the bayou
+    assert "Final Wave" in music.level_cues(len(C.LEVELS) - 1)   # the last one
+
+
+def test_an_unlisted_sector_falls_back_to_the_whole_table():
+    assert set(music.level_cues(999)) == {t["name"] for t in THEMES}
+
+
+def test_theme_by_name_resolves_and_misses_quietly():
+    assert music.theme_by_name("Neon Grid")["root"] == 57
+    assert music.theme_by_name("no such cue") is None
+
+
+def test_pick_never_leaves_the_sector():
+    import random
+
+    ready = music.cue_names()
+    rng = random.Random(7)
+    for level in sorted(LEVEL_CUES):
+        pool = set(LEVEL_CUES[level])
+        for _ in range(40):
+            assert music.pick_level_cue(level, ready, None, rng) in pool
+
+
+def test_pick_does_not_repeat_the_cue_that_just_played():
+    import random
+
+    rng = random.Random(11)
+    ready = music.cue_names()
+    for level, pool in LEVEL_CUES.items():
+        for just_played in pool:
+            picked = music.pick_level_cue(level, ready, just_played, rng)
+            assert picked != just_played or len(pool) == 1
+
+
+def test_pick_uses_only_what_has_rendered():
+    import random
+
+    rng = random.Random(3)
+    for _ in range(30):
+        got = music.pick_level_cue(0, ["Sunset Circuit"], None, rng)
+        assert got == "Sunset Circuit"
+
+
+def test_pick_falls_back_to_the_identity_cue_when_that_is_all_there_is():
+    import random
+
+    cue = music.pick_level_cue(1, ["Knight of the Marsh"], "Knight of the Marsh",
+                              random.Random(5))
+    assert cue == "Knight of the Marsh", "repetition avoided by going silent"
+
+
+def test_pick_returns_none_when_nothing_for_the_sector_is_ready():
+    assert music.pick_level_cue(2, ["Overture of Field"], None) is None
+
+
+def test_a_shared_cue_belongs_to_every_sector_that_lists_it():
+    for level, pool in LEVEL_CUES.items():
+        for name in pool:
+            assert level in music.levels_for_cue(name)
+    assert set(music.levels_for_cue("no such cue")) == set()
+
+
+# ------------------------------------------------------------------- voicing
+# A cue may hand a slot to one of the synthesised instruments. The table is
+# names in fixed slots; the engine decides what a name means.
+
+VOICE_SLOTS = ("lead", "lead_b", "pad", "arp", "bass")
+
+
+def test_voicings_name_real_instruments_in_real_slots():
+    for theme in THEMES + MENU_THEMES + BOSS_THEMES:
+        for slot, name in (theme.get("instruments") or {}).items():
+            assert slot in VOICE_SLOTS, f"{theme['name']} voices {slot}"
+            assert instruments.is_instrument(name), f"{theme['name']}.{slot}={name}"
+
+
+def test_most_cues_are_still_plain_synths():
+    """The instruments are seasoning. If everything is orchestrated the retro
+    sectors stop sounding retro, so the raw palette has to stay populated."""
+    raw = [t["name"] for t in THEMES if not t.get("instruments")]
+    assert len(raw) >= 10, "the whole roster got orchestrated"
+
+
+def test_a_voiced_slot_renders_through_the_instrument_path():
+    log = _bar(voices={"lead": "flute"})
+    assert log.instrs
+    assert all(entry[3] == "flute" for entry in log.instrs)
+    assert "flute" not in {c[3] for c in log.calls}
+
+
+def test_a_wave_in_a_voice_slot_stays_a_wave():
+    log = _bar(voices={"lead": "saw"})
+    assert not log.instrs
+    assert "saw" in {c[3] for c in log.calls}
+
+
+def test_an_unvoiced_cue_never_touches_the_instrument_path():
+    assert _bar().instrs == []
+
+
+def test_each_slot_voices_its_own_layer():
+    plain = _bar()
+    for slot, expected in (("pad", 2), ("bass", 8), ("arp", 8)):
+        log = _bar(voices={slot: "strings"})
+        assert len(log.instrs) == expected, f"{slot} voiced {len(log.instrs)} notes"
+        assert len(log.calls) < len(plain.calls), f"{slot} did not replace anything"
+
+
+def _render(theme: dict, layout) -> bytes:
+    cue = dict(theme)
+    cue["layout"] = layout
+    return music.render_track(cue, rate=RATE)
+
+
+def test_lead_b_colours_the_answer_and_not_the_question():
+    cue = _by_name("Neon Grid")
+    a_plain = _render(cue, [("A", 1)])
+    a_voiced = _render({**cue, "instruments": {"lead_b": "violin"}}, [("A", 1)])
+    b_plain = _render(cue, [("B", 1)])
+    b_voiced = _render({**cue, "instruments": {"lead_b": "violin"}}, [("B", 1)])
+    assert a_plain == a_voiced, "lead_b leaked into the A section"
+    assert b_plain != b_voiced, "lead_b never reached the B section"
+
+
+def test_a_voiced_cue_sounds_different_from_itself_unvoiced():
+    cue = _by_name("Cathedral Run")
+    whole = [("A", 2)]
+    assert _render(cue, whole) != _render(
+        {k: v for k, v in cue.items() if k != "instruments"}, whole)
