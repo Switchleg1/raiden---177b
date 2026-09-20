@@ -114,6 +114,18 @@ def test_one_broken_track_does_not_kill_the_playlist(mgr, monkeypatch):
 
 
 # ------------------------------------------------------------- sector choice
+def test_a_level_pool_may_draw_a_cue_written_for_the_menu(mgr, monkeypatch):
+    """Cross-table pools are a feature: the planner must render the cue under
+    its own sector, not skip it because it was authored for the attract loop."""
+    import music
+    monkeypatch.setattr("music.LEVEL_CUES", {0: ("c0", "m1")})
+    assert "m1" in _level_names(mgr._music_build_plan(music)), "cue dropped"
+    monkeypatch.setattr("music.render_track", lambda theme, rate: b"x")
+    mgr._music_stop = False
+    mgr._build_music_bytes()
+    assert "levelm1" in mgr._level_keys
+
+
 @pytest.fixture()
 def live(mgr, monkeypatch):
     """A manager that behaves like a running mixer, recording what it played."""

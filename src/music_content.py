@@ -635,7 +635,10 @@ LEVEL_CUES: dict[int, tuple[str, ...]] = {
     5: ("Oath of Flame", "Blood Moon Rite", "Battle Verge", "Steel Fist"),
     6: ("Laser Night", "Hyper Grid", "Chrome Run", "Retro Cascade"),
     7: ("Clockwork Tide", "Gearwork Cathedral", "Turbo Drift", "Cathedral Run"),
-    8: ("Final Wave", "Knight's Resolve", "Neon Freeway", "Night Fortress"),
+    # The fortress at the end of the run, so the march returns - plus the one
+    # drumless cue from the valley, for the sector's empty middle.
+    8: ("Final Wave", "Knight's Resolve", "Neon Freeway", "Night Fortress",
+        "Vale of the Sleeping Star"),
 }
 
 __all__ = ["SCALE", "SCALES", "MOTIFS", "MOTIF_SETS", "CADENCE", "BASS",

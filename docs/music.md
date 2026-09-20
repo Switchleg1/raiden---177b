@@ -171,10 +171,12 @@ The rules live in `music.pick_level_cue()`, not in the table:
 - if nothing for the sector is ready yet, `AudioManager` falls back to *any*
   ready cue, because a live sector with no music is worse than the wrong tune.
 
-A cue may appear in two pools (it is then registered under both sectors, via
-`levels_for_cue`), and every cue in `THEMES` must appear in at least one pool —
-tests enforce both, because a cue no sector can reach is a cue that never gets
-heard. Sectors not in the table get the whole table rather than silence.
+A pool names cues, and a name may come from any table: sector 8 flies under
+`Vale of the Sleeping Star`, which was written as a drumless attract cue. Every
+cue in `THEMES` must appear in at least one pool, and every name in a pool must
+resolve — tests enforce both, because a cue no sector can reach is a cue that
+never gets heard. Sectors not in the table get the whole table rather than
+silence.
 
 Rendering order follows the pools: `AudioManager._music_build_plan` schedules the
 menu cue, then this run's starting identity cue, then one boss cue, then the
@@ -233,10 +235,10 @@ Perf at 22050 Hz (this machine, whole plan = 59 cues):
 | milestone | wall time |
 |-----|-----|
 | menu cue ready | 0.7 s |
-| this run's starting sector cue ready | 3.0 s |
-| first boss cue ready | 4.4 s |
-| every sector has its own cue | ~26 s |
-| whole soundtrack | ~105 s |
+| this run's starting sector cue ready | 3 s |
+| first boss cue ready | 4.5 s |
+| every sector has its own cue | ~30 s |
+| whole soundtrack (60 cues) | ~110 s |
 
 ~2.5 s per stage cue with voicing, ~1.1 s without — the instruments are the
 reason the total went from half a minute to two. It runs on a daemon thread while

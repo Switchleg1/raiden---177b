@@ -239,7 +239,7 @@ def test_a_tagged_cue_differs_from_the_same_cue_untagged():
 # keep the names honest and the drawing honest.
 
 def test_sector_pools_name_cues_that_exist():
-    known = {t["name"] for t in THEMES}
+    known = {t["name"] for table in music.theme_tables() for t in table}
     for level, pool in LEVEL_CUES.items():
         assert pool, f"sector {level} has an empty pool"
         for name in pool:
@@ -328,6 +328,24 @@ def test_pick_falls_back_to_the_identity_cue_when_that_is_all_there_is():
 
 def test_pick_returns_none_when_nothing_for_the_sector_is_ready():
     assert music.pick_level_cue(2, ["Overture of Field"], None) is None
+
+
+def test_every_pool_cue_resolves_whatever_table_wrote_it():
+    """A pool name that no table defines is a cue that never plays. The pools
+    reach across THEMES, MENU_THEMES and BOSS_THEMES on purpose, so the check
+    is against the lookup the planner actually uses."""
+    for level, pool in LEVEL_CUES.items():
+        for name in pool:
+            assert music.theme_by_name(name) is not None, (
+                f"sector {level} lists {name!r}, which nothing defines")
+
+
+def test_a_pool_really_does_reach_across_tables():
+    """The valley flies under a drumless cue written for the menu table; if the
+    pools ever stop reaching, this fails instead of silently dropping it."""
+    level_names = {t["name"] for t in THEMES}
+    cross = {n for pool in LEVEL_CUES.values() for n in pool if n not in level_names}
+    assert cross, "no pool reaches beyond THEMES any more"
 
 
 def test_a_shared_cue_belongs_to_every_sector_that_lists_it():

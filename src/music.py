@@ -522,12 +522,20 @@ def cue_names() -> tuple[str, ...]:
     return tuple(str(t["name"]) for t in THEMES)
 
 
+def theme_tables() -> tuple[tuple[dict, ...], ...]:
+    """Every cue table, level cues first. A pool may reach across them: the cue
+    the valley flies under was written as a drumless menu cue, and a pool is
+    allowed to want it."""
+    return (THEMES, MENU_THEMES, BOSS_THEMES)
+
+
 def theme_by_name(name: str) -> dict | None:
-    """The cue called ``name``, or None. Looked up fresh so a patched THEMES
+    """The cue called ``name``, or None. Looked up fresh, so a patched table
     (tests) cannot be shadowed by a stale index."""
-    for theme in THEMES:
-        if theme.get("name") == name:
-            return dict(theme)
+    for table in theme_tables():
+        for theme in table:
+            if theme.get("name") == name:
+                return dict(theme)
     return None
 
 

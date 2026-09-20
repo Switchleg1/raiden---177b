@@ -240,15 +240,17 @@ class AudioManager:
             add_level(pools[0][0] if pools[0] else "")
         if boss_steps:
             steps.append(boss_steps[0])
+        # One cue per sector per pass, until every pool has been drained. The
+        # loop counts depth, not progress: a pass can add nothing because the
+        # cue at that depth was already scheduled (a sector's identity cue, or a
+        # cue shared with the sector before it), and that must advance to the
+        # next slot rather than end the round-robin.
         depth = 0
-        while True:
-            before = len(steps)
+        while any(depth < len(pool) for pool in pools.values()):
             for i in sorted(pools):
                 pool = pools[i]
                 if depth < len(pool):
                     add_level(pool[depth])
-            if len(steps) == before:
-                break
             depth += 1
         for name in _music_mod.cue_names():    # cues in no pool still get played
             add_level(name)
