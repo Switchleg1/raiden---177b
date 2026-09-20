@@ -21,6 +21,13 @@ is what keeps a 40 s cue from costing a minute of CPU. Rendering happens on
 the audio thread; concurrent renders may compute the same note twice, which is
 wasted work but never corrupted output, so no lock is taken.
 
+Two entry points. :func:`note` renders one isolated note, cached, and is what a
+wave-table arrangement wants. :func:`phrase` renders a *line* - the notes of a
+melody played by one pair of hands, so it stops each note when the next begins,
+slides connected small intervals the way a bowing hand moves, and lets vibrato
+phase carry across the joins. A melody of stacked ``note`` calls sounds like a
+sequencer; the same data through ``phrase`` sounds like a player.
+
 Pure module: no pygame, no numpy, no files, deterministic.
 """
 
@@ -29,9 +36,24 @@ from __future__ import annotations
 import math
 from collections.abc import Callable
 
-__all__ = ["NAMES", "note", "is_instrument", "renderers"]
+__all__ = ["NAMES", "note", "phrase", "is_instrument", "renderers"]
 
 RATE = 44100
+
+# --- portamento --------------------------------------------------------------
+# A bowed instrument does not teleport between pitches. When the bow stays on the
+# string and the hand moves, the pitch *travels*, exponentially, over 40-120 ms,
+# and a player only bothers to slide intervals they can reach without a jump.
+# ``phrase`` applies this; ``note`` accepts it so an arranger can place a single
+# intentional slide.
+PORTAMENTO = 0.075          # seconds of travel for a connected shift
+PORT_MAX_SEMITONES = 4.5    # bigger leaps are shifted cleanly, as on a real neck
+LEGATO_GAP = 0.055          # a note this close to the last one keeps the bow down
+BOW_TAIL = 0.018            # the old note rings on for this long after its stop
+VIB_RATE = 5.1              # Hz: the rate of a bowed vibrato
+VIB_DELAY = 0.25            # seconds before it arrives on a new bow stroke
+VIB_RISE = 0.30             # seconds to reach full width
+GLIDES = frozenset({"violin", "flute"})
 
 # --- lookup tables -----------------------------------------------------------
 # 4096 entries of sine over one cycle. Quantisation error is ~1e-4 of full
@@ -95,55 +117,102 @@ class _Env:
 
 
 # --- the instruments ---------------------------------------------------------
-def flute(freq: float, dur: float, rate: int = RATE, vel: float = 1.0) -> list[float]:
+def flute(freq: float, dur: float, rate: int = RATE, vel: float = 1.0,
+          *, port_from: float | None = None, port_time: float = PORTAMENTO,
+          t_off: float = 0.0, noise_off: int = 0) -> list[float]:
     """Air column: fundamental plus weak partials, breath, late vibrato.
 
     The vibrato fades in over ~0.2 s because a flute that wobbles from the first
     millisecond sounds like a sampler; the real player's lip takes time to arrive.
+
+    ``port_from`` slides in from that pitch, ``t_off`` is the note's start time
+    inside a longer line (so the vibrato *phase* carries across note boundaries
+    instead of restarting), and ``noise_off`` does the same for the breath.
     """
     n = max(2, int(dur * rate))
     out = [0.0] * n
     env = _Env(dur, min(0.05, dur * 0.2), min(0.09, dur * 0.3), 0.85)
     phase = 0.0
-    step = freq / rate
-    vib_rate = 5.3
+    vib_rate, vib_delay, vib_rise = 5.3, 0.18, 0.25
+    pitch, ratio, ramp_left = _glide(freq, port_from, port_time, rate)
+    # the lip starts wobbling after the slide has arrived, as a player's does
+    vib_hold = max(vib_delay, port_time) if port_from is not None else vib_delay
     for i in range(n):
         t = i / rate
-        vib_on = 0.0 if t < 0.18 else min(1.0, (t - 0.18) / 0.25)
-        vib = _sin(t * vib_rate) * 0.006 * vib_on
+        vib_on = 0.0 if t < vib_hold else min(1.0, (t - vib_hold) / vib_rise)
+        vib = _sin((t + t_off) * vib_rate) * 0.006 * vib_on
         p = phase
         y = (_sin(p) + 0.14 * _sin(2.0 * p) + 0.05 * _sin(3.0 * p)
              + 0.02 * _sin(4.0 * p))
         y *= 0.9
         # breath: loud for the first moment of the note, then a thin remainder
-        breath = _noise(i >> 1) * (0.09 * (1.0 if t < 0.06 else 0.12))
+        breath = _noise((noise_off + i) >> 1) * (0.09 * (1.0 if t < 0.06
+                                                        else 0.12))
         out[i] = (y + breath) * env.value(t) * vel
-        phase += step * (1.0 + vib)
+        if ramp_left > 0:
+            pitch *= ratio
+            ramp_left -= 1
+            if ramp_left == 0:
+                pitch = freq
+        phase += (pitch / rate) * (1.0 + vib)
     return out
 
 
-def violin(freq: float, dur: float, rate: int = RATE, vel: float = 1.0) -> list[float]:
+def _glide(freq: float, port_from: float | None, port_time: float,
+           rate: int) -> tuple[float, float, int]:
+    """Return ``(starting pitch, per-sample ratio, samples of travel)``.
+
+    A real shift is exponential in pitch, which is a constant ratio per sample -
+    one multiply, no ``pow`` in the loop. ``port_time`` of zero or a missing
+    ``port_from`` means start on pitch, which is what ``note`` does.
+    """
+    if port_from is None or port_from <= 0.0 or port_time <= 0.0 or \
+            abs(port_from - freq) < 0.01:
+        return freq, 1.0, 0
+    nport = max(1, int(port_time * rate))
+    return port_from, math.pow(freq / port_from, 1.0 / nport), nport
+
+
+def violin(freq: float, dur: float, rate: int = RATE, vel: float = 1.0,
+           *, port_from: float | None = None, port_time: float = PORTAMENTO,
+           t_off: float = 0.0, noise_off: int = 0) -> list[float]:
     """Bowed string: a harmonic ramp, a slow attack, wide late vibrato, bow hiss.
 
     Eight harmonics falling as 1/h reads as a bowed string against a saw, and
     the slow attack is what lets it sing a melody instead of punching it.
+
+    Portamento: with ``port_from`` the note travels in from that pitch instead of
+    appearing on it, and the phase runs continuously through the travel - the way
+    a finger moving along the string changes pitch without breaking the bow. The
+    vibrato waits for the slide to land, because that is what players do: arrive,
+    then widen. ``t_off`` keeps the vibrato *phase* continuous across the notes of
+    a line while the attack still restarts per bow stroke.
     """
     n = max(2, int(dur * rate))
     out = [0.0] * n
     env = _Env(dur, min(0.14, dur * 0.35), min(0.2, dur * 0.4), 0.8)
     phase = 0.0
-    step = freq / rate
+    pitch, ratio, ramp_left = _glide(freq, port_from, port_time, rate)
+    vib_hold = (max(VIB_DELAY, port_time) if port_from is not None
+                else VIB_DELAY)
     for i in range(n):
         t = i / rate
-        vib_on = 0.0 if t < 0.25 else min(1.0, (t - 0.25) / 0.3)
-        phase += step * (1.0 + _sin(t * 5.1) * 0.008 * vib_on)
+        vib_on = 0.0 if t < vib_hold else min(1.0, (t - vib_hold) / VIB_RISE)
         p = phase
         y = 0.0
         for h in range(1, 9):
             y += _sin(p * h) / h
         y *= 0.55
-        bow = _noise(i >> 2) * 0.022 * (0.4 + 0.6 * min(1.0, t / 0.1))
+        bow = _noise((noise_off + i) >> 2) * 0.022 * (
+            0.4 + 0.6 * min(1.0, t / 0.1))
         out[i] = (y + bow) * env.value(t) * vel
+        if ramp_left > 0:
+            pitch *= ratio
+            ramp_left -= 1
+            if ramp_left == 0:
+                pitch = freq          # land exactly: a slide must not drift
+        phase += (pitch / rate) * (1.0 + _sin((t + t_off) * VIB_RATE)
+                                   * 0.008 * vib_on)
     return out
 
 
@@ -298,3 +367,70 @@ def note(name: str, freq: float, dur: float, rate: int = RATE,
         _CACHE.clear()
     _CACHE[key] = tuple(buf)
     return list(buf)
+
+
+# --- connected lines ---------------------------------------------------------
+def _semitones(a: float, b: float) -> float:
+    return abs(12.0 * math.log2(a / b)) if a > 0.0 and b > 0.0 else 99.0
+
+
+def _place(buf: list[float], s0: int, samples: list[float]) -> None:
+    end = min(s0 + len(samples), len(buf))
+    for i in range(s0, end):
+        buf[i] += samples[i - s0]
+
+
+def phrase(name: str, notes: list[tuple[float, float, float]], rate: int = RATE,
+           vel: float = 1.0, *, portamento: float = PORTAMENTO,
+           max_semitones: float = PORT_MAX_SEMITONES,
+           gap: float = LEGATO_GAP) -> list[float]:
+    """Render ``notes`` - ``(start, dur, freq)`` in seconds and Hz - as one player.
+
+    ``note`` cannot express a melody, only its atoms: stacked independent notes
+    ring over each other, every one of them re-attacks, and the vibrato starts
+    from nothing four times a bar. Three things make a line read as one pair of
+    hands on one instrument:
+
+    *   a note stops when the next one begins (plus :data:`BOW_TAIL`) instead of
+        sounding under it, because one bow makes one pitch at a time;
+    *   a connected shift *travels* in from the previous pitch when it is small
+        enough to be a position change; a leap larger than ``max_semitones`` is
+        placed cleanly, which is exactly what a player does with a wide interval;
+    *   vibrato phase and bow noise carry across the boundary while the attack
+        still restarts per stroke.
+
+    ``gap`` is how close a note has to arrive to keep the bow down. Instruments
+    that cannot slide (``pluck``, ``bell``, ``strings``) are placed note by note,
+    ringing as they please, through the same cache ``note`` uses.
+    """
+    items = sorted(((float(s), float(d), float(f)) for s, d, f in notes),
+                   key=lambda item: item[0])
+    items = [item for item in items if item[1] > 0.0 and item[2] > 0.0]
+    if not items:
+        return []
+    glide = name in GLIDES
+    render = RENDERERS.get(name)
+    out = [0.0] * (int(max(s + d for s, d, _ in items) * rate) + 2)
+
+    for index, (start, dur, freq) in enumerate(items):
+        previous = items[index - 1] if index else None
+        following = items[index + 1] if index + 1 < len(items) else None
+        length = dur
+        if glide and following is not None:
+            length = min(dur, max(following[0] - start, 0.0) + BOW_TAIL)
+
+        port_from = None
+        if glide and previous is not None and portamento > 0.0:
+            connected = previous[0] + previous[1] >= start - gap
+            shift = _semitones(freq, previous[2])
+            if connected and 0.0 < shift <= max_semitones:
+                port_from = previous[2]
+
+        if render is None or not glide:
+            _place(out, int(start * rate), note(name, freq, length, rate, vel))
+            continue
+        _place(out, int(start * rate),
+               render(freq, length, rate, vel, port_from=port_from,
+                      port_time=portamento, t_off=start,
+                      noise_off=int(start * rate)))
+    return out

@@ -203,3 +203,89 @@ def test_the_cache_stays_bounded(monkeypatch):
     for step in range(20):
         I.note("strings", 200.0 + step, 0.05, RATE)
     assert len(I._CACHE) <= 6
+
+
+# ------------------------------------------------------- portamento and lines
+def _bin(sig, rate, from_s, to_s, freq) -> float:
+    """Exact single-bin DFT magnitude at ``freq`` over a window.
+
+    Deliberately not an FFT: one bin at a known pitch is what a question about
+    pitch needs, and it cannot be fooled by the bow noise the way a zero-crossing
+    rate can.
+    """
+    seg = sig[int(from_s * rate):int(to_s * rate)]
+    re = sum(v * math.cos(2.0 * math.pi * freq * i / rate)
+             for i, v in enumerate(seg))
+    im = sum(v * math.sin(2.0 * math.pi * freq * i / rate)
+             for i, v in enumerate(seg))
+    return math.hypot(re, im) / max(1, len(seg))
+
+
+def _old_over_new(sig, onset, old, new) -> float:
+    """How much of the *previous* pitch is audible just after a note starts.
+
+    A teleporting synth leaves none; a hand moving along a string leaves a lot.
+    """
+    return (_bin(sig, RATE, onset, onset + 0.07, old)
+            / _bin(sig, RATE, onset, onset + 0.07, new))
+
+
+SLIDE = [(0.0, 0.4, 440.0), (0.4, 0.6, 554.37)]      # A4 up to C#5, no bow break
+
+
+def test_a_connected_note_travels_in_from_the_previous_pitch():
+    """The thing a wave table cannot do and a violin does: the pitch moves."""
+    slid = I.phrase("violin", SLIDE, RATE)
+    detached = I.phrase("violin", [(0.0, 0.4, 440.0), (0.9, 0.6, 554.37)], RATE)
+    assert _old_over_new(slid, 0.4, 440.0, 554.37) > 3.0 * _old_over_new(
+        detached, 0.9, 440.0, 554.37)
+
+
+def test_a_slide_lands_on_the_pitch_and_stays_there():
+    """A portamento that never arrives is just a wrong note with extra steps."""
+    slid = I.phrase("violin", SLIDE, RATE)
+    assert _bin(slid, RATE, 0.55, 0.85, 440.0) < 0.05 * _bin(
+        slid, RATE, 0.55, 0.85, 554.37)
+
+
+def test_a_wide_leap_is_placed_cleanly_rather_than_slid():
+    """Players slide what they can reach. An octave is a shift, not a gliss."""
+    leap = I.phrase("violin", [(0.0, 0.4, 440.0), (0.4, 0.6, 880.0)], RATE)
+    slid = I.phrase("violin", SLIDE, RATE)
+    assert _old_over_new(leap, 0.4, 440.0, 880.0) < _old_over_new(
+        slid, 0.4, 440.0, 554.37) / 3.0
+
+
+def test_portamento_can_be_switched_off():
+    """An arranger writing fast runs wants them clean; ``portamento=0.0`` does."""
+    clean = I.phrase("violin", SLIDE, RATE, portamento=0.0)
+    assert _old_over_new(clean, 0.4, 440.0, 554.37) < 0.06
+
+
+def test_a_line_stops_each_note_when_the_next_begins():
+    """One bow, one pitch. Stacked notes are what makes synth strings muddy."""
+    held = I.phrase("violin", [(0.0, 0.9, 440.0)], RATE)
+    line = I.phrase("violin", SLIDE, RATE)
+    assert _bin(line, RATE, 0.55, 0.85, 440.0) < 0.1 * _bin(
+        held, RATE, 0.55, 0.85, 440.0)
+
+
+def test_a_joined_note_does_not_click():
+    """A phase reset would show as a step larger than the waveform's own peak."""
+    line = I.phrase("violin", SLIDE, RATE)
+    window = line[int(0.395 * RATE):int(0.415 * RATE)]
+    step = max(abs(window[i] - window[i - 1]) for i in range(1, len(window)))
+    assert step < 0.8 * max(abs(v) for v in window)
+
+
+def test_a_plucked_line_is_not_cut_short():
+    """The cut is a bow rule. A plucked string keeps ringing under the next note."""
+    line = I.phrase("pluck", [(0.0, 1.0, 440.0), (0.2, 0.3, 554.37)], RATE)
+    assert len(line) / RATE > 0.95
+
+
+def test_a_phrase_sorts_its_notes_and_ignores_dead_ones():
+    line = I.phrase("violin", [(0.6, 0.3, 440.0), (0.0, 0.0, 300.0),
+                               (0.2, 0.4, 554.37)], RATE)
+    assert 0.85 < len(line) / RATE < 0.95
+    assert I.phrase("violin", [], RATE) == []

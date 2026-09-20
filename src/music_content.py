@@ -246,6 +246,27 @@ GROOVES: dict[str, dict] = {
              (15, "crash", 0.6)),
         ),
     },
+    # The riding cue: a gallop, and the gallop is in the kick, not in the tempo.
+    # Kick on 1 and 3 plus the "a" of each, so the beat lurches forward into the
+    # next one; tom pairs on the e and the a are the hooves. Straight, no swing:
+    # a swung gallop stops being a charge and starts being a shuffle.
+    "gallop": {
+        "kick": ((0, 1.0), (6, 0.72), (8, 0.95), (14, 0.72)),
+        "snare": ((4, 0.95), (12, 0.95)),
+        "ghost": ((10, 0.2),),
+        "hat": ((0, 1.0), (2, 0.55), (4, 0.9), (6, 0.55), (8, 1.0), (10, 0.55),
+                (12, 0.9), (14, 0.55)),
+        "tom": ((2, 0.3), (3, 0.2), (10, 0.3), (11, 0.2)),
+        "open": ((14, 0.4),),
+        "swing": 0.0,
+        "fill": (
+            ((8, "tom", 0.7), (9, "tom", 0.5), (10, "tom", 0.65),
+             (11, "tom", 0.45), (12, "snare", 0.85), (13, "snare", 0.5),
+             (14, "crash", 0.6), (15, "kick", 0.7)),
+            ((8, "snare", 0.55), (9, "snare", 0.65), (10, "snare", 0.75),
+             (11, "snare", 0.85), (12, "crash", 0.7), (14, "kick", 0.9)),
+        ),
+    },
     # Mega Man X / breakbeat: syncopated kick, ghost snares between the
     # backbeats, hats on every 16th with a light swing.
     "break": {
@@ -350,9 +371,9 @@ GROOVES: dict[str, dict] = {
 # Fallback selection when a theme does not name a groove/kit: tempo decides,
 # because that is what actually makes a groove feel fast or heavy. A theme can
 # always override with "groove" / "kit".
-GROOVE_BY_TEMPO = ((132, "drive16"), (120, "break"), (108, "straight"),
-                   (0, "halftime"))
-KIT_BY_TEMPO = ((130, "crisp"), (112, "punch"), (0, "soft"))
+GROOVE_BY_TEMPO = ((240, "gallop"), (200, "drive16"), (132, "break"),
+                   (108, "straight"), (0, "halftime"))
+KIT_BY_TEMPO = ((230, "crisp"), (190, "punch"), (0, "soft"))
 GROOVE_BOSS = "grind"
 KIT_BOSS = "metal"
 
@@ -376,15 +397,15 @@ BOSS_LAYOUT = (("intro", 1), ("A", 8), ("B", 8), ("outro", 1))
 # One theme per level. `prog` lists 8 natural-minor scale-degree roots (the
 # progression moves every bar, so the harmony never loops on a 2-second cell).
 THEMES: tuple[dict, ...] = (
-    {"name": "Neon Grid",   "root": 57, "bpm": 106, "lead": "pulse",
-     "prog": (0, 5, 2, 6, 3, 0, 5, 4), "groove": "straight", "kit": "punch"},
-    {"name": "Chrome Run",  "root": 55, "bpm": 114, "lead": "square",
+    {"name": "Neon Grid",   "root": 57, "bpm": 214, "lead": "pulse",
+     "prog": (0, 5, 2, 6, 3, 0, 5, 4), "kit": "punch"},
+    {"name": "Chrome Run",  "root": 55, "bpm": 252, "lead": "square",
      "prog": (0, 6, 5, 6, 3, 5, 0, 4)},
-    {"name": "Laser Night", "root": 60, "bpm": 120, "lead": "pulse",
+    {"name": "Laser Night", "root": 60, "bpm": 220, "lead": "pulse",
      "prog": (0, 3, 5, 4, 6, 3, 2, 4)},
-    {"name": "Turbo Drift", "root": 53, "bpm": 128, "lead": "saw",
-     "prog": (0, 5, 3, 6, 0, 4, 5, 6), "groove": "drive16", "kit": "crisp"},
-    {"name": "Final Wave",  "root": 58, "bpm": 134, "lead": "pulse",
+    {"name": "Turbo Drift", "root": 53, "bpm": 250, "lead": "saw",
+     "prog": (0, 5, 3, 6, 0, 4, 5, 6), "kit": "crisp"},
+    {"name": "Final Wave",  "root": 58, "bpm": 232, "lead": "pulse",
      "prog": (0, 6, 5, 4, 3, 6, 5, 4),
      "instruments": {"pad": "strings"}, },
     # Extra level cues: the level playlist picks a random track per level (never
@@ -392,41 +413,41 @@ THEMES: tuple[dict, ...] = (
     # number of levels. New original progressions in classic synthwave archetypes
     # (Retro Cascade i-VI-VII-VI, driving i-VII-VI-VII, daydream i-VI-III-VII,
     # minor 4-chord cycles) written in natural-minor scale degrees.
-    {"name": "Retro Cascade", "root": 53, "bpm": 112, "lead": "square",
+    {"name": "Retro Cascade", "root": 53, "bpm": 212, "lead": "square",
      "prog": (0, 5, 6, 5, 3, 5, 6, 4)},
-    {"name": "Midnight Run", "root": 57, "bpm": 122, "lead": "saw",
+    {"name": "Midnight Run", "root": 57, "bpm": 252, "lead": "saw",
      "prog": (0, 6, 5, 0, 6, 4, 5, 6)},
-    {"name": "Daydream Vector", "root": 62, "bpm": 118, "lead": "pulse",
+    {"name": "Daydream Vector", "root": 62, "bpm": 172, "groove": "straight", "lead": "pulse",
      "prog": (0, 5, 2, 4, 5, 3, 2, 6), "kit": "soft",
      "instruments": {"arp": "bell"}, },
-    {"name": "Sunset Circuit", "root": 55, "bpm": 126, "lead": "triangle",
+    {"name": "Sunset Circuit", "root": 55, "bpm": 178, "lead": "triangle",
      "prog": (0, 3, 6, 5, 3, 0, 4, 6), "kit": "soft",
      "instruments": {"lead": "flute"}, },
-    {"name": "Hyper Grid", "root": 60, "bpm": 138, "lead": "square",
+    {"name": "Hyper Grid", "root": 60, "bpm": 240, "lead": "square",
      "prog": (0, 4, 5, 6, 3, 4, 5, 0)},
     # Original cues channelled from classic NES/SNES action-score archetypes
     # (belt-scroll brawlers, gothic-horror platformers, and JRPG adventure
     # themes). These are stylistic homages only: original natural-minor degree
     # progressions, no borrowed melodies and no trademarked titles.
-    {"name": "Steel Fist", "root": 57, "bpm": 132, "lead": "saw",
+    {"name": "Steel Fist", "root": 57, "bpm": 244, "lead": "saw",
      "kit": "heavy",
      "prog": (0, 6, 5, 6, 0, 6, 5, 4)},          # driving belt-scroll riff
-    {"name": "Back Alley", "root": 53, "bpm": 126, "lead": "square",
-     "scale": "dorian", "groove": "halftime", "kit": "heavy",
+    {"name": "Back Alley", "root": 53, "bpm": 212, "lead": "square",
+     "scale": "dorian", "kit": "heavy",
      "prog": (0, 0, 5, 6, 3, 0, 6, 4),  # tense verse/chorus brawl
      "instruments": {"arp": "pluck"}, },
-    {"name": "Cathedral Run", "root": 55, "bpm": 130, "lead": "saw",
+    {"name": "Cathedral Run", "root": 55, "bpm": 186, "groove": "straight", "lead": "saw",
      "kit": "metal",
      "prog": (0, 5, 6, 5, 0, 3, 6, 4),  # gothic heroic gallop
      "instruments": {"pad": "strings", "arp": "bell"}, },
-    {"name": "Crypt March", "root": 57, "bpm": 116, "lead": "pulse",
+    {"name": "Crypt March", "root": 57, "bpm": 210, "lead": "pulse",
      "scale": "phrygian", "groove": "march", "kit": "heavy",
      "prog": (0, 6, 5, 0, 3, 6, 5, 4),  # brooding dungeon crawl
      "instruments": {"bass": "pluck"}, },
-    {"name": "Clockwork Tide", "root": 60, "bpm": 124, "lead": "pulse",
+    {"name": "Clockwork Tide", "root": 60, "bpm": 228, "lead": "pulse",
      "groove": "drive16",
      "prog": (0, 2, 5, 4, 0, 2, 6, 4)},          # hopeful mediant (III) lift
-    {"name": "Knight's Resolve", "root": 58, "bpm": 120, "lead": "triangle",
+    {"name": "Knight's Resolve", "root": 58, "bpm": 222, "lead": "triangle",
      "groove": "march", "kit": "punch",
      "prog": (0, 3, 2, 4, 5, 3, 0, 6),  # noble quest fanfare
      "instruments": {"lead": "flute", "lead_b": "violin"}, },
@@ -435,64 +456,64 @@ THEMES: tuple[dict, ...] = (
     # scores (structure only, never copied melodies, never trademarked titles).
     # `scale: harmonic` raises the 7th so the v chord becomes a major V -- the
     # gothic cadence that defines Castlevania and JRPG battle music.
-    {"name": "Blood Moon Rite", "root": 57, "bpm": 128, "lead": "saw",
-     "scale": "harmonic", "groove": "halftime", "kit": "heavy",
+    {"name": "Blood Moon Rite", "root": 57, "bpm": 228, "lead": "saw",
+     "scale": "harmonic", "kit": "heavy",
      "prog": (0, 5, 6, 4, 0, 5, 6, 4),  # i-VI-vii degree-V ritual
      "instruments": {"arp": "bell"}, },
-    {"name": "Candelabra Hall", "root": 55, "bpm": 122, "lead": "saw",
+    {"name": "Candelabra Hall", "root": 55, "bpm": 216, "lead": "saw",
      "scale": "harmonic", "kit": "soft",
      "prog": (0, 3, 4, 0, 0, 3, 4, 5),  # i-iv-V-i
      "instruments": {"lead": "bell"}, },
-    {"name": "Night Fortress", "root": 57, "bpm": 134, "lead": "pulse",
+    {"name": "Night Fortress", "root": 57, "bpm": 234, "lead": "pulse",
      "scale": "harmonic", "kit": "metal",
      "prog": (0, 6, 5, 4, 0, 3, 5, 4),  # descending gothic
      "instruments": {"pad": "strings"}, },
-    {"name": "Battle Verge", "root": 62, "bpm": 130, "lead": "square",
+    {"name": "Battle Verge", "root": 62, "bpm": 244, "lead": "square",
      "scale": "harmonic", "prog": (0, 3, 4, 0, 5, 3, 4, 0),  # i-iv-V (CT battle)
      "instruments": {"bass": "pluck"}, },
-    {"name": "Magus Gate", "root": 64, "bpm": 126, "lead": "saw",
-     "scale": "harmonic", "groove": "halftime", "kit": "soft",
+    {"name": "Magus Gate", "root": 64, "bpm": 218, "lead": "saw",
+     "scale": "harmonic", "kit": "soft",
      "prog": (0, 2, 0, 4, 0, 5, 2, 4),  # III+ aug mystery
      "instruments": {"lead": "violin", "pad": "strings"}, },
-    {"name": "Hyrule Ascent", "root": 60, "bpm": 124, "lead": "pulse",
+    {"name": "Hyrule Ascent", "root": 60, "bpm": 226, "lead": "pulse",
      "scale": "lydian", "groove": "march", "kit": "punch",
      "prog": (0, 4, 5, 3, 0, 4, 1, 0),  # heroic Lydian
      "instruments": {"lead": "flute"}, },
-    {"name": "Kakariko Heights", "root": 62, "bpm": 130, "lead": "triangle",
+    {"name": "Kakariko Heights", "root": 62, "bpm": 226, "lead": "triangle",
      "scale": "lydian", "groove": "break", "kit": "punch",
      "prog": (0, 1, 3, 4, 0, 1, 4, 0)},      # Lydian II lift
-    {"name": "Rooftop Duel", "root": 53, "bpm": 128, "lead": "saw",
+    {"name": "Rooftop Duel", "root": 53, "bpm": 248, "lead": "saw",
      "kit": "heavy",
      "prog": (0, 6, 0, 5, 6, 0, 4, 0),  # belt-scroll i-VII
      "instruments": {"lead": "violin"}, },
     # Secret of Mana "Fear of the Heavens" homage: analyses give Am with a major
     # V (D/E) and chromatic mediants -> A harmonic minor, i-VI-iv-V.
-    {"name": "Empyrean Dread", "root": 57, "bpm": 118, "lead": "saw",
+    {"name": "Empyrean Dread", "root": 57, "bpm": 176, "lead": "saw",
      "scale": "harmonic", "groove": "halftime", "kit": "heavy",
      "prog": (0, 5, 3, 4, 0, 5, 3, 4),  # i-VI-iv-V (SoM)
      "instruments": {"pad": "strings"}, },
     # ---- more classics -----------------------------------------------------------
     # Original degree progressions in the spirit of these scores (structure only;
     # no copied melodies, no trademarked names as track titles).
-    {"name": "Oath of Flame", "root": 57, "bpm": 130, "lead": "saw",      # Soul Blazer
+    {"name": "Oath of Flame", "root": 57, "bpm": 246, "lead": "saw",      # Soul Blazer
      "scale": "harmonic", "kit": "metal",
      "prog": (0, 3, 4, 0, 0, 5, 3, 4),  # noble i-iv-V
      "instruments": {"lead": "violin"}, },
-    {"name": "Peak of Regret", "root": 55, "bpm": 124, "lead": "saw",     # Soul Blazer
+    {"name": "Peak of Regret", "root": 55, "bpm": 196, "lead": "saw",     # Soul Blazer
      "groove": "halftime", "kit": "heavy",
      "prog": (0, 6, 5, 4, 0, 6, 3, 4),  # epic descent
      "instruments": {"lead": "flute", "lead_b": "violin", "pad": "strings"}, },
-    {"name": "Overture of Field", "root": 61, "bpm": 126, "lead": "triangle",  # ALttP
+    {"name": "Overture of Field", "root": 61, "bpm": 224, "lead": "triangle",  # ALttP
      "scale": "major", "groove": "march",
      "prog": (0, 3, 4, 0, 5, 3, 4, 0),  # bright heroic
      "instruments": {"lead": "flute", "pad": "strings"}, },
-    {"name": "Neon Freeway", "root": 62, "bpm": 140, "lead": "square",    # Mega Man X
+    {"name": "Neon Freeway", "root": 62, "bpm": 256, "lead": "square",    # Mega Man X
      "prog": (0, 0, 3, 4, 0, 5, 3, 4),  # driving i-VII
      "instruments": {"arp": "bell"}, },
-    {"name": "Crater Wastes", "root": 53, "bpm": 110, "lead": "saw",      # Metroid
+    {"name": "Crater Wastes", "root": 53, "bpm": 188, "lead": "saw",      # Metroid
      "scale": "dorian", "groove": "halftime", "kit": "soft",
      "prog": (0, 6, 5, 0, 3, 6, 5, 4)},                                   # eerie expanse
-    {"name": "Gearwork Cathedral", "root": 57, "bpm": 134, "lead": "pulse",   # Castlevania
+    {"name": "Gearwork Cathedral", "root": 57, "bpm": 236, "lead": "pulse",   # Castlevania
      "scale": "harmonic", "kit": "metal",
      "prog": (0, 4, 5, 6, 0, 4, 3, 4),  # clockwork gothic
      "instruments": {"arp": "bell"}, },
@@ -504,7 +525,7 @@ THEMES: tuple[dict, ...] = (
     # mid-tempo cue read as "driven" rather than "mid-tempo".
     # Knight-errant profile: aeolian fanfare, dotted lead, i-VI-VII cadences,
     # chug bass (octave pops + approach tone), heavy kit on a march groove.
-    {"name": "Knight of the Marsh", "root": 57, "bpm": 132, "lead": "square",
+    {"name": "Knight of the Marsh", "root": 57, "bpm": 220, "lead": "square",
      "scale": "natural", "motifs": "hero", "bass": "chug",
      "groove": "march", "kit": "heavy",
      "prog": (0, 5, 6, 0, 3, 5, 6, 4),
@@ -512,7 +533,7 @@ THEMES: tuple[dict, ...] = (
     # Seeress profile in a level arrangement: Lydian whole-note melody over the
     # running bass - the slow line and the fast line never share a rhythm, so
     # the cue can be tender and fast at the same time.
-    {"name": "Starfall Vale", "root": 60, "bpm": 138, "lead": "triangle",
+    {"name": "Starfall Vale", "root": 60, "bpm": 238, "lead": "triangle",
      "scale": "lydian", "motifs": "lyric", "bass": "run",
      "groove": "drive16", "kit": "soft",
      "prog": (0, 3, 4, 0, 5, 3, 4, 0),
@@ -591,26 +612,26 @@ MENU_THEMES: tuple[dict, ...] = (
 MENU_THEME: dict = MENU_THEMES[0]
 
 BOSS_THEMES: tuple[dict, ...] = (
-    {"name": "Iron Cathedral", "root": 57, "bpm": 158, "lead": "saw",
+    {"name": "Iron Cathedral", "root": 57, "bpm": 288, "lead": "saw",
      "scale": "harmonic", "prog": (0, 0, 5, 5, 3, 3, 6, 6),
      "drive": True, "layout": BOSS_LAYOUT},
-    {"name": "Clockwork Gauntlet", "root": 52, "bpm": 172, "lead": "square",
+    {"name": "Clockwork Gauntlet", "root": 52, "bpm": 320, "lead": "square",
      "scale": "harmonic", "prog": (0, 1, 0, 1, 4, 4, 6, 4),
      "drive": True, "layout": BOSS_LAYOUT},
-    {"name": "Crimson Descent", "root": 49, "bpm": 166, "lead": "saw",
+    {"name": "Crimson Descent", "root": 49, "bpm": 302, "lead": "saw",
      "scale": "harmonic", "prog": (0, 0, 6, 6, 5, 5, 4, 4),
      "drive": True, "layout": BOSS_LAYOUT},
-    {"name": "Terminal Velocity", "root": 55, "bpm": 176, "lead": "pulse",
+    {"name": "Terminal Velocity", "root": 55, "bpm": 330, "lead": "pulse",
      "scale": "natural", "prog": (0, 3, 0, 3, 5, 3, 6, 3),
      "drive": True, "layout": BOSS_LAYOUT},
     # Dragon's Fury / Xavius energy: harmonic-minor i-iv descent at speed. The
     # 74 BPM tag is doubled here because a boss cue is eight bars of tension,
     # not a long loop; the drive bed keeps it moving regardless.
-    {"name": "Angel of Fear", "root": 62, "bpm": 156, "lead": "saw",
+    {"name": "Angel of Fear", "root": 62, "bpm": 292, "lead": "saw",
      "scale": "harmonic", "prog": (0, 0, 3, 0, 5, 5, 4, 4),
      "drive": True, "layout": BOSS_LAYOUT,
      "instruments": {"pad": "strings"}, },
-    {"name": "Death Gaze", "root": 60, "bpm": 168, "lead": "square",
+    {"name": "Death Gaze", "root": 60, "bpm": 312, "lead": "square",
      "scale": "harmonic", "prog": (0, 6, 5, 4, 0, 6, 5, 3),
      "drive": True, "layout": BOSS_LAYOUT},
 )

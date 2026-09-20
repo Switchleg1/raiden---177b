@@ -217,7 +217,11 @@ directory is empty.
   (faster, denser, with a tritone alarm bed). Drums are a small procedural
   rompler — a kit is a set of voice parameters rendered once per sample rate,
   then hits are added in — with tempo-selected grooves (swing, ghost notes,
-  bar-8 fills) so no two sectors keep the same time. Melody families (`hero`,
+  bar-8 fills) so no two sectors keep the same time. The level table runs 86-128
+  effective BPM and the ride cues (`Neon Freeway` 128, `Chrome Run` 126) take a
+  `gallop` groove where the motion lives in the kick's anticipations rather than
+  in the tempo; six cues are deliberately left slow, because a soundtrack that
+  is uniformly fast has no fast cues left in it. Melody families (`hero`,
   `lyric`, the stock `base`) and relative bass lines (octave pops, chromatic
   approach tones) give each cue its own narrative role, and a cue may hand a
   melody to a synthesised flute, violin, string section, pluck or bell instead of

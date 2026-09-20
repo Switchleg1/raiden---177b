@@ -26,10 +26,21 @@ rate from `AudioManager`; never assume 22050 or 44100.
 ## Tempo convention
 
 `spb = 120.0 / bpm` — one "beat" is a *half note* of the tag, so a theme tagged
-134 moves at 67 effective quarter notes per minute. In practice: 4 beats per
-bar, 8 bars per section, so a bar at `bpm 128` is `4 * 120/128` = 3.75 s. Groove
+220 moves at 110 effective quarter notes per minute. In practice: 4 beats per
+bar, 8 bars per section, so a bar at `bpm 220` is `4 * 120/220` = 2.18 s. Groove
 and kit selection thresholds read the **tag** bpm, which is what makes a cue
 feel fast or heavy.
+
+**Where the table sits, and why.** Level cues run 172-256 (86-128 effective),
+boss cues 288-330 (144-165) and stay faster than every level cue - that ordering
+is a test, not a habit. Six level cues are held slow on purpose (`Daydream
+Vector` 172, `Empyrean Dread` 176, `Sunset Circuit` 178, `Cathedral Run` 186,
+`Crater Wastes` 188, `Peak of Regret` 196): a soundtrack that is uniformly fast
+has no fast cues left in it, so those are the troughs the ride cues spend their
+energy against. Every sector pool still holds at least two cues at 105+.
+Tempo is not the only lever - `gallop` puts the speed in the kick pattern, so a
+cue can lurch forward without the melodies racing out of the register they were
+written for.
 
 ## Signal chain
 
@@ -96,6 +107,40 @@ existed renders byte-for-byte as it did.
 `lead_b` exists for the two-voice writing that motivates the whole module: a
 flute states the A phrase and the violin takes it up in the answer.
 
+### Lines, not stacks of notes: `phrase()`
+
+`note()` renders an atom; a melody is not a bag of atoms. Stacking `note()` calls
+rings each pitch over the next, re-attacks every one of them, and restarts the
+vibrato four times a bar - which is the exact shape of the thing that sounds like
+a sequencer rather than a player. `phrase(name, [(start, dur, freq), ...])`
+renders a whole line with three rules a real player obeys:
+
+| rule | why | what to hear |
+|---|---|---|
+| a note stops when the next begins (plus 18 ms) | one bow makes one pitch at a time | the mud goes away under a fast line |
+| a connected shift **travels in** from the previous pitch (`PORTAMENTO`, 75 ms, exponential) | a hand moves along a string; it does not teleport | joins sound played, not edited |
+| a leap over 4.5 semitones is placed cleanly | players slide what they can reach | an octave stays a statement, not a whine |
+| vibrato phase and bow noise carry across the join, while the attack restarts per stroke | the bow changes, the hand does not stop wobbling | no "new note, new LFO" seam |
+
+Repeated notes cost nothing and read as a fiddle changing bow: `phrase` cuts the
+first and does not slide to an identical pitch. `portamento=0.0` opts out for a
+clean run. Instruments that cannot slide (`pluck`, `bell`, `strings`) are placed
+through `note()` and its cache, ringing as long as they were told to.
+
+The cost is honest: a portamento note cannot be cached, because it is a different
+waveform every time. A bowed line renders at roughly the violin's rate - about 50
+ms of CPU per second of audio - so `phrase` is for melodic lines, not for pads.
+
+## Studies (`assets/music/`)
+
+Arrangements that are not in the game get a script in `scripts/study_*.py` and a
+rendered WAV in `assets/music/`, so they can be judged by ear and re-rendered
+byte-for-byte later. Nothing there ships - the game synthesises everything at
+runtime - and the directory's own `README.md` covers naming and the render
+command. The current study, `study_mission_gallop.py`, is the riding cue: a
+gallop in the kick's anticipations rather than in the tempo, hooves on the toms, a
+hammered tonic bass, brass calls answered by a bowed line.
+
 ## Grooves
 
 `GROOVES` are 16-step patterns (`(step, velocity)` per voice) plus optional
@@ -109,6 +154,10 @@ flute states the A phrase and the violin takes it up in the answer.
 * **Tom pitches are positional**: the N toms in a bar take the lowest N kit
   notes, descending, so a run is a cadence and one tom is a low pulse.
 * **Crash** lights the first bar of a boss/outro bar only. Accent, not wallpaper.
+* **`gallop`** is the riding cue and it is a kick pattern, not a tempo: kick on
+  1 and 3 *plus* the "a" of each, tom pairs on the e-and-a as hooves, straight
+  (no swing - a swung gallop is a shuffle). The backbeat stays exactly where the
+  baseline groove puts it, which is the only reason the lurch reads as motion.
 
 ## Rhythm selection
 
@@ -122,9 +171,13 @@ drumless cue:
 
 Most stage cues **are** tagged by hand, because tempo-bucketing alone makes
 every stage feel the same: `Crypt March` is a phrygian `march` on the `heavy`
-kit, `Crater Wastes` is `halftime` on `soft`, `Turbo Drift` is `drive16` on
-`crisp`. `tests/test_drum_kit.py` enforces that the tags name real table entries
-and that the roster still spans the groove set.
+kit, `Crater Wastes` is `halftime` on `soft`. What the tempo *does* decide is
+the ride: anything clearing 240 takes `gallop` untold, which is why the fast
+ cues are tagged by bpm rather than by groove - `Neon Freeway` 256, `Chrome Run`
+252, `Rooftop Duel` 248. A cue that wants a groove the tempo would not pick says
+so; a cue that agrees with its tempo says nothing. `tests/test_drum_kit.py`
+enforces that the tags name real table entries and that the roster still spans
+the groove set.
 
 ## Cue keys
 
@@ -250,7 +303,12 @@ rendering next to it, against a 8.3 ms budget, so nobody can feel it.
 ```python
 import sys; sys.path.insert(0, "src")
 import music, wave
-pcm = music.render_track(music.THEMES[3], rate=22050)
+theme = music.theme_by_name("Neon Freeway")   # by name: the table is data
+pcm = music.render_track(theme, rate=22050)    # 22050 is what the mixer opens
 w = wave.open("out.wav", "wb"); w.setnchannels(1); w.setsampwidth(2)
 w.setframerate(22050); w.writeframes(pcm); w.close()
 ```
+
+`theme_by_name` resolves across the level, menu and boss tables, so any cue in
+any pool renders. Render the shipped rate, not 44100 - a study at 44100 sounds
+brighter than the cue that actually plays (`assets/music/README.md`).

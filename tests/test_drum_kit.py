@@ -398,10 +398,30 @@ def test_soft_clip_survives_a_hot_sum_without_crackle():
     assert flips <= 22, f"soft-clip produced extra transitions: {flips}"
 
 
+def test_the_gallop_groove_is_dense_by_design():
+    """The gallop is a lurch, not a tempo: the kick owns the "a" of both beats,
+    and the toms answer on the e. Measured against the baseline groove, which
+    is what the pattern was written to beat."""
+    gallop, straight = GROOVES["gallop"], GROOVES["straight"]
+    kicks = {step for step, _ in gallop["kick"]}
+    assert {0, 8} <= kicks, "the gallop has lost its downbeats"
+    assert {6, 14} <= kicks, "the kick no longer anticipates: not a gallop"
+    assert not {4, 12} & kicks, "a kick on the backbeat flattens the lurch"
+    assert gallop["snare"] == straight["snare"], "the backbeat has to stay put"
+    assert gallop.get("tom"), "no hooves"
+    assert gallop["swing"] == 0.0, "a swung gallop is a shuffle"
+    dense = sum(len(gallop.get(v, ())) for v in music.GROOVE_VOICES)
+    baseline = sum(len(straight.get(v, ())) for v in music.GROOVE_VOICES)
+    assert dense > baseline, "denser was the whole point"
+
+
 def test_the_kit_is_audible_in_a_rendered_track():
     """The drums are not decoration: subtracting the drumless render of the
     same theme must leave a real signal, not numerical dust."""
-    theme = music.THEMES[3]
+    # Pinned by name, not index: the level table is data and gets retuned, and
+    # this claim needs a groove with space in it. The gallop is dense on
+    # purpose, so its density is checked as a pattern, one test up.
+    theme = next(t for t in music.THEMES if t["name"] == "Cathedral Run")
     on = music.render_track(theme, rate=RATE)
     no_drums = dict(theme)
     no_drums["drums"] = False
