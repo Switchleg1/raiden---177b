@@ -1,0 +1,15 @@
+# raiden_shadow - runtime dependencies
+# Install with:  pip install -r requirements.txt   (or double-click install.bat)
+# Requires Python 3.12+
+
+# Core runtime
+pygame-ce>=2.5
+numpy>=1.26
+
+# Optional extras -----------------------------------------------------------
+# Pillow is only needed by the asset-baking / preview scripts in scripts/,
+# not by the game itself. Uncomment if you want to run those.
+# Pillow>=10
+
+# PyInstaller is only needed to build the frozen Windows build (build.bat).
+# pyinstaller>=6

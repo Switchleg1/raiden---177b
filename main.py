@@ -15,7 +15,22 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
-from app import main  # noqa: E402
+def _run(argv: list[str]) -> int:
+    from app import main  # imports pygame, so it can fail with a missing dep
+
+    return main(argv)
+
 
 if __name__ == "__main__":
-    raise SystemExit(main(sys.argv[1:]))
+    try:
+        raise SystemExit(_run(sys.argv[1:]))
+    except ModuleNotFoundError as exc:  # friendly hint instead of a traceback
+        if exc.name in ("pygame", "pygame_ce"):
+            sys.stderr.write(
+                "pygame-ce is not installed for this interpreter\n"
+                f"  interpreter: {sys.executable}\n"
+                "  fix: run install.bat, then launch with run.bat "
+                "(or .venv\\Scripts\\python.exe main.py)\n"
+            )
+            raise SystemExit(1)
+        raise
