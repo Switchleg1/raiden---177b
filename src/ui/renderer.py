@@ -348,6 +348,11 @@ class Renderer:
         self._draw_player(game.player, game.bullets)
         if getattr(game, "whip_active", False):
             self._draw_whip(game)
+        # The plume reads over the craft as well: the puffs are ahead of the
+        # ship, and a wall of fire the hull painted over would read as a
+        # weapon that is not there.
+        if getattr(game, "flame", None) is not None and game.flame.puffs:
+            self._draw_flame(game)
         self.canvas.set_clip(old_clip)
 
     def _player_bank_anim(self, pl: Any) -> str:
@@ -745,6 +750,13 @@ class Renderer:
                             (x - 1, y - 1, 8, 9), math.pi * 1.9,
                             math.pi * 3.1, 2)
             pygame.draw.circle(self.canvas, edge, (x + 5, y + 6), 2)
+        elif g == "flame":
+            # tongue of fire: point up, wide base, hot bead inside. Outline
+            # rather than solid, because the "up" glyph beside it is solid.
+            pygame.draw.polygon(self.canvas, edge,
+                                [(x, y - 7), (x + 4, y - 1), (x + 3, y + 4),
+                                 (x, y + 6), (x - 3, y + 4), (x - 4, y - 1)], 2)
+            pygame.draw.circle(self.canvas, edge, (x, y + 2), 2)
         elif g == "jam":
             pygame.draw.line(self.canvas, edge, (x - 5, y - 5), (x + 5, y + 5), 2)
             pygame.draw.line(self.canvas, edge, (x + 5, y - 5), (x - 5, y + 5), 2)
@@ -785,6 +797,44 @@ class Renderer:
                                    r + 2)
                 pygame.draw.circle(self.canvas, (255, 210, 255), (int(x), int(y)),
                                    max(1, r - 1))
+
+    # ---- flamethrower ----------------------------------------------------
+    def _draw_flame(self, game: Any) -> None:
+        """One tile per puff, scaled to its radius and dimmed by its fade.
+
+        The sheet is one fully-lit flicker loop; the *lifetime* belongs to the
+        model, so the view does the growing and the dimming. That is also what
+        keeps the picture honest: the same ``fade`` the model spends on damage
+        is the alpha the puff is drawn at, so a puff that looks spent is spent.
+        """
+        import pygame
+
+        import sprites
+        bank = self._bank_of()
+        surf = None if self.settings.high_contrast else bank.sheet("fx_flame")
+        frames: list[int] = []
+        fps = 0.0
+        cell = float(sprites.SPRITES["fx_flame"]["cell"][0])
+        if surf is not None:
+            frames, fps, _loop = sprites.anim_spec("fx_flame", "run")
+        for i, p in enumerate(game.flame.puffs):
+            r, a = p.r, max(0.0, min(1.0, p.fade))
+            if surf is not None and frames:
+                tile = frames[(int(self._scroll * fps) + i) % len(frames)]
+                fr = bank.frame(surf, "fx_flame", tile)
+                # The tile paints its blob inside the cell with a margin of
+                # bloom around it; scale so the fire itself, not the glow, is
+                # the contact radius the model is hitting with.
+                d = max(4, int(round(cell * r / (cell / 2.0 - 2.2))))
+                fr = pygame.transform.smoothscale(fr, (d, d))
+                fr.set_alpha(int(255 * (0.35 + 0.65 * a)))
+                self._blit_center(fr, p.x, p.y)
+            else:
+                hot = (255, int(118 + 110 * a), int(40 + 70 * a))
+                pygame.draw.circle(self.canvas, hot, (int(p.x), int(p.y)),
+                                   int(r), 0 if a > 0.55 else 2)
+                pygame.draw.circle(self.canvas, (255, 236, 190),
+                                   (int(p.x), int(p.y)), max(1, int(r * 0.34)))
 
     # ---- particles + sprite explosions -----------------------------------
     def draw_particles(self, effects: Effects) -> None:

@@ -1,6 +1,8 @@
 """Weapon / missile / bomb / whip power-system tables."""
 from __future__ import annotations
 
+from .scroll import SCROLL_NEAR
+
 # ---------------------------------------------------------------------------
 # Player weapons (the "power system")
 # ---------------------------------------------------------------------------
@@ -182,3 +184,66 @@ WHIP_HIT_CD = 0.45          # seconds before the same enemy can be hit again
 
 
 WHIP_BEAD_R = 10.0          # contact radius of each energy bead
+
+
+# Flamethrower: a second timed power, and the opposite picture to the lash.
+# The whip is one object - every bead answers to the bead ahead of it. Fire is
+# not: each puff is born at the nozzle with a position and a velocity and is
+# then answerable to neither. It travels at a constant rate from where it
+# started, so the plume is a trail the craft leaves behind rather than a limb
+# it drags around. A puff also thins over its life, and its damage rides the
+# same curve: full at the nozzle, half the instant it goes out.
+FLAME_TIME = 9.0            # seconds the thrower stays lit (pickup adds a block)
+
+
+FLAME_MAX = 2 * FLAME_TIME  # stacked pods stop here, like the other timed powers
+
+
+FLAME_INTERVAL = 0.055      # seconds between bursts of puffs
+
+
+FLAME_FAN = 3               # puffs per burst, fanned across the nozzle
+
+
+FLAME_FAN_W = 15.0          # px between the puffs in one burst
+
+
+FLAME_NOZZLE = 16.0         # px above the craft centre the fire is born at
+
+
+# The puff's forward rate is defined against the world, not picked out of the
+# air: the ground passes the craft at SCROLL_NEAR, so a puff has to beat that to
+# be going forward at all. FLAME_SCROLL_MULT is the knob - 1.5 means the fire
+# climbs the field half again as fast as the terrain falls past it, which is what
+# keeps a plume thrown while flying forward actually moving forward.
+FLAME_SCROLL_MULT = 1.5       # x the ground scroll rate: how hard the fire climbs
+
+
+FLAME_SPEED = FLAME_SCROLL_MULT * SCROLL_NEAR   # px/s, constant, per puff
+
+
+FLAME_LIFE = 1.0            # seconds a puff lives; speed * life is the reach
+
+
+FLAME_R = 12.0              # contact radius at birth
+
+
+FLAME_GROW = 20.0           # extra radius by the moment a puff goes out
+
+
+FLAME_SWAY_HZ = 0.7         # how fast the fan slides side to side
+
+
+FLAME_SWAY = 26.0           # px the fan slides, so the plume covers a band
+
+
+FLAME_BILLOW = 34.0         # px/s sideways drift each puff is born with
+
+
+FLAME_DMG = 4               # damage at full strength (half of it at full fade)
+
+
+FLAME_HIT_CD = 0.30         # seconds before the same enemy burns again
+
+
+FLAME_MAX_PUFFS = 72        # hard bound on the plume (life/interval is ~55)

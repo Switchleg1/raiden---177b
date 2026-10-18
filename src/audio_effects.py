@@ -25,11 +25,12 @@ VICTORY = "victory"
 POWERUP = "powerup"
 HAZARD = "hazard"
 WHIP_HIT = "whip_hit"
+FLAME_HIT = "flame_hit"
 MOON = "moon"
 
 EFFECT_NAMES = (SHOOT, MISSILE, EXPLOSION, BOSS_EXPLOSION, BOSS_WARN, BOMB,
                 MEDAL, LIFE_LOST, LEVEL_COMPLETE, MENU_NAV, MENU_ACTIVATE,
-                GAME_OVER, VICTORY, POWERUP, HAZARD, WHIP_HIT, MOON)
+                GAME_OVER, VICTORY, POWERUP, HAZARD, WHIP_HIT, FLAME_HIT, MOON)
 
 # Minimum spacing between repeats of the same effect (seconds). Fast weapons
 # need tight but non-zero gaps so a full spread reads as one shot.
@@ -39,10 +40,14 @@ MIN_GAP = {
     MENU_NAV: 0.05, MENU_ACTIVATE: 0.05,
     LIFE_LOST: 0.2, LEVEL_COMPLETE: 0.2, GAME_OVER: 0.3, VICTORY: 0.3,
     POWERUP: 0.05, HAZARD: 0.2, WHIP_HIT: 0.03, MOON: 0.08,
+    # A plume is one continuous sound, not a click per puff: the gate is wide
+    # enough that a whole burn reads as one whoosh.
+    FLAME_HIT: 0.22,
 }
 
 __all__ = ["EFFECT_NAMES", "MIN_GAP",
-           "BOSS_EXPLOSION", "BOSS_WARN", "BOMB", "EXPLOSION", "GAME_OVER",
+           "BOSS_EXPLOSION", "BOSS_WARN", "BOMB", "EXPLOSION", "FLAME_HIT",
+           "GAME_OVER",
            "HAZARD", "LEVEL_COMPLETE", "LIFE_LOST", "MEDAL", "MENU_ACTIVATE",
            "MENU_NAV", "MISSILE", "MOON", "POWERUP", "SHOOT", "VICTORY",
            "WHIP_HIT"]

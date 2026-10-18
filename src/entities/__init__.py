@@ -8,12 +8,15 @@ from __future__ import annotations
 
 from .bullet import Bullet
 from .enemy import Enemy
+from .flame import Flame, FlameThrower
 from .player import Player
 from .whip import Whip
 
 __all__ = [
     "Bullet",
     "Enemy",
+    "Flame",
+    "FlameThrower",
     "Player",
     "Whip",
 ]

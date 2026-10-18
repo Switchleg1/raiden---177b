@@ -24,7 +24,7 @@ from typing import Any
 
 import config as C
 import physics as P
-from entities import Bullet, Enemy, Player, Whip
+from entities import Bullet, Enemy, FlameThrower, Player, Whip
 from items import Item, roll_item
 
 # High-level outcome signals (shared names with Breakout Classic's model).
@@ -55,12 +55,19 @@ class Game:
     items: list[Item] = field(default_factory=list)
 
     run_enemies_destroyed: int = 0
-    # Energy-whip power (timed): timer > 0 means the lash is out and the
-    # vulcan is replaced. whip_clock drives per-enemy re-hit cooldowns.
+    # Energy-whip power (timed): timer > 0 means the lash is out, alongside the
+    # vulcan. whip_clock drives per-enemy re-hit cooldowns.
     whip_timer: float = 0.0
     whip_clock: float = 0.0
     whip: Whip = field(init=False)
     _whip_cd: dict[int, float] = field(init=False, default_factory=dict)
+    # Flamethrower power (timed): the thrower owns its puffs, each of which is
+    # born at the nozzle and then travels on its own. flame_clock drives the
+    # per-enemy re-burn cooldown shared by the whole plume.
+    flame_timer: float = 0.0
+    flame_clock: float = 0.0
+    flame: FlameThrower = field(init=False)
+    _flame_cd: dict[int, float] = field(init=False, default_factory=dict)
     _started: bool = False
     _wave_timer: float = 0.0
     _spawn_timer: float = 0.0
@@ -72,10 +79,16 @@ class Game:
         self.player = Player()
         self.whip = Whip()
         self._whip_cd = {}
+        self.flame = FlameThrower()
+        self._flame_cd = {}
 
     @property
     def whip_active(self) -> bool:
         return self.whip_timer > 0.0
+
+    @property
+    def flame_active(self) -> bool:
+        return self.flame_timer > 0.0
 
     # ------------------------------------------------------------------ setup
     def new_game(self) -> None:
@@ -182,6 +195,9 @@ class Game:
         self.whip_timer = 0.0          # arcade: the lash dies with the craft
         self._whip_cd.clear()
         self.whip = Whip()
+        self.flame_timer = 0.0
+        self._flame_cd.clear()
+        self.flame = FlameThrower()
         self.bullets = []
         self.items = []
         # Keep any boss/enemies? On respawn mid-wave we clear the field of shots
@@ -399,6 +415,9 @@ class Game:
         elif kind is C.ItemKind.WHIP:
             self.whip_timer = min(C.WHIP_MAX,
                                   self.whip_timer + C.WHIP_TIME)
+        elif kind is C.ItemKind.FLAME:
+            self.flame_timer = min(C.FLAME_MAX,
+                                   self.flame_timer + C.FLAME_TIME)
         events.append({"type": SIG_POWERUP, "kind": kind.value})
 
     def _maybe_drop_item(self, enemy: Enemy, events: list[dict[str, Any]]) -> None:
@@ -511,6 +530,17 @@ class Game:
             self.whip.points = []
             if self._whip_cd:
                 self._whip_cd.clear()   # ids may be recycled by new enemies
+        # The thrower keeps burning what it already threw even once the timer
+        # runs out: the puffs are separate objects with their own lives, and
+        # deleting a plume mid-flight would be the model unmaking the world.
+        lit = self.flame_timer > 0.0
+        if lit:
+            self.flame_timer = max(0.0, self.flame_timer - dt)
+        if lit or self.flame.puffs:
+            self.flame_clock += dt
+            self.flame.update(dt, pl.x, pl.y, lit)
+        elif self._flame_cd:
+            self._flame_cd.clear()   # ids may be recycled by new enemies
 
         # --- spawn director ----------------------------------------------
         spec = self._spec()
@@ -599,11 +629,38 @@ class Game:
                         self._on_enemy_killed(e, events)
                     break
 
+    def _collide_flame(self, events: list[dict[str, Any]]) -> None:
+        """Contact damage from the plume, at whatever strength each puff has
+        reached.
+
+        The cooldown is per enemy and shared by the whole plume, not per puff:
+        a column of overlapping puffs must not burn one hull once each, which
+        would turn a flamethrower into a damage multiplier on anything that
+        cannot dodge.
+        """
+        cd = self._flame_cd
+        for k in [k for k, t in cd.items() if t <= self.flame_clock
+                  - C.FLAME_HIT_CD]:
+            del cd[k]
+        for e in self.enemies:
+            if not e.alive or self.flame_clock < cd.get(id(e), 0.0):
+                continue
+            for p in self.flame.puffs:
+                if P.circle_hit(p.x, p.y, p.r, e.x, e.y, e.r):
+                    cd[id(e)] = self.flame_clock + C.FLAME_HIT_CD
+                    events.append({"type": "flame_hit", "x": e.x, "y": e.y,
+                                   "dmg": p.dmg})
+                    if e.hurt(p.dmg):
+                        self._on_enemy_killed(e, events)
+                    break
+
     def _collide(self, events: list[dict[str, Any]]) -> None:
         pl = self.player
         # energy whip first: the lash carves before bullets resolve
         if self.whip_active:
             self._collide_whip(events)
+        if self.flame.puffs:
+            self._collide_flame(events)
         if self._cleared:
             return
         # friendly bullets vs enemies

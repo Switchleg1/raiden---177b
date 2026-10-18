@@ -197,6 +197,38 @@ def _paint_fx_whip(sheet: Any) -> None:
         t.blit(sheet, ox, oy)
 
 
+def _paint_fx_flame(sheet: Any) -> None:
+    """One puff of the flamethrower: a hot core breaking into lobes.
+
+    The four frames are the puff's *own* flicker. Its lifetime is not baked in:
+    the renderer scales the tile by the puff's radius and dims it by its fade,
+    so a plume of fifty puffs needs four tiles and not fifty, and the art has to
+    be fully lit at every frame for that dimming to mean anything.
+    """
+    cw, ch = SPRITES["fx_flame"]["cell"]
+    # The same lobes every frame, which is what makes a puff read as one body
+    # of fire turning instead of as noise re-rolled four times.
+    lobes = _explosion_lobes("flame", 5)
+    for i in range(4):
+        ox, oy = tile_xy("fx_flame", i)
+        t = Tile(cw, ch, ss=4)
+        cx, cy = cw / 2.0, ch / 2.0
+        ph = math.tau * i / 4.0
+        r = cw / 2.0 - 2.2 + 1.1 * math.sin(ph * 2.0)
+        t.bloom(cx, cy, cw / 2.0 - 0.5, (255, 92, 30), power=2.0, peak=0.5)
+        for a, df, sf in lobes:
+            lx = cx + math.cos(a + ph * 0.3) * r * df * 0.5
+            ly = cy + math.sin(a + ph * 0.3) * r * df * 0.5
+            lr = r * (0.34 + 0.26 * sf)
+            t.disc(lx, ly, lr, (214, 66, 26), edge=1.8,
+                   wobble=(3, ph + a, 0.16), alpha=0.92)
+            t.disc(lx, ly, lr * 0.58, (255, 146, 56), edge=1.3)
+        t.disc(cx, cy, r * 0.56, (255, 170, 68), edge=1.5, wobble=(3, ph, 0.12))
+        t.disc(cx, cy, r * 0.3, (255, 234, 164), edge=1.0)
+        t.disc(cx, cy - r * 0.14, r * 0.13, (255, 255, 250), edge=0.7)
+        t.blit(sheet, ox, oy)
+
+
 # Explosion stages, in order of appearance through every tier's frames.
 _EXPLOD_HOT = (255, 255, 252)
 _EXPLOD_FIRE = (255, 176, 58)
@@ -936,6 +968,31 @@ def _item_symbol(t: Tile, c: float, kind: str, accent: RGB, i: int) -> None:
               taper=0.4)
         t.arc(mx, my, 3.7, 2.2, a, 0.92, dark, edge=0.6, taper=0.35,
               alpha=0.85)
+    elif kind == "flame":                      # tongue of fire, licking taller
+        # A flame is a teardrop with the point up. The only thing that changes
+        # across the four frames is how far the tip licks and how far the
+        # shoulder leans: a fire glyph that changes shape reads as flickering,
+        # one that only changes colour reads as a lamp.
+        lick = 5.6 + 1.6 * math.sin(ph)
+        lean = 1.15 * math.sin(ph * 0.5)
+        t.bloom(c, c + 0.8, 9.4, accent, power=2.0,
+                peak=0.28 + 0.12 * math.sin(ph))
+        base = c + 4.2
+        for dx, half, col, al in ((lean, 4.7, mix(accent, (255, 58, 18), 0.4),
+                                   0.95),
+                                  (lean * 0.45, 2.6, mix(accent, _WHITE, 0.3),
+                                   0.9)):
+            # Triangle plus a base disc, not cone(): a cone keeps its base
+            # width past its base line, so a flame drawn with it runs a bar of
+            # fire off the bottom of the pod and out of the tile.
+            t.tri((c + dx, c - lick), (c + dx - half, base),
+                  (c + dx + half, base), col, edge=0.5, alpha=al)
+            t.disc(c + dx, base, half, col, edge=0.5, alpha=al)
+        t.disc(c, c + 2.6, 1.9, mix(_WHITE, accent, 0.3), edge=0.45)
+        # one ember peeling off the top, on an offset beat from the lick
+        ey = c - lick - 1.4 - 1.1 * math.sin(ph * 1.5)
+        t.disc(c + lean * 1.6, ey, 1.0, mix(accent, _WHITE, 0.4), edge=0.4,
+               alpha=0.55 + 0.35 * math.sin(ph))
     elif kind == "jammer":                     # broadcasting antenna, pulsing
         # No "prohibited" slash through it: ring + mast + slash is three shapes
         # of mush at 20 px. The octagon plate and the red already say hazard,
@@ -1154,6 +1211,7 @@ _BAKE = {
     "shot_moon": _paint_shot_moon,
     "shot_enemy": _paint_shot_enemy,
     "fx_whip": _paint_fx_whip,
+    "fx_flame": _paint_fx_flame,
     "items": _paint_items,
     "fx_item_aura": _paint_fx_item_aura,
     "fx_shield": _paint_fx_shield,

@@ -8,10 +8,15 @@ import config as C
 TILE_H = C.LOGICAL_H - C.HUD_H          # field band height (556)
 
 
-FAR_SPEED = 60.0                        # slow distant layer (px/s)
+FAR_SPEED = C.SCROLL_FAR              # slow distant layer (px/s)
 
 
-NEAR_SPEED = 165.0                      # ground layer at full scroll
+NEAR_SPEED = C.SCROLL_NEAR            # ground layer at full scroll
+
+
+# The rates themselves live in config: a weapon that travels the field in world
+# terms has to be defined against the ground rate, and config must not import
+# the view layer. These names stay so terrain callers do not change.
 
 
 SS = 2                                  # BAKE scale: baked PNGs live at 2x

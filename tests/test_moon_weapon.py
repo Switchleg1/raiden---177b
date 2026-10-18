@@ -303,7 +303,7 @@ def test_the_blade_has_its_own_sheet_and_frames():
 
 def test_the_blade_pod_appended_itself_to_the_item_sheet():
     """New kinds append. If this moves, every shipped pod moved with it."""
-    assert C.ItemKind.MOON is list(C.ItemKind)[-1]
+    assert list(C.ItemKind).index(C.ItemKind.MOON) == 9
     assert ui.ITEM_TILE[C.ItemKind.MOON.value] == 36
     frames, _fps, _loop = sprites.anim_spec("items", "moon")
     assert frames == [36, 37, 38, 39]

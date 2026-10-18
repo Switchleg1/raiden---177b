@@ -31,7 +31,7 @@ from PIL import Image  # noqa: E402
 # shrunk below the size the player actually sees.
 GROUPS = (
     ("shots", ("shot_vulcan", "shot_plasma", "shot_missile", "shot_enemy",
-               "fx_whip")),
+               "fx_whip", "fx_flame")),
     ("mid", ("explosion_small", "explosion_mid")),
     ("big", ("explosion_big",)),
 )

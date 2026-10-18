@@ -5,7 +5,8 @@ arcade shmups, built with [pygame-ce](https://pyce-community.org/). It reuses
 the engine shell of *Breakout Classic* (letterboxed 800×600 renderer, menus,
 settings, persistence, procedural synthwave music) with a completely new game
 model: a transformable fighter, an upgradable Vulcan cannon, homing-side
-missiles, an energy whip, screen-clearing smart bombs, enemy waves with
+missiles, an energy whip and a flamethrower, screen-clearing smart bombs, enemy
+waves with
 per-sector bosses that call in escort fighters, a retractable energy shield, and
 a falling power-up system. The campaign is nine sectors of 51 to 75 seconds of
 wave before the boss appears, each scrolling through two crossfading terrain
@@ -107,8 +108,9 @@ Sector 1 dissolves from countryside into farmland mid-level, Raiden-style)
 scheduled over that sector's own wave length, and the sector change itself is a
 2.4 s reveal drawn from two live sectors (`terrain/handoff.py`) rather than a
 swap. So all 18 theme/level pairs the nine sectors schedule are baked. Sprite sheets (the raw-keyed hero
-craft, ten enemy kinds, nine per-sector bosses, bullets, whip beads, 3-tier
-explosions, ten pickup pods and one shared orbiting pickup marker) ship in
+craft, ten enemy kinds, nine per-sector bosses, bullets, whip beads, flame
+puffs, 3-tier
+explosions, eleven pickup pods and one shared orbiting pickup marker) ship in
 `data/textures/sprites/`, and the seamless material /
 prop / splat tilekit in `data/textures/tiles/`. The keyed stills the sheets
 are animated from stay in `assets/textures/sprites_src/` — bake input, never
@@ -173,9 +175,10 @@ directory is empty.
 - `app/` — state machine (title → ready → playing → life/level transitions →
   results → initials entry → high-score table), audio & particle reactions to
   model events.
-- `sprites/` — sprite-sheet system: manifest of 30 tiled sheets (player craft
+- `sprites/` — sprite-sheet system: manifest of 33 tiled sheets (player craft
   with left/right banking frames, 10 enemy kinds, 9 sector bosses, 4 bullet
-  types, whip bead FX, 3 explosion tiers, 10 pickup pods sharing one tinted
+  types, whip bead and flame puff FX, 3 explosion tiers, 11 pickup pods sharing
+  one tinted
   orbiting marker) with per-sheet animation sequences, a
   lazy loading `Bank` (white hit-flash silhouettes via `BLEND_RGB_MAX`,
   per-colour recoloured copies via `BLEND_RGB_MULT`),
@@ -244,7 +247,8 @@ directory is empty.
   event API, determinism rules, known pitfalls.
 - [docs/terrain.md](docs/terrain.md) — terrain map system and how to add themes.
 - [docs/sprites.md](docs/sprites.md) — sprite sheets, the generated-raw
-  pipeline and anchors, animation, explosions, the whip, and the bake workflow.
+  pipeline and anchors, animation, explosions, the whip, the flamethrower, and
+  the bake workflow.
 - [docs/music.md](docs/music.md) — the rendered soundtrack: voice engine,
   procedural drum rompler, synthesised instruments, grooves and kits, per-sector
   cue pools, cue keys, melodic-material policy.
@@ -289,7 +293,18 @@ ship, so your own motion *draws* its shape — strafe and the body lags behind,
 the tip retracts while the length holds, then the lash feeds itself forward
 again. It also **reaches for the nearest hostile**, swinging onto its line at a
 visible speed rather than snapping to it, so it stays a weapon you can
-out-manoeuvre. All three power tracks (gun, missiles, blades) are read out the
+out-manoeuvre. And the **flamethrower**: for ~9 s the craft sprays a plume of
+fire that is **thrown, not worn** — each puff is born at the nozzle and then
+keeps the position and velocity it was born with, so the plume is a burning band
+the craft leaves behind rather than a limb it drags around. Its forward rate is
+the **world's** rate: 1.5× how fast the ground scrolls past (`FLAME_SCROLL_MULT
+× SCROLL_NEAR`), so the fire keeps climbing the field faster than the terrain
+falls by. A puff also thins as
+it travels, and the thinning *is* the damage: it starts at full strength and is
+half that the instant it burns out, fading on the same clock as the picture, so
+what you see is what it hits. Both timed powers stack (a second pod adds a block
+of time rather than restarting the clock) and neither ever switches your other
+guns off. All three power tracks (gun, missiles, blades) are read out the
 same way on the HUD: a glyph, a label, and one pip per level. Hazards too: jammers that downgrade your Vulcan and floating
 mines that cost a life unless you are shielded. The whole system can be turned
 off in Options (same toggle style as Breakout Classic). Weapon power is kept
@@ -358,7 +373,7 @@ src/                     one class per file; tables live in table files
              theme_table.py · layer.py · track.py
   sprites/   sheet_table.py · manifest.py · rawkit.py · fxkit.py ·
              painters.py · bank.py · anim.py
-  entities/  enemy.py · player.py · bullet.py · whip.py · bosskit.py
+  entities/  enemy.py · player.py · bullet.py · whip.py · flame.py · bosskit.py
   ui/        renderer.py · constants.py · effects.py · explosion.py · menu.py …
   state/     game_state.py · transitions.py · machine.py · errors.py
   input/     controller.py · viewport.py · ship_axis.py · actions.py

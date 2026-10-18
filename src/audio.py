@@ -27,6 +27,7 @@ from audio_effects import (
     BOSS_WARN,
     EFFECT_NAMES,
     EXPLOSION,
+    FLAME_HIT,
     GAME_OVER,
     HAZARD,
     LEVEL_COMPLETE,
@@ -143,6 +144,11 @@ def build_samples(rate: int = MIXER_RATE) -> dict[str, bytes]:
         # like the vulcan's square or hissing like the lash.
         MOON: _tone(1560, 0.11, vol=0.22, shape="tri", sweep=360, rate=rate,
                     decay=8.0),
+        # A whoosh, not a click: noise with a slow attack rising in pitch and a
+        # shallow decay, so a plume that catches reads as fire that took hold,
+        # and the MIN_GAP gate keeps a whole burn to one breath.
+        FLAME_HIT: _tone(300, 0.30, vol=0.2, shape="noise", sweep=820,
+                         rate=rate, attack=0.06, decay=4.0),
     }
 
 
@@ -541,4 +547,4 @@ __all__ = ["AudioManager", "build_samples", "wav_bytes", "MIXER_RATE",
            "BOSS_WARN",
            "BOMB", "MEDAL", "LIFE_LOST", "LEVEL_COMPLETE", "MENU_NAV",
            "MENU_ACTIVATE", "GAME_OVER", "VICTORY", "POWERUP", "HAZARD",
-           "WHIP_HIT"]
+           "WHIP_HIT", "FLAME_HIT"]

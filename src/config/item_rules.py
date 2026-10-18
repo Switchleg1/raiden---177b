@@ -47,6 +47,7 @@ JAMMER_DROP_PENALTY = 1      # weapon levels lost to a JAMMER
 BENEFICIAL: frozenset[ItemKind] = frozenset({
     ItemKind.WEAPON, ItemKind.MISSILE, ItemKind.BOMB, ItemKind.SHIELD,
     ItemKind.MEDAL, ItemKind.EXTRA_LIFE, ItemKind.WHIP, ItemKind.MOON,
+    ItemKind.FLAME,
 })
 
 
@@ -78,6 +79,10 @@ ITEM_COLORS: dict[str, tuple[tuple[int, int, int], tuple[int, int, int]]] = {
     # Missile and shield already own mid blue, and the blade has to read as
     # *metal thrown* rather than as a third blue power-up.
     "moon":        ((34, 48, 70), (214, 240, 255)),
+    # Fire: a red-orange, because bomb and medal already own warm yellow and
+    # the mine's peach belongs to a hazard. The pod has to read as burning
+    # rather than as another energy power or as a warning.
+    "flame":       ((92, 38, 24), (255, 104, 52)),
 }
 
 
@@ -95,6 +100,7 @@ ITEM_WEIGHTS: tuple[tuple[str, int], ...] = (
     ("extra_life", 2),
     ("whip", 9),
     ("moon", 14),
+    ("flame", 9),
     ("jammer", 7),
     ("mine", 5),
 )

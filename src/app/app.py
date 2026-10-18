@@ -757,6 +757,11 @@ class App:
                 self.audio.play(_audio_mod.WHIP_HIT)
             self.effects.add_burst(ev.get("x", 0.0), ev.get("y", 0.0),
                                    (235, 130, 255), 3)
+        elif et == "flame_hit":
+            if self.audio:
+                self.audio.play(_audio_mod.FLAME_HIT)
+            self.effects.add_burst(ev.get("x", 0.0), ev.get("y", 0.0),
+                                   (255, 150, 62), 3)
         elif et == "medal":
             if self.audio:
                 self.audio.play(_audio_mod.MEDAL)
@@ -1202,6 +1207,9 @@ class App:
             "Power-ups fall from enemies (toggleable in Settings):",
             "  W up-arrow: wider weapon   M rocket: missiles   B: smart bomb",
             "  shield: temporary protection   medal: score   heart: extra life",
+            "  Timed powers fire alongside your guns and wear off: the magenta",
+            "  coil is the energy lash, the red pod is a flamethrower. A second",
+            "  pod buys more time instead of restarting the clock.",
             "Hazards: J jams your weapon (downgrade); a floating mine costs a",
             "  life unless your shield or respawn invulnerability is active.",
             "",

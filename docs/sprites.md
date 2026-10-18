@@ -166,8 +166,9 @@ as a demo cycle); later anims index into that same grid.
 | `shot_moon`          | 26×26   | 4-frame spinning crescent (the piercing blade) |
 | `shot_enemy`         | 12×12   | orange orb, rippling counter-rotating rim    |
 | `fx_whip`            | 26×26   | magenta bead whose glow reaches `WHIP_BEAD_R` |
+| `fx_flame`           | 32×32   | 4-frame fire puff, fully lit: the view scales it by the puff's radius and dims it by its fade |
 | `fx_shield`          | 128×128 | 21 frames: 12-turn spin + 9 deploy pop — a bubble that wraps the hull |
-| `items`              | 28×28   | 10 pickup pods × 4 frames, one anim per kind (see below) |
+| `items`              | 28×28   | 11 pickup pods × 4 frames, one anim per kind (see below) |
 | `fx_item_aura`       | 36×36   | `orbit`, 12 frames @ 9 fps — one shared marker, tinted per kind |
 | `explosion_small`    | 48×48   | 8 frames @ 22 fps                           |
 | `explosion_mid`      | 80×80   | 12 frames @ 20 fps                          |
@@ -293,6 +294,62 @@ drawing the lash instead of dragging it, a straight-but-not-frozen lash, the
 handle leading and the tip following late, bearing-lock onto a target, the slew
 limit, the refused target below the craft, the sweep that resumes with nothing
 to chase, and the game-side choice of nearest reachable hostile).
+
+## Flamethrower
+
+Pickup `ItemKind.FLAME` sets `Game.flame_timer` (~9 s); a second pod adds
+another `FLAME_TIME` on top of what is left, capped at `FLAME_MAX`. It fires
+**alongside** the Vulcan, the missiles and the blades.
+
+Where the lash is one object, fire is a **crowd**. `entities.Flame` is one puff
+and knows exactly one law: `pos = birth + velocity * age`. It is born at the
+nozzle and is never touched again — the craft can turn, strafe or die, and a
+puff already in the air goes where it was going. There is no chain, no spring,
+no constraint: `tests/test_flame_weapon.py` moves the nozzle a hundred units
+sideways and fails if any puff that was already away moves with it.
+
+A puff also **thins**, and the thinning is the damage. `fade` runs 1 → 0 over
+`FLAME_LIFE` seconds and drives three things at once: the alpha the renderer
+draws it at, the radius it grows to (`FLAME_R` → `FLAME_R + FLAME_GROW`, a flame
+spreads as it cools), and `Flame.dmg`, which is `FLAME_DMG` at the nozzle and
+**half of it** the instant the puff goes out. So the player can read how hard a
+puff is hitting from how it looks, and there is no second invisible damage
+curve for the picture to disagree with. The wider radius is the trade: a spent
+puff still sets a bigger patch alight, just less hard.
+
+Its forward rate is stated against the **world**, not picked out of the air:
+`FLAME_SPEED = FLAME_SCROLL_MULT * SCROLL_NEAR` (1.5 × the ground layer's rate,
+by default). The terrain passes the craft at `SCROLL_NEAR`, so a puff climbing
+the field slower than that is being carried backward with the ground whatever
+its number looks like on screen. `FLAME_SCROLL_MULT` is the knob, and
+`config/scroll.py` is where the rate lives — `terrain/` reads it from there, so
+the background and the fire cannot drift apart.
+
+`entities.FlameThrower` owns the plume: a burst of `FLAME_FAN` puffs every
+`FLAME_INTERVAL`, fanned across the nozzle, the fan sliding side to side on the
+thrower's own clock and each puff born with its own sideways drift, so the plume
+billows over a band instead of laying down tidy columns. No RNG — a seeded
+replay reproduces the same plume frame for frame. When the timer runs out the
+*nozzle* stops; the puffs already away finish their flight, because the model
+does not unmake fire that is already in the air. Contact damage is `FLAME_DMG`
+per enemy per `FLAME_HIT_CD`, with the cooldown **shared by the whole plume**:
+fifty puffs over one hull is one burn at a time, not fifty, which is what keeps
+the weapon from being a damage multiplier on anything that cannot dodge.
+
+Rendering is one `fx_flame` tile per puff, `smoothscale`d to the contact radius
+and `set_alpha`d by the same `fade` the model spends on damage. The sheet is one
+fully-lit flicker loop, so a plume of fifty puffs needs four tiles and not fifty
+— and the art must be fully lit at every frame for the dimming to mean anything.
+With no art (or high contrast) the puffs are rings at the same radius.
+
+Constants are `FLAME_*` in `config/weapons.py`; the model is pygame-free and
+covered by `tests/test_flame_weapon.py` (position as birth plus a constant rate,
+the rate being a multiple of the ground scroll, puffs that ignore the craft's
+motion, reach worth taking, full strength at birth and half at the fade, damage
+that only ever falls and never reaches zero, spread as it cools, a bounded
+plume, the plume not being a chain, fire that outlives the timer, the pod adding
+a block, death putting the thrower away, hits landing, the shared cooldown, the
+guns staying out, determinism, and the art).
 
 ## Half-moon blades
 

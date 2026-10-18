@@ -63,12 +63,18 @@ SPRITES: dict[str, dict[str, Any]] = {
     "fx_whip":      {"cell": (26, 26),
                      "anims": {"run": {"frames": [0, 1, 2, 3],
                                        "fps": 20, "loop": True}}},
+    # one puff of the flamethrower. The renderer scales and dims this per puff,
+    # so the four frames are the puff's own flicker rather than its lifetime -
+    # a plume of 50 of them must not need 50 tiles.
+    "fx_flame":     {"cell": (32, 32),
+                     "anims": {"run": {"frames": [0, 1, 2, 3],
+                                       "fps": 22, "loop": True}}},
     # falling power-ups: one sheet for the whole family (they are painted from
     # one pod recipe), `ITEM_FRAMES` consecutive tiles per kind in ItemKind
     # declaration order — see ui/constants.ITEM_TILE. The first anim declares
     # every tile so it fixes the grid, and doubles as a family sweep.
     "items":        {"cell": (28, 28),
-                     "anims": {"all": {"frames": list(range(40)),
+                     "anims": {"all": {"frames": list(range(44)),
                                       "fps": 20, "loop": True},
                                "weapon": {"frames": [0, 1, 2, 3],
                                           "fps": 11, "loop": True},
@@ -89,7 +95,9 @@ SPRITES: dict[str, dict[str, Any]] = {
                                "mine": {"frames": [32, 33, 34, 35],
                                         "fps": 8, "loop": True},
                                "moon": {"frames": [36, 37, 38, 39],
-                                        "fps": 12, "loop": True}}},
+                                        "fps": 12, "loop": True},
+                               "flame": {"frames": [40, 41, 42, 43],
+                                         "fps": 16, "loop": True}}},
     # the orbiting pickup marker: one translucent sprite ringed around every
     # item, recoloured per kind at runtime (Bank.tinted) so a pickup is
     # identifiable as a pickup before its icon is readable
