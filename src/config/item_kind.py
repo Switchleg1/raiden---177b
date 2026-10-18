@@ -11,7 +11,7 @@ class ItemKind(StrEnum):
     SHIELD = "shield"        # timed invulnerability
     MEDAL = "medal"          # instant score bonus
     EXTRA_LIFE = "extra_life"    # +1 life (rare)
-    WHIP = "whip"            # timed energy-whip primary (replaces vulcan)
+    WHIP = "whip"            # timed energy lash (fires alongside the vulcan)
     JAMMER = "jammer"        # hazard: downgrade weapon level
     MINE = "mine"            # hazard: costs a life on contact
     # Declared last on purpose: the item sheet lays kinds out in declaration

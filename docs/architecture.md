@@ -196,10 +196,12 @@ its boss (`App._watch_load_ahead`).
    in `Enemy.update` and `bosskit.keep_in_band`) teleported bosses onto the
    band on their first frame and pinned side entries at the field edge, so both
    return early while `boss_step < 0.0`.
-10. **The shield bubble is presentation.** It is derived from the one number the
-    model already publishes (`7.0 - Player.shield`), so it needs no state, draws
-    no RNG and consumes no bullet; the deploy pop replays when a shield stacks on
-    a running one. Its art is deliberately wider than the hull and blitted
+10. **The shield bubble is presentation.** It is derived from two numbers the
+    model already publishes (`Player.shield_span - Player.shield`: the ceiling
+    this countdown started at, minus what is left), so the view keeps no state of
+    its own, draws no RNG and consumes no bullet; the deploy pop replays when a
+    shield stacks on a running one — and shields do stack, buying another
+    `SHIELD_TIME` block up to `SHIELD_MAX` instead of resetting the clock. Its art is deliberately wider than the hull and blitted
     *before* it (`tests/test_shield_fx.py` fails if the craft's own pixels move).
     The threat flare reads the nearest hostile bullet for the same reason — the
     renderer is allowed to look, never to spend.

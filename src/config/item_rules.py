@@ -23,6 +23,12 @@ MAX_ITEMS = 24               # hard bound on simultaneous falling items
 SHIELD_TIME = 7.0            # seconds of invulnerability (SHIELD)
 
 
+# A second SHIELD pod buys another full SHIELD_TIME on top of what is left, so
+# the pickup is never a downgrade. The stack is capped at two blocks: past that
+# the bubble stops being a timed power and reads as permanent armour.
+SHIELD_MAX = 2 * SHIELD_TIME
+
+
 # The bubble does not simply stop. For the last SHIELD_WARN_TIME seconds it
 # strobes - SHIELD_FLASH_HZ cycles per second, falling to SHIELD_FLASH_DIM on
 # the dark half instead of vanishing, because a bubble that blinks out entirely

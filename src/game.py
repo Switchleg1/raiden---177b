@@ -393,9 +393,12 @@ class Game:
         elif kind is C.ItemKind.BOMB:
             pl.bomb_stock = min(C.BOMB_MAX, pl.bomb_stock + 1)
         elif kind is C.ItemKind.SHIELD:
-            pl.shield = max(pl.shield, C.SHIELD_TIME)
+            # Timed powers buy another block, they do not reset the clock: a
+            # pod caught with two seconds left must not throw away five.
+            pl.add_shield(C.SHIELD_TIME, C.SHIELD_MAX)
         elif kind is C.ItemKind.WHIP:
-            self.whip_timer = C.WHIP_TIME      # refresh, does not stack
+            self.whip_timer = min(C.WHIP_MAX,
+                                  self.whip_timer + C.WHIP_TIME)
         events.append({"type": SIG_POWERUP, "kind": kind.value})
 
     def _maybe_drop_item(self, enemy: Enemy, events: list[dict[str, Any]]) -> None:
@@ -484,16 +487,19 @@ class Game:
         pl.clamp_to_field()
 
         # --- firing -------------------------------------------------------
-        # The energy whip replaces the vulcan while it lasts (missiles stay).
-        if firing and pl.fire_timer <= 0.0 and not self.whip_active:
+        # The vulcan keeps firing while the lash is out. The whip is a bonus
+        # weapon, not a trade: taking it mid-run must never leave the craft
+        # shooting less than it did a second ago (missiles and blades already
+        # worked this way).
+        if firing and pl.fire_timer <= 0.0:
             self._fire_weapon(events)
             pl.fire_timer = C.WEAPON_FIRE_INTERVAL
         if pl.missile_level > 0 and pl.missile_timer <= 0.0:
             self._fire_missiles(events)
             pl.missile_timer = C.MISSILE_INTERVAL
-        # Blades are automatic like missiles, and outlive the vulcan being
-        # holstered for a whip: a piercing track should not vanish because a
-        # timed power is running.
+        # Blades are automatic like missiles: a piercing track should not depend
+        # on holding the fire button, and it certainly should not stop because
+        # the lash is out.
         if pl.moon_level > 0 and pl.moon_timer <= 0.0:
             self._fire_moons(events)
             pl.moon_timer = C.MOON_INTERVAL

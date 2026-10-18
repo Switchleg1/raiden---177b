@@ -167,6 +167,30 @@ def test_apply_item_upgrade_caps():
     assert g.player.bomb_stock == C.BOMB_MAX
 
 
+def test_timed_powers_buy_a_block_and_not_a_reset():
+    """Two seconds left plus a full pod means two plus a full pod, not a reset.
+
+    A timed power that resets on pickup is a punishment for catching it late,
+    and a shield caught at 6.9 s left is almost the whole pod thrown away. Both
+    timed tracks stack, and both stop at two blocks so the run cannot be farmed
+    into permanent invulnerability.
+    """
+    g = make_game()
+    pl = g.player
+    pl.shield = 2.0
+    g._apply_item(Item(C.ItemKind.SHIELD, 0, 0), [])
+    assert pl.shield == 2.0 + C.SHIELD_TIME
+    assert pl.shield_span == pl.shield, "the deploy pop lost its reference point"
+    g._apply_item(Item(C.ItemKind.SHIELD, 0, 0), [])
+    assert pl.shield == C.SHIELD_MAX, "the shield stack ran away"
+
+    g.whip_timer = 2.0
+    g._apply_item(Item(C.ItemKind.WHIP, 0, 0), [])
+    assert g.whip_timer == 2.0 + C.WHIP_TIME
+    g._apply_item(Item(C.ItemKind.WHIP, 0, 0), [])
+    assert g.whip_timer == C.WHIP_MAX, "the lash stack ran away"
+
+
 def test_medal_scores_without_powerup_event():
     g = make_game()
     evs = []

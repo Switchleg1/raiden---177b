@@ -106,36 +106,70 @@ MOON_FAN_DEG = 7.5                     # angular step across the fan
 
 # Energy whip: a timed power that REPLACES the vulcan while active (arcade
 # homage: a beaded energy lash that snakes across the field and carves
-# anything it touches). Modelled as a chain of points on a swept, phase-
-# lagged curve; contact damage with a short per-enemy re-hit cooldown.
-WHIP_TIME = 12.0            # seconds the power lasts (pickup refreshes)
+# anything it touches).
+#
+# The lash is a ROPE IN THE WORLD, not a curve welded to the craft. Only the
+# handle bead is pinned to the ship; every bead past it keeps its own position
+# and is pulled only by the no-stretch constraint. Strafe and the handle drags,
+# the body lags, the tip retracts: the ship's motion *draws* the shape. A
+# forward drive along the rope and a bend relaxation then push the lash back
+# out ahead of the craft, so it keeps travelling forward in time. Contact
+# damage with a short per-enemy re-hit cooldown.
+# A second WHIP pod buys another full WHIP_TIME on top of what is left - two
+# seconds and a fresh pod means fourteen, never a reset back to twelve. Capped
+# at two blocks so the timed power cannot be farmed into a permanent one.
+WHIP_TIME = 12.0            # seconds the lash stays out (pickup adds a block)
 
 
-WHIP_LEN = 300.0            # lash length in logical units
+WHIP_MAX = 2 * WHIP_TIME
 
 
-WHIP_POINTS = 18            # sampled link points along the curve
+WHIP_LEN = 300.0            # arc length of the lash (world units, inextensible)
+
+
+WHIP_POINTS = 18            # beads on the lash
+
+
+WHIP_ATTACH = 12.0          # handle sits this far above the cockpit centre
 
 
 WHIP_SWEEP_HZ = 0.85        # side-to-side sweep rate with nothing to chase
 
 
-WHIP_MAX_ANGLE = 92.0       # how far the lash may lean from vertical, degrees
+WHIP_SWEEP_ANGLE = 34.0     # degrees the free sweep swings; big swings knot the lash
 
 
-WHIP_CURL_POWER = 2.3       # lean grows toward the tip as f ** this (>1 = curl)
+WHIP_MAX_ANGLE = 92.0       # how far the handle may lean for a target, degrees
 
 
-WHIP_WAVE_HZ = 1.6          # snake-wave travelling down the lash
+WHIP_DRIVE = 240.0          # px/s the lash feeds itself forward along its body
 
 
-WHIP_WAVE_AMP = 0.40        # wave amplitude, radians
+WHIP_AIM_PULL = 0.35        # part of that drive aims where the handle points
 
 
-WHIP_WAVE_TAPER = 1.5       # wave amplitude also grows toward the tip
+WHIP_STRAIGHT = 38.0        # 1/s bend relaxation: how badly the rope wants a line
 
 
-WHIP_AIM_RATE = 3.4         # rad/s: how fast the lash can swing onto a target
+WHIP_STRAIGHT_TIP = 0.65    # bend relaxation this much weaker at the tip (slack)
+
+
+WHIP_SMOOTH = 8             # segments averaged into the forward drive direction
+
+
+WHIP_DRAG = 10.0            # 1/s: how fast a bead's own momentum bleeds off
+
+
+WHIP_JITTER = 300.0         # px/s of wander fed into the lash (liveliness)
+
+
+WHIP_JITTER_TAPER = 1.6     # wander grows toward the tip as f ** this
+
+
+WHIP_JITTER_HZ = 1.5        # base rate of the wander (three incommensurate sines)
+
+
+WHIP_AIM_RATE = 3.4         # rad/s: how fast the handle may swing onto a target
 
 
 WHIP_SEEK_RANGE = 460.0     # px: the whip reaches for a hostile this near

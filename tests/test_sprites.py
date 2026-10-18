@@ -180,14 +180,26 @@ def test_whip_pickup_sets_power_and_event():
     assert any(k["kind"] == "whip" for k in kinds)
 
 
-def test_whip_replaces_vulcan_and_expires():
+def test_the_lash_does_not_holster_the_guns():
+    """The whip is a bonus weapon, not a trade.
+
+    It used to replace the Vulcan for its whole duration, which made the pickup
+    a downgrade for as long as it lasted: fewer things on screen, and the power
+    you already paid for switched off. With the lash out the craft still fires.
+    """
+    g = _game()
+    g.whip_timer = C.WHIP_TIME
+    evs = []
+    for _ in range(8):
+        evs.extend(g.update(C.SIM_DT, firing=True))
+    assert g.whip_active and g.whip.points, "the lash should be out"
+    assert any(e["type"] == "shoot" for e in evs), "the vulcan stopped for the lash"
+    assert any(b.friendly and not b.missile for b in g.bullets)
+
+
+def test_the_lash_expires_on_its_own_clock():
     g = _game()
     g.whip_timer = 5.0
-    evs = []
-    for _ in range(10):
-        evs.extend(g.update(C.SIM_DT * 10, firing=True))
-    assert not any(b.friendly and not b.missile for b in g.bullets)
-    assert not any(e["type"] == "shoot" for e in evs)
     while g.whip_timer > 0:
         g.update(C.SIM_DT * 10, firing=True)
     assert not g.whip_active
@@ -225,37 +237,112 @@ def test_the_lash_is_long_enough_to_be_a_weapon():
     assert far <= C.WHIP_LEN + 1.0
 
 
-def _sway(power: float) -> list[float]:
-    """Lateral offset of every bead at one aim, with a fixed wave phase.
+def _settle(w, ax=400.0, ay=500.0, target=None, steps=600, dt=1 / 120):
+    for _ in range(steps):
+        w.update(dt, ax, ay, target)
+    return w
 
-    The wave term is identical in both samples because the clock is, so the two
-    profiles differ only in how the lean is distributed along the lash.
+
+def test_the_lash_holds_its_length_and_retracts_instead():
+    """The rope is inextensible: the arc is fixed, the reach is what changes.
+
+    Strafe and the tip must come back toward the craft (the shape bends) and
+    then reach forward again on its own. Length is not allowed to stretch to
+    paper over the motion - that is what made the old lash a rigid picture.
     """
-    old = C.WHIP_CURL_POWER
-    C.WHIP_CURL_POWER = power
+    w = _settle(Whip(), target=(400.0, 120.0))
+    x = 400.0
+    hist: list[tuple[float, float]] = []          # (reach, tip y)
+    for _ in range(60):
+        x += C.PLAYER_SPEED / 120.0
+        w.update(1 / 120, x, 500.0, (x, 120.0))
+        assert w.arc == pytest.approx(C.WHIP_LEN, rel=0.02)
+        hist.append((w.reach, w.tip[1]))
+    for _ in range(200):
+        w.update(1 / 120, x, 500.0, (x, 120.0))
+        hist.append((w.reach, w.tip[1]))
+
+    dip_r, dip_y = hist[min(range(len(hist)), key=lambda i: hist[i][0])]
+    assert dip_r < C.WHIP_LEN * 0.85, "the tip did not retract"
+    back = next((y for r, y in hist if r > C.WHIP_LEN * 0.95), None)
+    assert back is not None, "the lash never reached forward again"
+    assert dip_y - back > 40.0, "reaching forward did not carry the tip up-field"
+
+
+def test_moving_the_craft_draws_the_lash_rather_than_dragging_it():
+    """A rigid attachment moves every bead by exactly the craft's move.
+
+    Here the handle pays for the move and the body barely reacts: the shape is
+    drawn by the ship's path over the next fraction of a second.
+    """
+    w = _settle(Whip(), target=(400.0, 120.0))
+    before = list(w.points)
+    x = 400.0
+    for _ in range(6):                        # 0.05 s of strafing
+        x += C.PLAYER_SPEED / 120.0
+        w.update(1 / 120, x, 500.0, (x, 120.0))
+    moved = C.PLAYER_SPEED * 0.05
+    n = len(w.points)
+    far = lambda a, b: math.hypot(a[0] - b[0], a[1] - b[1])  # noqa: E731
+    assert far(w.points[n // 2], before[n // 2]) < 0.4 * moved, "mid-lash is glued"
+    assert far(w.tip, before[-1]) < 0.5 * moved, "the tip is welded to the craft"
+
+
+def test_a_still_craft_holds_a_straight_but_live_lash():
+    """Straight means straight, not frozen: the tip still wanders the field."""
+    w = _settle(Whip(), target=(400.0, 120.0))
+    dev, xs = [], []
+    for _ in range(300):
+        w.update(1 / 120, 400.0, 500.0, (400.0, 120.0))
+        ax, ay = w.anchor
+        tx, ty = w.tip
+        vx, vy = tx - ax, ty - ay
+        ln = math.hypot(vx, vy)
+        dev.append(max(abs((px - ax) * vy - (py - ay) * vx) / ln
+                       for px, py in w.points))
+        xs.append(w.tip[0])
+    assert max(dev) < C.WHIP_LEN * 0.10, "the lash coils on a still craft"
+    assert max(xs) - min(xs) > 10.0, "the lash is frozen still"
+
+
+def _link_angles(w: Whip) -> list[float]:
+    """Direction of every link, handle first, in radians from straight up."""
+    out, last = [], w.anchor
+    for x, y in w.points:
+        out.append(math.atan2(x - last[0], -(y - last[1])))
+        last = (x, y)
+    return out
+
+
+def _turned(before: list[float], after: list[float]) -> list[float]:
+    out = []
+    for a, b in zip(after, before, strict=True):
+        out.append(abs(((a - b + math.pi) % math.tau) - math.pi))
+    return out
+
+
+def test_the_turn_starts_at_the_handle_and_travels_to_the_tip():
+    """The wrist leads and the tip follows, late. That is what makes it a whip
+    rather than a spear: the change of aim is a wave that has to reach the end.
+
+    The wander is switched off here to watch the kinematics alone.
+    """
+    jitter, C.WHIP_JITTER = C.WHIP_JITTER, 0.0
     try:
-        w = Whip()
-        w.t = 0.75
-        w.aim = 0.85
-        return [x - 400.0 for x, _y in w._shape(400.0, 500.0)]
+        w = _settle(Whip(), target=(400.0, 120.0))
+        start = _link_angles(w)
+        n = len(w.points)
+        for steps in (12, 24):                # 0.1 s and 0.2 s in
+            for _ in range(steps):
+                w.update(1 / 120, 400.0, 500.0, (60.0, 200.0))
+            d = _turned(start, _link_angles(w))
+            near, far = sum(d[:n // 2]) / (n // 2), sum(d[n // 2:]) / (n // 2)
+            assert near > far, f"the tip led the handle at {steps} steps"
+        for _ in range(96):                   # and by 0.8 s the wave has landed
+            w.update(1 / 120, 400.0, 500.0, (60.0, 200.0))
+        assert _turned(start, _link_angles(w))[n - 1] > 0.5, "the turn never arrived"
     finally:
-        C.WHIP_CURL_POWER = old
-
-
-def test_the_lash_curls_instead_of_tilting():
-    """A rod tilts, a whip curls: the sway must grow faster than length.
-
-    With a linear lean the halfway bead carries half the tip's offset and the
-    whole lash is a straight stick rocking on a pivot. Curl is the outer section
-    doing more of the turning than the inner one, measured here as the midpoint
-    holding less than half the tip's sway - and less than the same whip would
-    hold with the power set to 1.0.
-    """
-    curl = _sway(C.WHIP_CURL_POWER)
-    rod = _sway(1.0)
-    mid = len(curl) // 2
-    assert curl[mid] < 0.5 * curl[-1], "the lean is still linear"
-    assert curl[mid] < rod[mid], "the curl power is not reaching the shape"
+        C.WHIP_JITTER = jitter
 
 
 def test_the_whip_turns_toward_a_hostile():
@@ -316,7 +403,8 @@ def test_with_nothing_to_chase_the_lash_sweeps():
     for _ in range(300):
         w.update(1 / 60, 400.0, 500.0, None)
         seen.append(w.aim)
-    assert min(seen) < -0.5 and max(seen) > 0.5, "the sweep never crossed over"
+    want = math.radians(C.WHIP_SWEEP_ANGLE) * 0.9
+    assert min(seen) < -want and max(seen) > want, "the sweep never crossed over"
 
 
 def test_the_whip_is_deterministic():

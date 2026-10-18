@@ -11,7 +11,7 @@ class Player:
     __slots__ = ("x", "y", "vx", "vy", "r", "half", "alive",
                  "weapon_level", "missile_level", "moon_level", "bomb_stock",
                  "fire_timer", "missile_timer", "moon_timer", "invuln",
-                 "shield")
+                 "shield", "shield_span")
 
     # The power tracks, as one value. Clearing a sector carries them, dying
     # wipes them. They used to be copied by hand, two names at a time, and when
@@ -41,6 +41,7 @@ class Player:
         self.alive = True
         self.invuln = 0.0
         self.shield = 0.0
+        self.shield_span = 0.0    # the ceiling the current shield started at
         self.fire_timer = 0.0
         self.missile_timer = 0.0
         self.moon_timer = 0.0
@@ -60,9 +61,19 @@ class Player:
         self.alive = True
         self.invuln = C.PLAYER_INVULN
         self.shield = 0.0
+        self.shield_span = 0.0
         self.fire_timer = 0.0
         self.missile_timer = 0.0
         self.moon_timer = 0.0
+
+    def add_shield(self, seconds: float, cap: float) -> None:
+        """Buy another block of shield on top of what is left, never a reset.
+
+        ``shield_span`` records where the new countdown started, which is what
+        lets the bubble replay its deploy pop on a stacked pickup.
+        """
+        self.shield = min(cap, self.shield + seconds)
+        self.shield_span = self.shield
 
     @property
     def protected(self) -> bool:
@@ -78,6 +89,8 @@ class Player:
             self.invuln = max(0.0, self.invuln - dt)
         if self.shield > 0.0:
             self.shield = max(0.0, self.shield - dt)
+        # shield_span deliberately does NOT tick: it is the ceiling the current
+        # countdown started at, so span - shield is "how long ago the pod hit".
         if self.fire_timer > 0.0:
             self.fire_timer = max(0.0, self.fire_timer - dt)
         if self.missile_timer > 0.0:

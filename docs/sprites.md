@@ -255,17 +255,21 @@ nine ways costs one sheet on disk and nine surfaces in RAM.
 ## Whip weapon
 
 Pickup `ItemKind.WHIP` (weighted like other rare items) sets
-`Game.whip_timer` (~12 s). While active:
+`Game.whip_timer` (~12 s). A second pod **adds** another `WHIP_TIME` to whatever
+is left (capped at `WHIP_MAX`, two blocks) rather than resetting it, so catching
+one late never throws the power away. While active:
 
-- the Vulcan is **replaced** by the lash (no bullets — Raiden's
-  Strike-Weapon tradeoff: aggressive damage for losing range),
-- `entities.Whip` models it as `WHIP_POINTS` (18) points along a 300 px lash,
-  rippled by a traveling sine (`WHIP_WAVE_*`) for the crackling snake look,
-- **it leans where the lean is put**: the shape is `aim * f ** WHIP_CURL_POWER`,
-  so the handle stays where the craft points and the outer section hooks over.
-  A linear lean is a rod tilting on a pivot; a power above one is a curl, and
-  the wave tapers the same way (`WHIP_WAVE_TAPER`) so the crackle lives at the
-  tip instead of shaking the handle,
+- the Vulcan **keeps firing**: the lash is a bonus weapon layered on the track
+  you already paid for. It used to holster the gun for its whole duration, which
+  made the power a downgrade while it lasted —
+- `entities.Whip` is a **rope in the world**, not a curve redrawn from the
+  craft: `WHIP_POINTS` (18) beads with a fixed total length of `WHIP_LEN`.
+  Only the handle bead is pinned to the ship. The rest keep their own position
+  and are pulled no further than the bead ahead of them requires, so the ship's
+  motion *draws* the shape and the tip retracts while the length holds
+  (`WHIP_DRAG` for the lag, `WHIP_DRIVE` + `WHIP_AIM_PULL` to keep feeding the
+  lash forward up-field, `WHIP_STRAIGHT` to relax the bend, `WHIP_JITTER` for a
+  deterministic wander so "straight" never means "frozen"),
 - **it looks for work**: `Game._whip_target()` offers the nearest live hostile
   inside `WHIP_SEEK_RANGE` and the lash steers onto its *bearing* — the anchor,
   the handle and the hostile collinear — at `WHIP_AIM_RATE` radians a second.
@@ -283,11 +287,12 @@ Pickup `ItemKind.WHIP` (weighted like other rare items) sets
 
 All whip constants live in `config.py` (`WHIP_*`), the simulation is
 pygame-free and covered by `tests/test_sprites.py` (attachment, expiry,
-forward reach, arc bounds, the reach the length is supposed to buy, curl
-measured against the same lash with the power set to 1.0, bearing-lock onto a
-target, the slew limit, the refused target below the craft, the sweep that
-resumes with nothing to chase, and the game-side choice of nearest reachable
-hostile).
+forward reach, arc bounds, the reach the length is supposed to buy, the length
+holding while the tip retracts and then reaches forward again, a still craft
+drawing the lash instead of dragging it, a straight-but-not-frozen lash, the
+handle leading and the tip following late, bearing-lock onto a target, the slew
+limit, the refused target below the craft, the sweep that resumes with nothing
+to chase, and the game-side choice of nearest reachable hostile).
 
 ## Half-moon blades
 

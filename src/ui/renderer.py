@@ -410,7 +410,11 @@ class Renderer:
         if lapse <= 0.0:
             return                       # faded out: the craft is on its own
         deploy_frames, _fps, _loop = sprites.anim_spec(SHIELD_SHEET, "deploy")
-        since = C.SHIELD_TIME - pl.shield
+        # How long ago the pod landed. The span is the ceiling that countdown
+        # started at, so a stacked shield pops again on the fresh pickup instead
+        # of being stuck in its spin pose; a scene that only set the timer falls
+        # back to one block of SHIELD_TIME.
+        since = (pl.shield_span or C.SHIELD_TIME) - pl.shield
         if 0.0 <= since < SHIELD_DEPLOY_TIME:
             # One pass of the pop, driven by the shield's own countdown so the
             # FX needs no extra state; grabbing a second shield replays it.
@@ -759,7 +763,9 @@ class Renderer:
             return
         # energy strand under the beads so the curve always reads
         pts_c = [(int(x), int(y)) for x, y in pts]
-        head = (int(game.player.x), int(game.player.y) - 12)
+        # The rope's own attach point, so the strand starts at the handle bead
+        # instead of being guessed from the ship's centre.
+        head = (int(game.whip.anchor[0]), int(game.whip.anchor[1]))
         pygame.draw.lines(self.canvas, (120, 30, 150), False,
                           [head] + pts_c, 5)
         pygame.draw.lines(self.canvas, (235, 120, 255), False,
