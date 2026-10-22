@@ -1,4 +1,5 @@
-"""Synthesised instruments: flute, violin, strings, pluck, bell.
+"""Synthesised instruments: flute, violin, strings, pluck, bell, and the
+supersaw / stab / acid / reese electronic voices.
 
 ``music.py`` arranges notes; this module gives a note a *timbre*. Each renderer
 turns one pitch, one duration into a mono float buffer, the same contract as
@@ -318,12 +319,210 @@ def bell(freq: float, dur: float, rate: int = RATE, vel: float = 1.0) -> list[fl
     return out
 
 
+# --- electronic voices: the trance / electro palette -----------------------
+# The acoustic instruments above buy expressiveness. These buy *current*: a
+# supersaw pad, a gated stab, a resonant bass line, a reese. They are still
+# additive stacks rather than waveforms run through a live filter, because a
+# biquad per sample per voice does not fit inside a soundtrack that already
+# renders on a background thread beside a mixer. Where a filter is the whole
+# point (``acid``) the filter is expressed as amplitudes over the harmonic
+# series, which is the same thing a filter does to a saw, and costs a handful of
+# multiplies per harmonic instead of a filter state per sample.
+
+# Three detunings, deliberately not evenly spaced: evenly spaced detuning puts
+# the beat frequencies at the same pitch and the chorus collapses into one
+# pulsing voice. Coprime-ish offsets make the beating wander instead.
+SUPER_DETUNE = (0.9951, 1.0, 1.0043)
+SUPER_HARMONICS = 6
+
+# The acoustic instruments above arrive at predictable peaks because the
+# arrangements that use them were balanced against them by ear. A new voice has
+# no such history, so it is levelled on the way out: otherwise handing a slot to
+# ``supersaw`` instead of ``strings`` would change the mix balance as a side
+# effect of changing the timbre, and the arrangement number would stop meaning
+# what it says.
+INSTRUMENT_PEAK = 0.95
+
+
+def _level(buf: list[float], target: float = INSTRUMENT_PEAK) -> list[float]:
+    """Scale a whole rendered note to ``target`` peak (its shape is untouched)."""
+    peak = 0.0
+    for v in buf:
+        a = -v if v < 0 else v
+        if a > peak:
+            peak = a
+    if peak <= 0.0:
+        return buf
+    g = target / peak
+    return [v * g for v in buf]
+
+
+def _saw_stack(phase: float, harmonics: int, rolloff: float) -> float:
+    """Band-limited saw: the first ``harmonics`` partials, amplitude 1/h^
+    ``rolloff``.
+
+    A naive saw is the same sound at every pitch, which is exactly what makes a
+    synth bass rip at low notes and buzz at high ones. Raising the rolloff
+    trades upper partials for warmth, and that trade - not the waveform name -
+    is what separates a trance lead from an acid line.
+    """
+    y = 0.0
+    for h in range(1, harmonics + 1):
+        y += _sin(phase * h) / (h ** rolloff)
+    return y
+
+
+def supersaw(freq: float, dur: float, rate: int = RATE,
+             vel: float = 1.0) -> list[float]:
+    """Detuned saw stack: the pad and lead voice of trance.
+
+    Width comes from beats, not from loudness: three saws detuned by a few cents
+    each sweep in and out of phase, and the outer two also breathe on a slow
+    amplitude LFO so the pad moves even while one chord is held. That LFO is
+    nearly free (two multiplies) and it is the difference between a pad and an
+    organ holding a note.
+    """
+    n = max(2, int(dur * rate))
+    out = [0.0] * n
+    env = _Env(dur, min(0.06, dur * 0.25), min(0.35, dur * 0.45), 0.88)
+    phases = [0.0, 0.23, 0.61]
+    steps = tuple(freq * d / rate for d in SUPER_DETUNE)
+    trem = 0.0
+    trem_step = 2.0 * math.pi / rate * 0.9     # under a Hz: a swell, not a wobble
+    for i in range(n):
+        t = i / rate
+        swell = 1.0 + 0.16 * math.sin(trem)
+        y = 0.0
+        for v in range(len(steps)):
+            p = phases[v]
+            # the outer pair breathes against each other; the middle holds
+            amp = 1.0 if v == 1 else swell
+            y += _saw_stack(p, SUPER_HARMONICS, 1.25) * amp
+            phases[v] = p + steps[v]
+        out[i] = y * 0.19 * env.value(t) * vel
+        trem += trem_step
+    return _level(out)
+
+
+def stab(freq: float, dur: float, rate: int = RATE, vel: float = 1.0) -> list[float]:
+    """Gated stab: a chord tone slammed on and cut off, the house/trance chop.
+
+    The envelope is the timbre here. A three-millisecond attack and a hard
+    forty-millisecond release make the note a *percussion* hit even when the
+    arrangement wrote it at lead pitch; the same harmonics under a slow envelope
+    would just be a dull pad. Two detunings are enough - a stab's width has to
+    survive being cut short, and a wide stack with a fast gate beats against
+    itself into mush.
+    """
+    n = max(2, int(dur * rate))
+    out = [0.0] * n
+    env = _Env(dur, min(0.0035, dur * 0.15), min(0.04, dur * 0.3), 1.0)
+    phases = [0.0, 0.37]
+    steps = (freq * 0.9968 / rate, freq * 1.0055 / rate)
+    for i in range(n):
+        y = 0.0
+        for v in range(2):
+            y += _saw_stack(phases[v], 5, 0.85)
+            phases[v] += steps[v]
+        out[i] = y * 0.34 * env.value(i / rate) * vel
+    return _level(out)
+
+
+# Acid: where the resonant peak starts, where it lands, and how wide a band of
+# harmonics it lets through on the way down. The sweep *is* the performance.
+ACID_C0 = 4200.0            # peak opens up here (Hz)
+ACID_C1 = 300.0             # ...and falls to here
+ACID_Q = 3.2                # resonance height at the peak
+ACID_BAND = 0.75            # peak width as a fraction of the cutoff
+ACID_TAIL = 0.35            # fraction of the note over which the sweep happens
+
+
+def acid(freq: float, dur: float, rate: int = RATE, vel: float = 1.0) -> list[float]:
+    """Resonant saw with a falling filter envelope: the 303 / electro bass.
+
+    A real resonant low-pass is a feedback filter, and running one per note per
+    sample is the expensive way to do it. The harmonics of a saw are discrete
+    samples of the same spectrum, so shaping them with a moving peak gives the
+    identical gesture - partials below the peak pass, the partial at the peak is
+    pushed up by ``Q``, everything above falls off - for a few flops per
+    harmonic. The peak travels exponentially (multiplying a constant per sample,
+    the way a knob turn is exponential in frequency), and it stops early so the
+    note ends closed, which is the "wah" a player leaves in the tail.
+    """
+    n = max(2, int(dur * rate))
+    out = [0.0] * n
+    harmonics = 12
+    fh = tuple(freq * h for h in range(1, harmonics + 1))
+    phases = [h * freq / rate * 0.11 for h in range(1, harmonics + 1)]
+    steps = tuple(fh[h] / rate for h in range(harmonics))
+    sweep_n = max(1, int(dur * ACID_TAIL * rate))
+    ratio = pow(ACID_C1 / ACID_C0, 1.0 / sweep_n)
+    cut = ACID_C0
+    env = _Env(dur, min(0.002, dur * 0.1), min(0.05, dur * 0.25), 0.9)
+    for i in range(n):
+        if i < sweep_n:
+            cut *= ratio
+        inv = 1.0 / cut
+        band = cut * ACID_BAND
+        y = 0.0
+        for h in range(harmonics):
+            f = fh[h]
+            # soft rolloff above the peak, and the peak itself pushed up: one
+            # divide and one abs per partial, no logs and no exponentials
+            over = f * inv
+            amp = 1.0 / (1.0 + over * over * 2.2)
+            near = 1.0 - abs(f - cut) / band
+            if near > 0.0:
+                amp += near * ACID_Q * 0.25
+            y += amp * _sin(phases[h])
+            phases[h] += steps[h]
+        out[i] = y * 0.16 * env.value(i / rate) * vel
+    return _level(out)
+
+
+# A reese is two saws slightly apart: the beating between them is the whole
+# effect, so the detuning is musical (a quarter tone) rather than a chorus trick.
+REESE_DETUNE = 1.0142
+REESE_HARMONICS = 6
+
+
+def reese(freq: float, dur: float, rate: int = RATE, vel: float = 1.0) -> list[float]:
+    """Reese bass: two detuned saws plus a sub, beating as one moves.
+
+    The sub sine is not decoration. A reese played through small speakers loses
+    its fundamental entirely, and an electro bass whose root vanishes in the room
+    reads as a fuzzy texture rather than a note; the sine keeps the pitch while
+    the saws keep the snarl.
+    """
+    n = max(2, int(dur * rate))
+    out = [0.0] * n
+    phases = [0.0, 0.41]
+    steps = (freq / rate, freq * REESE_DETUNE / rate)
+    env = _Env(dur, min(0.006, dur * 0.2), min(0.08, dur * 0.3), 0.92)
+    sub_step = freq * 0.5 / rate
+    sub_ph = 0.0
+    for i in range(n):
+        t = i / rate
+        y = (_saw_stack(phases[0], REESE_HARMONICS, 1.15)
+             + _saw_stack(phases[1], REESE_HARMONICS, 1.15) * 0.95)
+        phases[0] += steps[0]
+        phases[1] += steps[1]
+        y += _sin(sub_ph) * 0.8
+        sub_ph += sub_step
+        out[i] = y * 0.22 * env.value(t) * vel
+    return _level(out)
+
+
 RENDERERS: dict[str, Callable[..., list[float]]] = {
     "flute": flute,
     "violin": violin,
     "strings": strings,
     "pluck": pluck,
     "bell": bell,
+    "supersaw": supersaw,
+    "stab": stab,
+    "acid": acid,
+    "reese": reese,
 }
 NAMES = tuple(sorted(RENDERERS))
 

@@ -32,5 +32,5 @@ if __name__ == "__main__":
                 "  fix: run install.bat, then launch with run.bat "
                 "(or .venv\\Scripts\\python.exe main.py)\n"
             )
-            raise SystemExit(1)
+            raise SystemExit(1) from None  # the message above is the diagnosis
         raise

@@ -14,6 +14,12 @@ and a checkout still builds, bakes and plays.
 | file | what it is | how to re-render |
 | --- | --- | --- |
 | `study_mission_gallop.wav` | a riding cue - "giddy up, on a mission". 150 BPM, 28 bars, Em. Gallop in the kick, hooves on the toms, hammered tonic bass, brass calls, fiddle answers. | `python scripts/study_mission_gallop.py` |
+| `cues/` (not committed) | listening copies of cues that **are** in the game - the way to hear a shipped cue without starting the run | `python scripts/render_cue.py --dance` or by name |
+
+`cues/` is gitignored on purpose: those WAVs are the game's own music, 1.7 MB
+apiece, and they are one command from the tables that generate them. A study is
+different - it is material that has *not* entered the tables, so the WAV and the
+script are the record of it.
 
 ## Conventions
 

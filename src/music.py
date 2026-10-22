@@ -101,6 +101,12 @@ class _Mix:
     def __init__(self, nsamples: int, rate: int = RATE,
                  drums: dict | None = None) -> None:
         self.buf = [0.0] * nsamples
+        # The drums live on their own bus. That is not mixer decoration: the
+        # trance/electro cues want a sidechain pump, and a pump that ducks the
+        # kick as well as the pad is just a tremolo. Keeping the rhythm separate
+        # is what lets the synths breathe around every kick while the kick itself
+        # stays rock steady.
+        self.dbuf = [0.0] * nsamples
         self.rate = rate
         self.drums = drums
 
@@ -185,7 +191,7 @@ class _Mix:
         paid once when the kit was rendered.
         """
         if self.drums is not None:
-            drum_kit.play(self.buf, self.rate, s0, voice, vel, self.drums,
+            drum_kit.play(self.dbuf, self.rate, s0, voice, vel, self.drums,
                           freq=freq)
 
     def instr(self, s0: int, dur: float, freq: float, name: str,
@@ -207,8 +213,50 @@ class _Mix:
         for i in range(s0, end):
             buf[i] += samples[i - s0] * vol
 
+    def pump(self, depth: float, period: float,
+             recover: float = 0.28) -> None:
+        """Duck the synth bus once per beat, then let it swim back up.
+
+        This is the sidechain pump that the whole trance and electro idiom runs
+        on: the pad and bass step down every time the kick lands and climb back
+        into the next one. Played by a dance record it is the reason a cue feels
+        like it is *moving* rather than looping, and it is also the cheapest
+        rhythm there is - no extra notes, no extra CPU in the bar render.
+
+        Only the synth bus is touched, because that is what a real sidechain does
+        (the kick owns its own trigger). ``depth`` is the fraction of level lost
+        at the bottom of the dip, ``period`` is the spacing of the dips - the
+        quarter-note beat for a four-on-the-floor cue - and ``recover`` is the
+        seconds it takes to come back, which is what makes a pump a pump: a dip
+        that never returns is a sustain, and one that returns in 40 ms is a click.
+        """
+        if depth <= 0.0 or period <= 0.0:
+            return
+        step = int(period * self.rate)
+        if step < 2:
+            return
+        bottom = max(0.0, 1.0 - depth)
+        # The climb back is exponential, which is how a compressor release
+        # behaves: ``recover`` is the time to come back *most* of the way (92 %
+        # of the gap), not all of it. That distinction is the whole sound. If the
+        # release is treated as "fully back in 0.15 s", the dip lasts a sixth of
+        # the beat and the cue gains a click instead of a pulse; a real dance
+        # record is still substantially ducked when the next kick arrives, and so
+        # is this. One pow per call, not per sample.
+        span = max(1.0, recover * self.rate)
+        rec = 1.0 - pow(0.08, 1.0 / span)
+        buf = self.buf
+        n = len(buf)
+        g = 1.0
+        for start in range(0, n, step):
+            end = min(start + step, n)
+            g = bottom
+            for i in range(start, end):
+                g += (1.0 - g) * rec
+                buf[i] *= g
+
     def normalise(self, peak: float = 0.9, knee: float = 0.68) -> bytes:
-        """Soft-clip, scale to ``peak``, then quantise to 16-bit mono.
+        """Sum the buses, soft-clip, scale to ``peak``, quantise to 16-bit mono.
 
         Drum transients land on top of the sustained pad and bass, so the sum
         regularly passes full scale. Hard-clipping those flips the waveform and
@@ -217,6 +265,9 @@ class _Mix:
         """
         head = 1.0 - knee
         buf = self.buf
+        if any(self.dbuf):
+            for i, v in enumerate(self.dbuf):
+                buf[i] += v
         mx = 1e-6
         for i, v in enumerate(buf):
             a = -v if v < 0 else v
@@ -250,7 +301,13 @@ class _Mix:
 FILL_VARIANT = {"intro": 0, "A": 0, "B": 1, "outro": 1}
 TOM_DESC = tuple(sorted(drum_kit.TOM_FREQS, reverse=True))
 GROOVE_VOICES = ("kick", "snare", "ghost", "hat", "open", "ride", "rim",
-                 "clap", "tom")
+                 "clap", "tom", "shaker", "cowbell", "riser")
+# A fill leaves the pulse alone and pulls the busy layers down, so the fill
+# reads as a bend in the groove rather than a wall of noise.
+FILL_DUCK = ("kick", "hat", "shaker")
+# The riser is baked about a bar and a half long, so the build sits one bar
+# ahead of the fill: riser, then the fill lands where the sweep peaked.
+BUILD_BAR = 6
 
 
 def _drum_bar(mix, groove: dict, section: str, bar_in_sec: int, at,
@@ -275,9 +332,15 @@ def _drum_bar(mix, groove: dict, section: str, bar_in_sec: int, at,
         mix.drum("kick", at(0), 0.85)
         for e in range(8):
             mix.drum("hat", at(e * 0.5), 0.55 if e % 2 == 0 else 0.3)
+        if groove.get("build"):
+            # the same build the sections use, so a cue that builds also builds
+            # its way in from the top of the loop
+            for step, voice, vel in groove["build"]:  # type: ignore[misc]
+                mix.drum(voice, at(step * 0.25), vel * 0.8)
         return
 
     fill = bar_in_sec == 7
+    build = bar_in_sec == BUILD_BAR and bool(groove.get("build"))
     loud = 0.8 if section == "outro" else 1.0
     swing = float(groove.get("swing", 0.0))
 
@@ -288,7 +351,7 @@ def _drum_bar(mix, groove: dict, section: str, bar_in_sec: int, at,
     for name in GROOVE_VOICES:
         if fill and name == "snare":
             continue                       # the fill owns the backbeat
-        duck = 0.55 if (fill and name in ("kick", "hat")) else 1.0
+        duck = 0.55 if (fill and name in FILL_DUCK) else 1.0
         for step, vel in groove.get(name, ()):  # type: ignore[misc]
             voice = "snare" if name == "ghost" else name
             hits.append((pos(step), voice, vel * loud * duck))
@@ -299,12 +362,18 @@ def _drum_bar(mix, groove: dict, section: str, bar_in_sec: int, at,
             for step, voice, vel in pick:
                 hits.append((pos(step), "snare" if voice == "ghost" else voice,
                              vel * loud))
+    if build:
+        for step, voice, vel in groove["build"]:  # type: ignore[misc]
+            hits.append((pos(step), "snare" if voice == "ghost" else voice,
+                         vel * loud))
     hits.sort(key=lambda h: h[0])
     # Tom pitches are positional: the toms in this bar, in order, take the
     # lowest N kit notes descending.
     tom_slots = [i for i, hit in enumerate(hits) if hit[1] == "tom"]
     tom_pitches = dict(zip(tom_slots, TOM_DESC[-len(tom_slots):], strict=False))
-    if bar_in_sec == 0 and (drive or section == "outro"):
+    # A crash lights the top of a section. On a boss that is alarm; on a groove
+    # that builds, it is the drop the sweep was reaching for.
+    if bar_in_sec == 0 and (drive or section == "outro" or groove.get("build")):
         mix.drum("crash", at(0), 0.9 if drive else 0.7)
     for i, (beat, voice, vel) in enumerate(hits):
         mix.drum(voice, at(beat), vel, freq=tom_pitches.get(i))
@@ -325,12 +394,55 @@ def _play(mix, s0: int, dur: float, freq: float, spec: str | None, vol: float,
         mix.voice(s0, dur, freq, spec or wave, vol, **kw)
 
 
+# Pad level, and the level a three-note pad uses per note. A triad has to fit the
+# same slot a dyad already occupies, so each note gives up a third of its level:
+# widening the harmony is not allowed to be a volume increase.
+PAD_VOL = 0.055
+PAD_CHORD_VOL = 0.037
+
+# How the arpeggiated layer moves. This layer decides whether a cue sits still
+# or runs, and until now every cue in the roster played the same figure - a
+# large part of why they all felt like one tune.
+#   stock   the original eighth-note figure: three chord tones, one octave
+#   run16   sixteenth gates climbing an octave then resetting: the trance arp
+#   off     whole triads slammed on the offbeats: the house / electro stab
+ARP_MODES = ("stock", "run16", "off")
+ARP_STOCK = (0, 1, 2, 1, 0, 1, 2, 1)
+
+
+def _arpeggio(mix, chord: list[int], at, spb: float, eighth: float,
+              voice: str | None, mode: str) -> None:
+    """Play the arpeggiated backing layer in one of :data:`ARP_MODES`."""
+    if mode == "run16":
+        # two passes an octave apart: the figure climbs, the second pass lifts,
+        # and the reset at the bar line is what makes the bar feel like a run
+        for e in range(16):
+            tone = chord[ARP_STOCK[e % 8] % 3] + (12 if e < 8 else 24)
+            _play(mix, at(e * 0.25), spb * 0.17, _freq(tone), voice,
+                  0.075, wave="pulse", duty=0.15, decay=13.0)
+        return
+    if mode == "off":
+        # the stab: all three chord tones at once on the "and" of each beat,
+        # gated short. Chords rather than single notes, because a stab is a
+        # chord hit - a one-note stab is just an arp with the rest of it missing
+        for beat in (0.5, 1.5, 2.5, 3.5):
+            for tone in chord:
+                _play(mix, at(beat), eighth * 0.55, _freq(tone + 12), voice,
+                      0.062, wave="pulse", duty=0.3, decay=11.0)
+        return
+    for e in range(8):
+        tone = chord[ARP_STOCK[e] % 3] + 12
+        _play(mix, at(e * 0.5), eighth * 0.8, _freq(tone), voice,
+              0.09, wave="pulse", duty=0.15, decay=10.0)
+
+
 def _add_bar(mix, section, bar_in_sec, root, prog, lead_wave,
              spb, bar_t, drums: bool = True, groove: dict | None = None,
              scale: tuple[int, ...] = SCALE, drive: bool = False,
              motif_keys: tuple[str, str] = ("A", "B"),
              bass_line: dict[str, tuple[tuple[int, int], ...]] | None = None,
-             voices: dict[str, str] | None = None
+             voices: dict[str, str] | None = None, arp_mode: str = "stock",
+             pad_chord: bool = False
              ) -> None:
     """Render one bar's voices into the mix.
 
@@ -347,6 +459,10 @@ def _add_bar(mix, section, bar_in_sec, root, prog, lead_wave,
     "flute", "lead_b": "violin", "pad": "strings"}`` - where ``lead_b`` colours
     the B section only. A two-voice cue (the flute line of the A phrase taken up
     by the violin in the answer) is the reason that key exists.
+
+    ``arp_mode`` picks the figure the arpeggiated layer plays and ``pad_chord``
+    widens the pad from a dyad to a triad. Both default to the shape every cue
+    in the roster has always used.
     """
     voices = voices or {}
     eighth = spb / 2.0
@@ -356,10 +472,15 @@ def _add_bar(mix, section, bar_in_sec, root, prog, lead_wave,
     def at(beat: float) -> int:
         return int((bar_t + beat * spb) * mix.rate)
 
-    # --- pad: two sustained chord tones (root + third) ---
+    # --- pad: sustained chord tones (root + third, or the whole triad) ---
     if section in ("A", "B", "outro"):
-        for tone in (chord[0], chord[1]):
-            _play(mix, at(0), spb * 3.9, _freq(tone), voices.get("pad"), 0.055,
+        # A triad instead of a dyad is a small change with a big effect: the
+        # missing fifth is why a two-note pad sounds thin under a wide lead.
+        pad_tones = ((chord[0], chord[1], chord[2]) if pad_chord
+                     else (chord[0], chord[1]))
+        pv = PAD_CHORD_VOL if pad_chord else PAD_VOL
+        for tone in pad_tones:
+            _play(mix, at(0), spb * 3.9, _freq(tone), voices.get("pad"), pv,
                   wave="tri", decay=0.6, attack=0.08)
 
     # --- bass: 8ths, one octave below the pad, pattern per section or named ---
@@ -369,6 +490,9 @@ def _add_bar(mix, section, bar_in_sec, root, prog, lead_wave,
     bass_oct = -12
     bvol = 0.20 if section != "intro" else 0.12
     for e, (tone, octv) in enumerate(tones):
+        if tone < 0:
+            continue          # a rest: the gap is the groove - an offbeat bass
+            # is defined by what it refuses to play
         note = _bass_tone(chord, tone) + bass_oct + octv
         # An octave pop sits a hair louder, or it just reads as a wrong note.
         _play(mix, at(e * 0.5), eighth * 0.92, _freq(note), voices.get("bass"),
@@ -379,17 +503,16 @@ def _add_bar(mix, section, bar_in_sec, root, prog, lead_wave,
         for s in range(16):
             if s % 2 == 0:
                 continue                      # the 8ths are already playing
-            note = _bass_tone(chord, tones[s // 2][0]) + bass_oct + 12
+            tone = tones[s // 2][0]
+            if tone < 0:
+                continue                      # a rest stays a rest in the ghosts
+            note = _bass_tone(chord, tone) + bass_oct + 12
             mix.voice(at(s * 0.25), spb * 0.10, _freq(note), "square",
                       0.07, decay=14.0)
 
     # --- arpeggiated backing (octave up, quiet texture) ---
     if section in ("A", "B"):
-        arps = (0, 1, 2, 1, 0, 1, 2, 1)
-        for e in range(8):
-            tone = chord[arps[e] % 3] + 12
-            _play(mix, at(e * 0.5), eighth * 0.8, _freq(tone),
-                  voices.get("arp"), 0.09, wave="pulse", duty=0.15, decay=10.0)
+        _arpeggio(mix, chord, at, spb, eighth, voices.get("arp"), arp_mode)
 
     # --- lead melody: motif-based, cadence on the last bar of each phrase ---
     if section == "A":
@@ -489,6 +612,14 @@ def render_track(theme: dict, rate: int = RATE) -> bytes:
     # Voicing lives in one dict per cue so a slot can name an instrument without
     # colliding with the wave name in "lead" or the bass-pattern name in "bass".
     voices = theme.get("instruments") or {}
+    # Three more arrangement choices, all opt-in and all falling back to what
+    # every cue already did: how the arp moves, whether the pad is a triad, and
+    # whether the whole synth bus pumps against the kick.
+    arp_mode = str(theme.get("arp_mode", "stock"))
+    if arp_mode not in ARP_MODES:
+        arp_mode = "stock"
+    pad_chord = bool(theme.get("pad_chord", False))
+    pump_depth = float(theme.get("pump", 0.0) or 0.0)
     mix = _Mix(int(bar * total_bars * rate) + 2048, rate=rate, drums=samples)
 
     bar_index = 0
@@ -496,8 +627,15 @@ def render_track(theme: dict, rate: int = RATE) -> bytes:
         for k in range(nbars):
             _add_bar(mix, section, k, root, prog, lead, spb, bar_index * bar,
                      drums=drums, groove=groove, scale=scale, drive=drive,
-                     motif_keys=motif_keys, bass_line=bass_line, voices=voices)
+                     motif_keys=motif_keys, bass_line=bass_line, voices=voices,
+                     arp_mode=arp_mode, pad_chord=pad_chord)
             bar_index += 1
+
+    # The pump rides the quarter-note beat, which is where a four-on-the-floor
+    # kick lives; a drumless cue has no kick to duck under, so it never pumps.
+    if pump_depth > 0.0 and drums and groove is not None:
+        mix.pump(min(0.85, pump_depth), spb,
+                 float(theme.get("pump_recover", 0.28)))
 
     return mix.normalise()
 

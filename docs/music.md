@@ -8,11 +8,12 @@ simulation never waits on audio.
 ```
 music_content.py   literals only: scales, motifs, cadence, bass, KITS, GROOVES,
                    LAYOUT, THEMES / MENU_THEMES / BOSS_THEMES, LEVEL_CUES
-music.py           the engine: _Mix (voices + master), bar rendering, rhythm
-                   selection, render_track(), the playlist builders, which cue
-                   a sector plays
-instruments.py     flute / violin / strings / pluck / bell: one pitch and one
-                   length in, one shaped buffer out
+music.py           the engine: _Mix (synth bus + drum bus + sidechain pump), bar
+                   rendering, arp figures, rhythm selection, render_track(), the
+                   playlist builders, which cue a sector plays
+instruments.py     flute / violin / strings / pluck / bell, and the electronic
+                   set: supersaw / stab / acid / reese. One pitch and one length
+                   in, one shaped buffer out
 drum_kit.py        procedural rompler: renders each drum voice once per kit,
                    playback is one add + one multiply per sample
 audio.py           the only pygame-aware layer: opens the mixer, publishes
@@ -50,6 +51,14 @@ written for.
   onto those keys. Before the alias map existed, every `pulse` lead in the
   roster silently played as a sine — that is why the leads used to sound tame.
 * `_Mix.drum()` — mixes one kit hit at a sample offset.
+* **Two buses, and the pump.** Synth layers accumulate in `_Mix.buf`, drums in
+  `_Mix.dbuf`, and `normalise()` sums them. The split is not mixer decoration: it
+  is what lets `_Mix.pump()` duck the *synth* bus once per beat and leave the
+  kick alone. A pump that ducked the kick too would be a tremolo.
+  `"pump": 0.42` in a cue turns it on; `"pump_recover"` sets the release.
+  The release is deliberately *not* "fully back in N seconds": the dip has to
+  still be there when the next kick arrives, or the effect is a click instead of
+  a pulse.
 * `normalise(peak=0.9, knee=0.68)` — soft-clip then scale, **then** quantise to
   int16. Layers routinely pass full scale; hard-clipping those samples flips
   their sign and that flip is the crackle people heard. The knee bends them
@@ -71,10 +80,33 @@ hit into the mix. A kit costs ~0.12 s once, a 20-hit bar costs ~2 ms.
 | rim | resonant band-pass click + a low blip |
 | clap | 4-burst noise train through a band-pass, then a short body ring |
 
+* **rim / clap** very short band-passed bursts: the rim is dry, the clap is four
+  staggered bursts with a tail (the industrial DKC flavour).
+* **shaker** band-passed noise with a **two-millisecond** attack and a low band
+  of body under the fizz. The soft edge is the whole voice: a shaker runs every
+  sixteenth of a dance groove, and a voice that busy has to be gentle at its
+  attack or the bar turns to static.
+* **cowbell** two tones a deliberately awkward ratio apart (1.486), square-ish,
+  through one band-pass, the third partial dying much sooner than the first. It
+  has to cut without implying a note.
+* **riser** the build, baked as one shot. A filter sweep done honestly means a
+  biquad whose coefficients change per sample; instead three band-passes (low,
+  mid, high) run over the same noise and their weights crossfade along a
+  quadratic curve. Level climbs ~40 dB and brightness climbs from ~1 kHz to
+  ~6 kHz at once, with a short hold at the top - the intake of breath before the
+  downbeat.
+
 Every voice is normalised into the same peak band (0.85–0.92) so a groove
 velocity means the same loudness whatever it hits. Kits (`KITS` in
 `music_content.py`) are **parameter diffs** on those defaults: `crisp`, `punch`,
-`heavy`, `metal`, `soft`. A preset never replaces a renderer, it bends numbers.
+`heavy`, `metal`, `soft` for the rock bed, and `trance` (big 909 kick, clap
+layered over the snare, offbeat open hat turned up), `electro` (808-shaped:
+pointy kick, snappy snare, rim and cowbell forward) and `future` (five-burst
+clap, wide deep kick, brightest riser) for the dance bed. A preset never replaces
+a renderer, it bends numbers. A kit that does not mention a voice gets a sane
+level for it anyway (`drum_kit.VOICE_GAIN_DEFAULTS`), because groove and kit are
+partly paired automatically by tempo and an unclaimed sixteenth layer at full
+sample scale would wreck a cue that never meant to summon one.
 
 Robustness: an unknown voice name is a silent no-op, never an exception — the
 renderer runs on the audio thread and a typo in a groove must not kill the
@@ -87,6 +119,14 @@ Four waves are a synth; a melody needs an instrument. `flute`, `violin`,
 `(name, pitch, length)` — an arrangement repeats its material constantly, so the
 cache is what keeps a 40 s cue from costing a minute of CPU.
 
+The **electronic set** (`supersaw`, `stab`, `acid`, `reese`) exists because the
+acoustic five cannot make a trance pad, a gated stab, a resonant bass or a
+reese. They are still additive stacks rather than waveforms through a live
+filter — a biquad per sample per voice does not fit in a soundtrack that already
+renders beside a mixer — and where a filter *is* the point (`acid`) it is
+expressed as amplitudes over the harmonic series, which is what a filter does to
+a saw anyway.
+
 What each one is, and what it is for:
 
 | instrument | how | what it buys |
@@ -96,6 +136,10 @@ What each one is, and what it is for:
 | `strings` | three detuned bows, slow attack, long release | a pad that beats against itself instead of one loud saw |
 | `pluck` | additive partials that rot at different rates | a harp/harpsichord arp that goes dull as it dies |
 | `bell` | FM, inharmonic modulator with a decaying index | glass and metal, for stabs and arps |
+| `supersaw` | three saws detuned by a few cents (coprime-ish, so the beats wander) plus a sub-Hz amplitude swell | the trance pad and lead: width from beating, movement while one chord is held |
+| `stab` | two detuned saws, five bright partials, ~3 ms attack, **~30 ms release** | the house/trance chord chop. What makes it a stab and not a pad is release *length* |
+| `acid` | 12 partials under a resonant peak that falls exponentially and stops early | the 303/electro bass: the sweep happens inside one note, and it ends closed |
+| `reese` | two saws a quarter-tone apart over a sub sine | the electro bass: the beating *is* the voice, and the sub keeps the pitch when small speakers eat the fundamental |
 
 They cost real time (a flute note renders at ~3 % of real time, strings at ~8 %),
 which is why voicing is per cue and most cues stay plain synths: the retro
@@ -103,6 +147,13 @@ sectors are supposed to sound like chips. Voicing is data — the `instruments`
 key above — and `_play()` in `music.py` decides per slot whether a name means an
 instrument or one of the original waves, so every cue written before this module
 existed renders byte-for-byte as it did.
+
+The new voices are **levelled** on the way out (`instruments.INSTRUMENT_PEAK`,
+0.95 peak) because the acoustic voices have predictable levels only by history:
+the arrangements around them were balanced against them by ear. Without the
+level, handing a slot to `supersaw` instead of `strings` would re-mix the cue as
+a side effect of re-timbring it, and the arrangement's volume number would stop
+meaning what it says.
 
 `lead_b` exists for the two-voice writing that motivates the whole module: a
 flute states the A phrase and the violin takes it up in the answer.
@@ -158,6 +209,23 @@ hammered tonic bass, brass calls answered by a bowed line.
   1 and 3 *plus* the "a" of each, tom pairs on the e-and-a as hooves, straight
   (no swing - a swung gallop is a shuffle). The backbeat stays exactly where the
   baseline groove puts it, which is the only reason the lurch reads as motion.
+* **`build`** is a per-groove pattern played on the *second-to-last* bar of a
+  section, and it is opt-in: only the dance grooves have one. It is the riser
+  landing where the fill lands - riser on bar 6, fill on bar 7, crash on the top
+  of the next section - which is the shape of a build-and-drop inside an 8-bar
+  phrase. A groove without a `build` key behaves exactly as it always did.
+
+### The dance grooves
+
+Nine cues used one rock beat - kick on 1 and 3, snare on 2 and 4 - wearing nine
+outfits. That, more than the melodies, is why the soundtrack read as one tune.
+Three grooves change the beat rather than the tune over it:
+
+| groove | what makes it that genre | the one detail that carries it |
+|---|---|---|
+| `offbeat` | four on the floor, clap on 2 and 4 with the snare layered under it at a third of the level, shakers on every sixteenth | **the open hat on the "and" of every beat** - that is the sound a Western ear reads as "electronic music running" |
+| `electro` | 808 shape: syncopated kick that answers the snare instead of underlining it, rim shots in the gaps, one cowbell hit per bar | a *little* swing (0.04): enough to stop it sounding like a preset, not enough to turn sixteenths into a shuffle |
+| `hypnotic` | driving minimal: no backbeat snare for three beats of the bar, a tom pulse on the offbeat eighths | the missing snare - space is the effect, and the one snare that does land (beat 4) lands hard |
 
 ## Rhythm selection
 
@@ -179,6 +247,13 @@ so; a cue that agrees with its tempo says nothing. `tests/test_drum_kit.py`
 enforces that the tags name real table entries and that the roster still spans
 the groove set.
 
+The dance cues are tagged by hand for the same reason and they sit **under** the
+boss tempo floor on purpose: they run 240-264 (120-132 effective quarter notes,
+which is honest dance tempo) while bosses stay at 288+. A trance cue does not
+need 140 BPM to feel fast; the four-on-the-floor kick, the offbeat hat and the
+pump are where the speed lives, and pushing the melodies higher would take them
+out of the register they were written for.
+
 ## Cue keys
 
 | key | meaning |
@@ -192,7 +267,11 @@ the groove set.
 | `groove` / `kit` | explicit rhythm identity; omit to select by tempo |
 | `motifs` | melody family: `base` (default), `hero`, `lyric` — see `MOTIF_SETS` |
 | `bass` | bass line name (`chug`, `run`); omit for the plain root-on-bar-one bass |
-| `instruments` | slots handed to a synthesised instrument: `{"lead": "flute", "lead_b": "violin", "pad": "strings", "arp": "bell", "bass": "pluck"}` |
+| `instruments` | slots handed to a synthesised instrument: `{"lead": "flute", "lead_b": "violin", "pad": "strings", "arp": "bell", "bass": "pluck"}`. The electronic set (`supersaw`, `stab`, `acid`, `reese`) names the same slots |
+| `arp_mode` | how the arpeggiated layer moves: `stock` (the original eighths), `run16` (sixteenth gates climbing an octave then resetting - the trance arp), `off` (whole triads slammed on the offbeats - the house/electro stab). Unknown names fall back to `stock` |
+| `pad_chord` | `True` plays the whole triad in the pad instead of root + third. The missing fifth is why a two-note pad sounds thin under a wide lead; each note gives up a third of its level so widening the harmony is never a volume increase |
+| `pump` | sidechain depth 0-0.85: the synth bus ducks once per beat and climbs back into the next one. Requires drums - a cue with no kick has nothing to duck under |
+| `pump_recover` | seconds to come back (default 0.28). This is the sound, not a detail: too short and the pump is a click |
 | `drums` | `False` = no percussion at all (menu / attract) |
 | `drive` | `True` = boss bed: 16th octave ghosts under the bass, tritone stabs, crash on bar 1 |
 | `layout` | section layout override (`LAYOUT`, `MENU_LAYOUT`, `BOSS_LAYOUT`) |
@@ -247,12 +326,19 @@ the bass do the narrative work. A cue therefore names a **melody family** and a
   four-bar halves of a section. `base` is the original material; `hero` opens on
   a leap of an octave and answers by stepping down over a driving bass (the
   profile of a march); `lyric` lifts by a third then settles back over two
-  bars — the profile of a ballad.
+  bars — the profile of a ballad. `soar` is half notes and whole notes above the
+  chord, climbing into the upper octave, deliberately unsyncopated because a
+  trance lead must leave room for the arp under it; `stutter` is the electro
+  answer - short repeated notes, gaps in unexpected places, a contour that lands
+  off the beat, so the riff *is* the rhythm.
 - `BASS_LINES` holds eight eighth-note `(tone, octave)` slots per bar. Tones are
   **relative to the chord that is sounding**: 0 root, 1 chord third, 2 chord
-  fifth, 3 chromatic approach (a semitone below the root). That is what lets one
-  written line follow any progression the cue uses, and why the approach tone is
-  the one thing a plain root/fifth bass cannot fake.
+  fifth, 3 chromatic approach (a semitone below the root), **-1 rest**. That is
+  what lets one written line follow any progression the cue uses, and why the
+  approach tone is the one thing a plain root/fifth bass cannot fake. The rest is
+  what the dance lines are made of: `offbeat` plays nothing on the beat and
+  everything on the "and", which hands the downbeat to the kick completely -
+  a bass line defined by what it refuses to play.
 - Octave pops (`octave == 12`) are played 12 % louder: without the accent they
   read as a wrong note instead of a deliberate pop.
 
@@ -283,22 +369,34 @@ background thread** and publishes each buffer as it finishes, so the title theme
 is not blocked by the other 58 cues; a cue that fails to render is skipped, not
 fatal, and cannot stop the rest (see `test_audio_music.py`).
 
-Perf at 22050 Hz (this machine, whole plan = 59 cues):
+Perf at 22050 Hz (this machine, whole plan = 68 cues):
 
 | milestone | wall time |
 |-----|-----|
-| menu cue ready | 0.7 s |
-| this run's starting sector cue ready | 3 s |
-| first boss cue ready | 4.5 s |
-| every sector has its own cue | ~30 s |
-| whole soundtrack (60 cues) | ~110 s |
+| menu cue ready | 0.5 s |
+| this run's starting sector cue ready | 1.6 s |
+| first boss cue ready | 2.0 s |
+| every sector has its own cue | ~9 s |
+| whole soundtrack (68 cues) | ~62 s |
 
-~2.5 s per stage cue with voicing, ~1.1 s without — the instruments are the
-reason the total went from half a minute to two. It runs on a daemon thread while
+~0.9 s per voiced stage cue, ~0.55 s without voicing — the instruments are the
+reason the total is minutes rather than seconds. It runs on a daemon thread while
 the game plays: the simulation costs 0.016 ms/frame and 0.033 ms with a cue
 rendering next to it, against a 8.3 ms budget, so nobody can feel it.
 
 ## How to listen without the game
+
+`scripts/render_cue.py` renders cues from the shipped tables into
+`assets/music/cues/` (that directory is gitignored: they are listening copies of
+the game's own music, 1.7 MB each, one command away):
+
+```sh
+python scripts/render_cue.py                     # list every cue with its tags
+python scripts/render_cue.py --dance             # the trance / electro set
+python scripts/render_cue.py "Freeway Pulse"     # any one cue, by name
+```
+
+Or by hand, if you want the bytes yourself:
 
 ```python
 import sys; sys.path.insert(0, "src")
@@ -312,3 +410,18 @@ w.setframerate(22050); w.writeframes(pcm); w.close()
 `theme_by_name` resolves across the level, menu and boss tables, so any cue in
 any pool renders. Render the shipped rate, not 44100 - a study at 44100 sounds
 brighter than the cue that actually plays (`assets/music/README.md`).
+
+## The dance cues
+
+Six stage cues and two boss cues, all wired into the sector pools:
+
+| cue | bpm | groove / kit | what it is doing |
+|---|---|---|---|
+| `Freeway Pulse` | 258 | `offbeat` / `trance` | the thesis statement: offbeat open hats, a sixteenth gated arp an octave up, a half-note lead so the arp has room, and the whole synth bus pumping 42 % against every kick |
+| `Neon Ascension` | 264 | `offbeat` / `future` | dorian so the same beat reads bright-tense instead of gothic; the deepest pump in the roster (0.5) and a reese bass |
+| `Voltage Sky` | 252 | `hypnotic` / `trance` | minimal/progressive: no backbeat snare for three beats of every bar, a reese whose beating supplies the motion the drums hold back |
+| `Static Bloom` | 244 | `electro` / `electro` | 808 beat, an acid bass whose resonant peak falls every note, chord stabs on the offbeats in place of an arp |
+| `Chrome Circuit` | 250 | `hypnotic` / `electro` | the angular stutter riff over a groove that never states a backbeat, so the riff reads as the lead |
+| `Midnight Signal` | 240 | `offbeat` / `future` | the bright one, in major: evidence that "upbeat" is a mode decision as much as a tempo one |
+| `Overdrive Halo` | 306 | `offbeat` / `trance` | boss: a harmonic-minor fight over four on the floor, pumping |
+| `Terminal Bloom` | 322 | `electro` / `electro` | boss: the stutter riff and an acid bass at the fastest tempo in the roster |

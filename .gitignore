@@ -184,3 +184,8 @@ cython_debug/
 #  Dev-review image dumps written by scripts/preview_*.py and the bake scripts.
 #  Regenerate on demand; never commit them, never leave them in the repo root.
 screenshots/
+
+#  Listening copies rendered by scripts/render_cue.py from the shipped cue
+#  tables. They are the game's own music, one command away, and 1.7 MB each -
+#  listening material, not build material.
+assets/music/cues/

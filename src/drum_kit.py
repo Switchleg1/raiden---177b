@@ -28,6 +28,8 @@ buys, per voice:
   rendered at eight tuned pitches so fills are musical, not noise.
 * **rim / clap** very short band-passed bursts: the rim is dry, the clap is
   four staggered bursts with a tail (the industrial DKC flavour).
+* **shaker / cowbell / riser** the dance-groove set: a soft-edged sixteenth
+  layer, the 808 accent, and a built-in filter sweep used as a build.
 
 Nothing here reads a file and everything is seeded, so a build is bit-identical
 and the whole kit costs a few hundred milliseconds the first time it is used.
@@ -501,10 +503,154 @@ def render_clap(rate: int, p: dict) -> tuple[float, ...]:
     return tuple(v * 0.86 / peak for v in sig)
 
 
+SHAKER_DEFAULTS = {"f": 5400.0, "q": 0.9, "dec": 34.0, "dur": 0.085,
+                   "atk": 0.0022, "hp": 2600.0, "body": 900.0, "sat": 1.1}
+
+
+def render_shaker(rate: int, p: dict) -> tuple[float, ...]:
+    """Egg shaker: the layer that runs in sixteenths under a dance groove.
+
+    The difference between a shaker and a hi-hat is the transient. A hat starts
+    with a click; a shaker starts with a *thump* - the grains hitting the shell -
+    so the attack is two milliseconds instead of half one, and there is a low
+    band of body under the fizz. That matters here specifically: shakers are the
+    voice that plays every sixteenth, and a voice that busy has to be soft at its
+    edge or the whole bar turns into static.
+    """
+    q = dict(SHAKER_DEFAULTS)
+    q.update(p)
+    n = max(8, int(q["dur"] * rate))
+    sig = [WHITE_ALT[(i * 2 + 29) & _BANK_MASK] for i in range(n)]
+    sig = _biquad(sig, rate, q["f"], q["q"], "bp")
+    body = _biquad([PINK[i & _BANK_MASK] for i in range(n)], rate, q["body"],
+                   1.2, "bp")
+    env = _envelope(n, rate, q["dec"], q["atk"])
+    for i in range(n):
+        sig[i] = sig[i] * env[i] + body[i] * env[i] * 0.22
+    sig = _biquad(sig, rate, q["hp"], 0.6, "hp")
+    return _normalise(sig, 0.86, q["sat"])
+
+
+# The TR-808 cowbell is two tones a non-musical interval apart - not a fifth, not
+# an octave - which is what makes it cut through instead of sounding pitched.
+COWBELL_RATIO = 1.486
+
+
+COWBELL_DEFAULTS = {"f": 545.0, "decay": 42.0, "dur": 0.30, "bp": 1900.0,
+                    "bp_q": 1.1, "short_dec": 120.0, "level": 0.55,
+                    "click": 0.18, "sat": 1.25}
+
+
+def render_cowbell(rate: int, p: dict) -> tuple[float, ...]:
+    """Cowbell: two square-ish tones through one band-pass, the 808 accent.
+
+    Electro and Latin-tinged synthwave both lean on this voice, and it is the
+    one thing in the kit that is purely *pitched percussion*: it has to sit in a
+    mix without implying a note, which is why the two partials are a deliberately
+    awkward ratio and everything else is filtered away. The shorter-lived of the
+    two dies first, so the strike reads bright and the body reads narrow.
+    """
+    q = dict(COWBELL_DEFAULTS)
+    q.update(p)
+    n = max(8, int(q["dur"] * rate))
+    f_a = q["f"]
+    f_b = q["f"] * COWBELL_RATIO
+    ka = math.exp(-q["decay"] / rate)
+    kb = math.exp(-q["short_dec"] / rate)
+    pa = pb = 0.0
+    e_a = e_b = 1.0
+    sig = [0.0] * n
+    atk = max(1, int(0.0008 * rate))
+    for i in range(n):
+        pa += f_a / rate
+        pb += f_b / rate
+        if pa >= 1.0:
+            pa -= 1.0
+        if pb >= 1.0:
+            pb -= 1.0
+        # square-ish: a weak third partial on each tone, so it is not a pure
+        # pair of sines (which reads as a test tone) nor a full saw (which reads
+        # as a chord). The third partial dies far sooner: the strike is bright,
+        # the body is narrow.
+        sig[i] = (math.sin(2.0 * math.pi * pa) * e_a
+                  + math.sin(2.0 * math.pi * pb) * e_a * 0.85
+                  + 0.3 * (math.sin(6.0 * math.pi * pa) * e_b
+                           + math.sin(6.0 * math.pi * pb) * e_b * 0.85))
+        if i < atk:
+            sig[i] *= i / atk
+        else:
+            e_a *= ka
+            e_b *= kb
+    cn = max(4, int(0.002 * rate))
+    for i in range(cn):
+        sig[i] += WHITE[(i * 3 + 5) & _BANK_MASK] * q["click"] * (1.0 - i / cn)
+    sig = _biquad(sig, rate, q["bp"], q["bp_q"], "bp")
+    return _normalise(sig, 0.88, q["sat"])
+
+
+RISER_DEFAULTS = {"dur": 1.9, "f0": 260.0, "f1": 6200.0, "q": 1.5,
+                  "cres": 2.4, "pink": 0.6, "white": 0.45, "air": 0.4,
+                  "air_f": 9500.0, "hold": 0.12, "sat": 1.15}
+
+
+def render_riser(rate: int, p: dict) -> tuple[float, ...]:
+    """Riser / sweep: the build into a drop, baked as one shot.
+
+    A filter sweep done the honest way is a biquad whose coefficients change every
+    sample, which is the expensive way, and unstable if the coefficient update is
+    sloppy. Instead: three band-passes (low, mid, high) over the same noise, then
+    crossfade their weights along a quadratic curve as the note goes by. The
+    resonance travels from ``f0`` to ``f1`` and the ear cannot tell the
+    difference, for three fixed filters and one multiply each.
+
+    The shape is what the player actually hears though: a power-curve crescendo
+    (so most of the tension arrives in the last third), a short hold at the top
+    (the intake of breath before the downbeat), and a bright ``air`` band that
+    fades in with the sweep so the build also gets *louder in the top end*, which
+    is how a real riser reads on small speakers.
+    """
+    q = dict(RISER_DEFAULTS)
+    q.update(p)
+    n = max(16, int(q["dur"] * rate))
+    base = [q["pink"] * PINK[i & _BANK_MASK] + q["white"] * WHITE_ALT[i & _BANK_MASK]
+            for i in range(n)]
+    f0, f1 = q["f0"], q["f1"]
+    fmid = math.sqrt(f0 * f1)
+    low = _biquad(base, rate, f0, q["q"], "bp")
+    mid = _biquad(base, rate, fmid, q["q"], "bp")
+    high = _biquad(base, rate, f1, q["q"], "bp")
+    air = _biquad(base, rate, q["air_f"], 0.7, "hp")
+    sig = [0.0] * n
+    hold = max(1, int(q["hold"] * rate))
+    for i in range(n):
+        x = i / (n - 1)
+        # quadratic Bernstein blend: the band travels low -> mid -> high
+        w_lo = (1.0 - x) * (1.0 - x)
+        w_mid = 2.0 * x * (1.0 - x)
+        w_hi = x * x
+        y = low[i] * w_lo + mid[i] * w_mid + high[i] * w_hi
+        y += air[i] * q["air"] * x * x
+        rise = x ** q["cres"]
+        if i >= n - hold:                     # the hold at the top
+            rise = 1.0
+        sig[i] = y * rise
+    return _normalise(sig, 0.9, q["sat"])
+
+
 # --- kit assembly ----------------------------------------------------------
 # Toms are a pitch *table*: a fill asks for a frequency and gets the nearest
 # pre-rendered one, so tom pitches stay musical without a render per call.
 TOM_FREQS = (98.0, 116.0, 138.0, 165.0, 196.0, 233.0, 277.0, 330.0)
+
+# Playback levels for voices a kit author may not have mentioned. A kit is a
+# diff, and groove/kit pairing is partly automatic (tempo picks the kit), so a
+# busy sixteenth layer left at the raw sample level would wreck a cue that never
+# meant to summon one. The defaults keep an unmentioned voice usable instead of
+# roughly six times too loud.
+VOICE_GAIN_DEFAULTS = {"kick": 1.0, "snare": 1.0, "hat": 1.0, "open": 1.0,
+                       "crash": 1.0, "ride": 1.0, "rim": 1.0, "clap": 1.0,
+                       "tom": 1.0, "shaker": 0.085, "cowbell": 0.07,
+                       "riser": 0.16}
 
 RENDERERS = {
     "kick": render_kick,
@@ -515,6 +661,9 @@ RENDERERS = {
     "ride": render_ride,
     "rim": render_rim,
     "clap": render_clap,
+    "shaker": render_shaker,
+    "cowbell": render_cowbell,
+    "riser": render_riser,
 }
 
 _KIT_CACHE: dict[tuple[str, int], dict] = {}
@@ -538,8 +687,9 @@ def kit_samples(name: str, params: dict, rate: int = RATE) -> dict:
             render_tom(rate, f, dict(params.get("tom", {})))
             for f in TOM_FREQS)
         # Playback gain keeps groove velocities in 0..1 and lets the kit decide
-        # how loud its own voices are against the synth.
-        voices["gain"] = dict(params.get("gain", {}))
+        # how loud its own voices are against the synth. Kit dicts are diffs, so
+        # the defaults fill any voice the author did not mention.
+        voices["gain"] = {**VOICE_GAIN_DEFAULTS, **dict(params.get("gain", {}))}
         _KIT_CACHE[key] = voices
         return voices
 
@@ -584,5 +734,5 @@ def play(buf: list[float], rate: int, s0: int, voice: str, vel: float,
         buf[s0 + i] += data[i] * level
 
 
-__all__ = ["WHITE", "WHITE_ALT", "PINK", "TOM_FREQS", "kit_samples",
-           "play", "tom_index"]
+__all__ = ["WHITE", "WHITE_ALT", "PINK", "TOM_FREQS", "VOICE_GAIN_DEFAULTS",
+           "kit_samples", "play", "tom_index"]

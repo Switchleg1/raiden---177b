@@ -116,17 +116,24 @@ def test_bass_lines_are_eight_steps_of_relative_tones():
             assert section in BASS, f"{name} names a section the layout lacks"
             assert len(line) == 8, f"{name}.{section} is not 8 eighths"
             for tone, octv in line:
-                assert tone in (0, 1, 2, 3), f"{name} tone {tone}"
+                # -1 is a rest: the offbeat and electro lines are defined by it
+                assert tone in (-1, 0, 1, 2, 3), f"{name} tone {tone}"
                 assert octv in (0, 12), f"{name} octave pop {octv}"
 
 
-def test_named_lines_actually_pop_or_approach():
-    """A named line that never pops or approaches is just the stock line."""
+def test_named_lines_actually_pop_or_approach_or_rest():
+    """A named line that never pops, approaches or rests is just the stock line.
+
+    The third condition is new because the dance lines are: an offbeat bass has
+    no octave pop and no approach tone, and it is still unmistakably not the
+    stock line, because half of it is silence.
+    """
     for name, sections in BASS_LINES.items():
         for section, line in sections.items():
             if section == "outro":
                 continue
-            assert any(o for _t, o in line) or any(t == 3 for t, _o in line), \
+            assert (any(o for _t, o in line) or any(t == 3 for t, _o in line)
+                    or any(t < 0 for t, _o in line)), \
                 f"{name}.{section} is not a line"
 
 

@@ -214,7 +214,7 @@ directory is empty.
   name + how close two repeats may be) as a table, and the DSP engine that
   synthesizes it at runtime.
 - `music_content.py` / `music.py` / `drum_kit.py` / `instruments.py` — the score
-  as data (33 level cues, 20 attract cues, 6 boss cues, each with its scale, drum
+  as data (39 level cues, 20 attract cues, 8 boss cues, each with its scale, drum
   kit, groove, melody family, bass line and voicing) and the threaded synth that
   renders three looping pools: attract themes, level themes and boss fight cues
   (faster, denser, with a tritone alarm bed). Drums are a small procedural
@@ -225,14 +225,22 @@ directory is empty.
   `gallop` groove where the motion lives in the kick's anticipations rather than
   in the tempo; six cues are deliberately left slow, because a soundtrack that
   is uniformly fast has no fast cues left in it. Melody families (`hero`,
-  `lyric`, the stock `base`) and relative bass lines (octave pops, chromatic
-  approach tones) give each cue its own narrative role, and a cue may hand a
-  melody to a synthesised flute, violin, string section, pluck or bell instead of
-  a raw wave — a flute states a phrase and a violin takes up the answer. Each
+  `lyric`, `soar`, `stutter`, the stock `base`) and relative bass lines (octave
+  pops, chromatic approach tones, and rests) give each cue its own narrative
+  role, and a cue may hand a melody to a synthesised flute, violin, string
+  section, pluck or bell instead of a raw wave — a flute states a phrase and a
+  violin takes up the answer. A **dance bed** sits alongside the rock one: three
+  grooves built on four on the floor, offbeat open hats, shakers in sixteenths
+  and a riser that builds into the fill; three kits (`trance`, `electro`,
+  `future`); four electronic timbres (`supersaw`, `stab`, `acid`, `reese`);
+  arps that gate in sixteenths or stab whole chords on the offbeats; a bass line
+  that refuses to play on the beat; and a sidechain pump that ducks the synth
+  bus against every kick while the kick itself stays steady. Each
   sector draws a cue from **its own pool** of 3-5 (`LEVEL_CUES`), never the one
   that just played. No audio files; the pool renders incrementally in the
   background, in an order that gives every sector its own cue within half a
-  minute, so a boss appearing in the first minute still gets music.
+  minute, so a boss appearing in the first minute still gets music. To hear any
+  cue without playing: `python scripts/render_cue.py --dance`.
 - `prefetch.py` — the worker thread that composes the next sector's terrain and
   warms the next boss's sprite sheets, so a sector change never pays for either
   on the render thread. It is an optimisation with a correctness-free failure
@@ -249,9 +257,10 @@ directory is empty.
 - [docs/sprites.md](docs/sprites.md) — sprite sheets, the generated-raw
   pipeline and anchors, animation, explosions, the whip, the flamethrower, and
   the bake workflow.
-- [docs/music.md](docs/music.md) — the rendered soundtrack: voice engine,
-  procedural drum rompler, synthesised instruments, grooves and kits, per-sector
-  cue pools, cue keys, melodic-material policy.
+- [docs/music.md](docs/music.md) — the rendered soundtrack: voice engine, sidechain
+  pump, procedural drum rompler, synthesised instruments (orchestral and
+  electronic), grooves and kits including the trance/electro bed, per-sector cue
+  pools, cue keys, melodic-material policy.
 - [docs/testing.md](docs/testing.md) — test layout, quality gates, headless
   smoke commands.
 
@@ -333,11 +342,11 @@ Every sector ends with its own boss. While one is on screen:
   speeds up with the sector (2.4 s after the boss lands, then every 3.4 s down
   to 1.5 s), 1–3 at a time, capped at 4–8 alive. The second the boss dies the
   call stops — you can't farm a dying core.
-- **The music changes.** Six synthesized boss cues (156–176 BPM, four-on-the-
-  floor, 16th-note hats, tritone alarm stab) replace the level track the frame
-  the boss appears, and a different one is picked per fight — as is the level
-  track itself, drawn from that sector's own pool instead of one cue repeated
-  across the run. The boss pool is rendered early in the background so a
+- **The music changes.** Eight synthesized boss cues (144–161 effective BPM, four-
+  on-the-floor or 808-electro, 16th-note hats, tritone alarm stab) replace the
+  level track the frame the boss appears, and a different one is picked per fight
+  — as is the level track itself, drawn from that sector's own pool instead of one
+  cue repeated across the run. The boss pool is rendered early in the background so a
   first-minute boss still gets music.
 - **The run is signed.** A score that makes the top 10 goes to the initials
   screen, then to the attract-mode table (rank, initials, score, sector,
@@ -390,8 +399,8 @@ assets/    SOURCE / BAKE-TIME MATERIAL — never shipped, safe to delete
 scripts/
   bake_tiles.py · bake_terrain.py · bake_sprite_raws.py · bake_sprites.py
   preview_sprites.py · preview_entities.py · preview_fx.py · preview_bosses.py
-  build.py · entry.py · audit_symbols.py
-tests/           365 pytest tests (model, sprites, terrain, music, state, app)
+  build.py · entry.py · audit_symbols.py · render_cue.py
+tests/           645 pytest tests (model, sprites, terrain, music, state, app)
 docs/            architecture.md · terrain.md · sprites.md · music.md · testing.md
 ```
 

@@ -48,7 +48,7 @@ SIXTEENTH = QUARTER / 4.0
 BAR = QUARTER * 4.0
 BARS = 28
 
-ROOT = 64                       # E4: the fiddle's comfortable singing register
+ROOT_NOTE = 64                  # E4: the fiddle's comfortable singing register
 KIT = "crisp"
 
 # --- harmony, one chord per bar ---------------------------------------------
@@ -61,7 +61,7 @@ CHORDS = (
     EM, EM,                                               # break and roll-in
     EM, EM, CM, DM, EM, EM, CM, DM,                       # A': everything
 )
-MINOR = (0, 2, 3, 5, 7, 8, 10)    # E natural minor, in semitones from ROOT
+MINOR = (0, 2, 3, 5, 7, 8, 10)    # E natural minor, in semitones from ROOT_NOTE
 
 # --- the fiddle line --------------------------------------------------------
 # (beat, beats, scale degree) per bar. Degree 7 = the octave: the tune lives a
@@ -89,7 +89,7 @@ FINALE_TAIL = ((0, .75, 5), (.75, .25, 4), (1, .5, 3), (1.5, .5, 4), (2, 2, 7))
 def deg_to_midi(degree: int) -> int:
     """Scale degree -> midi, wrapping past the octave with the right spelling."""
     octave, index = divmod(degree, len(MINOR))
-    return ROOT + MINOR[index] + 12 * octave
+    return ROOT_NOTE + MINOR[index] + 12 * octave
 
 
 def at(seconds: float) -> int:
@@ -241,7 +241,7 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / "study_mission_gallop.wav"
     pcm = render()
-    with wave.open(path, "wb") as handle:
+    with wave.open(str(path), "wb") as handle:
         handle.setnchannels(1)
         handle.setsampwidth(2)
         handle.setframerate(RATE)
