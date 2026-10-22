@@ -217,6 +217,28 @@ def test_scree_and_outcrops_belong_to_a_ridge(theme):
                            for a, b in zip(r.spine, r.spine[1:], strict=False))
             assert near, f"{wd.kind} debris sits away from any ridge"
             assert not p.near_water(x, y, 60.0), f"{wd.kind} dumped in a river"
+            for b in p.buildings:
+                assert math.hypot(x - b.x, y - b.y) > 55.0, \
+                    f"{wd.kind} rockfall at the door of a {b.kind}"
+
+
+@pytest.mark.parametrize("theme", ["canyon", "countryside", "glacier",
+                                   "wasteland", "ruins", "forest"])
+def test_a_ridge_system_is_connected(theme):
+    """Ranges branch. Independent full-height trunks scattered over a map read
+    as "separate, overlapping shapes whose crests, faces and bases don't
+    connect" - the verdict the art review kept giving the canyon."""
+    p = _plan(theme, 2)
+    if len(p.ridges) < 2:
+        pytest.skip("one mass only")
+    for i in range(1, len(p.ridges)):
+        d = min(_seg_dist(sx, sy, a, b)
+                for j in range(i)
+                for sx, sy in p.ridges[i].spine
+                for a, b in zip(p.ridges[j].spine, p.ridges[j].spine[1:],
+                                strict=False))
+        assert d < 260.0, \
+            f"{p.ridges[i].shape} stands alone: {d:.0f} px from the range"
 
 
 @pytest.mark.parametrize("seed", SEEDS)

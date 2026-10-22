@@ -471,31 +471,67 @@ def _orogeny(spec: SiteSpec, rng: random.Random) -> tuple[list[Ridge], list[list
         # travelling along. 30 % of them run across instead, which is what
         # gives a sector a wall of hills ahead.
         across = rng.random() < 0.3
-        crest, peak = _crest(shape, rng)
-        crest = [v / peak for v in crest]      # the shape peaks at 1.0
-        width = rng.uniform(120.0, 260.0)
-        height = rng.uniform(0.55, 1.0) * spec.ridge_weight
-        asym = rng.uniform(0.0, 0.75) if shape in ("hogback", "mesa") else 0.0
-        if across:
-            y0 = rng.uniform(0.15, 0.85) * CH
-            terms = [(1, rng.uniform(0.01, 0.05), rng.uniform(0, 6.28))]
-            if rng.random() < 0.5:
-                terms.append((2, rng.uniform(0.005, 0.02), rng.uniform(0, 6.28)))
-            spine = _hpath(y0, terms, step=40)
+        # A range is one landform, so most further ridges BRANCH off the first
+        # instead of standing up as another full-height wall somewhere else.
+        # Independent trunks were the canyon's "separate, overlapping shapes -
+        # their crests, faces and bases don't connect".
+        branch = bool(ridges) and rng.random() < 0.72
+        if branch:
+            parent = ridges[rng.randrange(len(ridges))]
+            (ax, ay), tang = _along(parent.spine, rng.uniform(0.25, 0.95))
+            side = 1.0 if rng.random() < 0.5 else -1.0
+            ang = tang + side * rng.uniform(0.5, 1.15)
+            reach = rng.uniform(0.22, 0.5) * (CW if across else CH)
+            steps = 16
+            spine = []
+            for i in range(steps + 1):
+                t = i / steps
+                wob = math.sin(t * math.pi * rng.uniform(1.0, 2.2)) * 26.0
+                spine.append((ax + math.cos(ang) * reach * t + wob,
+                              ay + math.sin(ang) * reach * t + wob * 0.5))
+            # an arm is thickest where it leaves the trunk and dies outwards,
+            # which is also what makes the eye read it as belonging to it
+            n = len(spine)
+            crest = [max(0.0, 1.0 - (i / (n - 1)) * rng.uniform(0.9, 1.3))
+                     for i in range(n)]
+            peak = max(crest) or 1.0
+            crest = [v / peak for v in crest]
+            width = rng.uniform(90.0, 180.0)
+            height = rng.uniform(0.5, 0.85) * spec.ridge_weight
+            asym = rng.uniform(0.0, 0.5) if shape in ("hogback", "mesa") else 0.0
         else:
-            x0 = rng.uniform(0.12, 0.88) * CW
-            terms = [(1, rng.uniform(0.03, 0.12), rng.uniform(0, 6.28))]
-            if rng.random() < 0.6:
-                terms.append((2, rng.uniform(0.01, 0.05), rng.uniform(0, 6.28)))
-            spine = _vpath(x0, terms, step=40)
-        spine = [(max(-80.0, min(CW + 80.0, x)), y) for x, y in spine]
+            crest, peak = _crest(shape, rng)
+            crest = [v / peak for v in crest]      # the shape peaks at 1.0
+            width = rng.uniform(120.0, 260.0)
+            height = rng.uniform(0.55, 1.0) * spec.ridge_weight
+            asym = rng.uniform(0.0, 0.75) if shape in ("hogback", "mesa") else 0.0
+            if across:
+                y0 = rng.uniform(0.15, 0.85) * CH
+                terms = [(1, rng.uniform(0.01, 0.05), rng.uniform(0, 6.28))]
+                if rng.random() < 0.5:
+                    terms.append((2, rng.uniform(0.005, 0.02),
+                                  rng.uniform(0, 6.28)))
+                spine = _hpath(y0, terms, step=40)
+            else:
+                x0 = rng.uniform(0.12, 0.88) * CW
+                terms = [(1, rng.uniform(0.03, 0.12), rng.uniform(0, 6.28))]
+                if rng.random() < 0.6:
+                    terms.append((2, rng.uniform(0.01, 0.05),
+                                  rng.uniform(0, 6.28)))
+                spine = _vpath(x0, terms, step=40)
+            spine = [(max(-80.0, min(CW + 80.0, x)), y) for x, y in spine]
+        spine = [(max(-120.0, min(CW + 120.0, x)),
+                  max(-120.0, min(CH + 120.0, y))) for x, y in spine]
         ridge = Ridge(shape=shape, spine=spine, crest=crest, width=width,
                       height=height, asym=asym)
         # spurs: shorter arms leaving the spine at angles - a ridge system, not
-        # a line. Massifs and cones get the most.
+        # a line. Massifs and cones get the most. A branch arm gets almost none:
+        # it IS an arm
         arms = {"massif": (3, 6), "cone": (3, 5), "sawback": (1, 3),
                 "domefield": (1, 3), "hogback": (1, 2), "mesa": (0, 1),
                 "ridge": (1, 2)}[shape]
+        if branch:
+            arms = (0, 1)
         for _ in range(rng.randint(*arms)):
             s = rng.uniform(0.12, 0.88)
             (bx, by), tang = _along(spine, s)
@@ -1191,9 +1227,11 @@ def _cover(spec: SiteSpec, plan: SitePlan, rng: random.Random) -> None:
                     n = 3
                     for k in range(n):
                         t = (k + 0.5) / n
-                        items.append((a[0] + (b[0] - a[0]) * t,
-                                      a[1] + (b[1] - a[1]) * t,
-                                      rng.uniform(0.4, 0.55)))
+                        ox = a[0] + (b[0] - a[0]) * t
+                        oy = a[1] + (b[1] - a[1]) * t
+                        if _near_building(plan, ox, oy, 46.0):
+                            continue     # an orchard is not a hedge on a house
+                        items.append((ox, oy, rng.uniform(0.4, 0.55)))
                 if items:
                     plan.woods.append(Wood(kind="orchard", items=items))
     # debris: scree fans at the ridge foot, outcrops on the crest. Both are
@@ -1210,12 +1248,15 @@ def _cover(spec: SiteSpec, plan: SitePlan, rng: random.Random) -> None:
                               * len(ridge.crest)))
                 hgt = ridge.crest[idx]
                 ang = math.atan2(by - ay, bx - ax) + math.pi / 2
-                if rng.random() < 0.22 and hgt > 0.25:
+                if rng.random() < 0.22 and hgt > 0.25 \
+                        and not _near_building(plan, ax, ay, 90.0):
                     d = ridge.width * rng.uniform(0.75, 1.15)
                     fx = ax + math.cos(ang) * d
                     fy = ay + math.sin(ang) * d
-                    # a scree fan does not sit in a river: that is the dam look
-                    if not plan.near_water(fx, fy, 70.0):
+                    # a scree fan does not sit in a river, and not next to a
+                    # barn either: nothing stands where the slope lets go
+                    if not plan.near_water(fx, fy, 70.0) \
+                            and not _near_building(plan, fx, fy, 70.0):
                         fan.append((fx, fy, 0.3 + 0.5 * hgt))
                 if hgt > 0.68 and not plan.near_water(ax, ay, 60.0):
                     # a rocky crest is CONTINUOUS: outcrops every few spine

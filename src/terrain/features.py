@@ -249,24 +249,41 @@ def _prop(kit: TileKit, canvas: Any, name: str, x: float, y: float,
 # relief: the one thing that has to be painted, not stamped
 # ---------------------------------------------------------------------------
 
-def _upsample(grid: list[list[float]], w: int, h: int) -> Any:
-    """Bilinear resample the planning grid to canvas resolution, returning a
-    numpy array in pygame's (x, y) order."""
+def _upsample(grid: Any, w: int, h: int) -> Any:
+    """Resample the planning grid to canvas resolution with **Catmull-Rom**,
+    returning a numpy array in pygame's (x, y) order.
+
+    Bilinear was the wrong interpolant: it is only C0, so its derivative jumps
+    at every cell boundary, and a slope-shaded field paints those jumps as lit
+    and dark stripes - exactly the "blurred vertical bands" and "separate
+    raised blobs" the art review kept naming. A cubic kernel is C1, so the
+    shading has nothing to draw.
+    """
     np = _numpy()
     g = np.asarray(grid, dtype=np.float32)            # (y, x)
+
+    def cr(n: int, m: int) -> tuple:
+        xs = np.linspace(0, n - 1, m)
+        i1 = np.floor(xs).astype(np.int32)
+        t = (xs - i1).astype(np.float32)
+        i0 = np.clip(i1 - 1, 0, n - 1)
+        i2 = np.clip(i1 + 1, 0, n - 1)
+        i3 = np.clip(i1 + 2, 0, n - 1)
+        t2, t3 = t * t, t * t * t
+        return (i0, i1, i2, i3,
+                -0.5 * t3 + t2 - 0.5 * t,
+                1.5 * t3 - 2.5 * t2 + 1.0,
+                -1.5 * t3 + 2.0 * t2 + 0.5 * t,
+                0.5 * t3 - 0.5 * t2)
+
     rows, cols = g.shape
-    ys = np.linspace(0, rows - 1, h)
-    xs = np.linspace(0, cols - 1, w)
-    i0 = np.floor(ys).astype(np.int32)
-    j0 = np.floor(xs).astype(np.int32)
-    i1 = np.minimum(i0 + 1, rows - 1)
-    j1 = np.minimum(j0 + 1, cols - 1)
-    ty = (ys - i0)[:, None]
-    tx = (xs - j0)[None, :]
-    top = g[i0][:, j0] * (1 - tx) + g[i0][:, j1] * tx
-    bot = g[i1][:, j0] * (1 - tx) + g[i1][:, j1] * tx
-    out = top * (1 - ty) + bot * ty                   # (y, x)
-    return np.ascontiguousarray(out.T)                # (x, y)
+    a0, a1, a2, a3, q0, q1, q2, q3 = cr(rows, h)
+    tmp = (g[a0] * q0[:, None] + g[a1] * q1[:, None]
+           + g[a2] * q2[:, None] + g[a3] * q3[:, None])       # (h, cols)
+    b0, b1, b2, b3, r0, r1, r2, r3 = cr(cols, w)
+    out = (tmp[:, b0] * r0[None, :] + tmp[:, b1] * r1[None, :]
+           + tmp[:, b2] * r2[None, :] + tmp[:, b3] * r3[None, :])
+    return np.ascontiguousarray(np.clip(out, 0.0, 1.2).T)      # (x, y)
 
 
 def paint_relief(canvas: Any, kit: TileKit, plan: SitePlan,
@@ -284,13 +301,14 @@ def paint_relief(canvas: Any, kit: TileKit, plan: SitePlan,
         return False
     low, high, scree_col, mat = pal
     h_raw = _upsample(plan.relief, CW, CH)
-    # Two copies of the same ground, at different smoothness. The COVER comes
-    # from the sharper one so the ridge still has an edge; the SLOPE comes from
-    # the blurred one, because shading a piecewise-linear field directly paints
-    # every interpolation crease as a lit/dark facet - the "checkerboard hillside"
-    # the first renders had.
-    h = _blur(h_raw, 3 if not far else 7)
-    hs = _blur(h_raw, 14 if not far else 24)
+    # The COVER comes from the field as planned (a ridge keeps its edge); the
+    # SLOPE is measured on the same field smoothed at *planning* resolution,
+    # where a blur pass costs almost nothing and removes the cell-scale wobble
+    # that shading would otherwise turn into stripes.
+    h = h_raw
+    hs = _blur(_upsample(_blur(np.asarray(plan.relief, dtype=np.float32),
+                               2 if not far else 4), CW, CH),
+               3 if not far else 8)
     # Compress the field away from its floor: a hollow that reaches h 0 lands on
     # the base tone and reads as a stain of "unexplained depression", while a
     # hollow that only dips a little reads as what it is - shallow ground
@@ -307,16 +325,30 @@ def paint_relief(canvas: Any, kit: TileKit, plan: SitePlan,
     # map's own 98th-percentile slope, then bound with tanh: the darkest shadow
     # is a dark tone, never a hole.
     gmag = np.hypot(gy, gx)
-    scale = float(np.percentile(gmag, 98)) or 1.0
+    # Normalise by the map's BIGGEST slope, not by its typical one. The 98th
+    # percentile is dominated by cell-scale wobble, which puts every little
+    # bump at full lighting and turns a range into "separate shaded blobs" with
+    # dark halos at their feet: the small slopes were being lit as hard as the
+    # cliff. With the extreme as the reference, the dominant mass carries the
+    # light and a swale stays a swale.
+    scale = float(np.percentile(gmag, 99.6)) or 1.0
+    # a second, mid reference: how steep the ground usually is on this map. It
+    # decides where the surface turns to bare rock - a steep flank is rock at any
+    # absolute height, a tall but gentle dome stays soil
+    scale_mid = float(np.percentile(gmag, 85)) or 1.0
+    slope_n = np.clip(gmag / scale_mid, 0.0, 1.0)
     # one fixed sun for every map, from the top left: the player learns to read
     # "lit flank = the side facing the sun" once and applies it everywhere
     light = math.radians(200.0)
     lx, ly = math.cos(light), math.sin(light)
     gdot = np.clip((lx * gy + ly * gx) / scale, -3.0, 3.0)
-    lit = 0.66 + h * 0.42 + 0.5 * np.tanh(gdot * 1.3) \
-        + 0.18 * np.tanh(np.clip(gx / scale, -3.0, 3.0))
-    lit = np.clip(lit, 0.34, 1.75)
-    slope_n = np.clip(gmag / scale, 0.0, 1.0)
+    # Height itself barely brightens: a pale wash along the high ground reads as
+    # fog or a rendering seam. The MASS is carried by which flank is lit.
+    lit = 0.70 + h * 0.20 + 0.52 * np.tanh(gdot * 1.05) \
+        + 0.16 * np.tanh(np.clip(gx / scale, -3.0, 3.0))
+    # the floor matters: a deep shadow at the foot of every rise is a dark ring,
+    # and a dark ring around nothing reads as a painted halo, not as ground
+    lit = np.clip(lit, 0.55, 1.6)
     lo = np.asarray(low, dtype=np.float32)
     hi = np.asarray(high, dtype=np.float32)
     rgb = (lo[None, None, :] * (1.0 - h[:, :, None])
@@ -324,44 +356,40 @@ def paint_relief(canvas: Any, kit: TileKit, plan: SitePlan,
     rgb *= lit[:, :, None]
     # a steep flank is rock, not soil: the material only shows where the ground
     # is actually steep, so the foot of a green hill stays green
-    rock_m = np.clip((h - 0.34) / 0.30, 0.0, 1.0) * (0.85 if not far else 0.5)
+    rock_m = np.clip((h - 0.30) / 0.30, 0.0, 1.0) \
+        * (0.4 + 0.6 * slope_n) * (0.85 if not far else 0.5)
     # The ramp has to actually PAINT the hillside: starting at h 0.30 left most
     # of every slope showing base material with a faint tint, which is why
     # reviewers wrote "no convincing elevation" for every theme. Ground above
     # a quarter height is now fully in the relief palette.
-    cover = np.clip((h - 0.10) / 0.34, 0.0, 1.0) * (0.55 if far else 1.0)
+    # The ramp PAINTS the high ground, but never replaces the base: full
+    # coverage over a broad area is a pale band with dark margins, which is how
+    # "blurred fog / unfinished texture strip" got written twice. 0.72 lets the
+    # ground's own material keep showing through the mass.
+    cover = np.clip((h - 0.22) / 0.40, 0.0, 1.0) * (0.5 if far else 0.72)
     mask = np.clip(cover * rock_m * 3.0, 0.0, 1.0)
+    # contour lines: see below
     # contour lines: one heavy RIM at the foot of the mass, one thinner level
     # partway up. More levels than that read as tracks and cables, not
     # topography - the reviewer kept calling them "infrastructure".
     rim = tuple(int(c * 0.5) for c in low)
     line = np.zeros_like(h)
-    # the band sits on the UPHILL side of the level: a symmetric band also
-    # outlines every hollow, and an outline around nothing reads as an
-    # "unexplained depression", not as the foot of a slope
-    for level, weight in ((0.20, 1.0),):
-        band = (h >= level) & (h < level + (0.02 if not far else 0.035))
+    # Two levels: the foot of the mass (a rim - the edge that says "this is a
+    # landform and here is where it starts") and one mid-slope contour, which is
+    # what gives a reader the slope DIRECTION. Both sit on the uphill side of the
+    # level, so a hollow never gets outlined around nothing.
+    for level, weight in ((0.20, 1.0), (0.46, 0.45)):
+        band = (h >= level) & (h < level + (0.022 if not far else 0.04))
         line = np.maximum(line, band.astype(np.float32) * weight)
-    # a contour line only where the ground is actually sloping: on a flat plain
-    # a height line is a line for no reason, and the eye reads it as a road, a
-    # fence or a foundation - which is exactly what the reviews kept calling them
-    line = line * np.clip(slope_n * 2.4 - 0.3, 0.0, 1.0)
-    # ...and only along a real mass. A contour line anywhere the ground happens
-    # to cross a height also outlines every hollow and swale, and reviewers read
-    # those as "an unexplained pit" or "a painted boundary". The flank of a
-    # planned ridge is the only place a rim means something.
+    # Only along a planned mass. A height line anywhere the ground happens to
+    # cross a level outlines every swale and reads as "an unexplained pit" or "a
+    # painted boundary". Note this replaces an earlier gate on local slope: once
+    # the slope scale was normalised properly that gate killed the rim too, and
+    # every mass went edgeless - "soft-edged raised strips, no readable crest".
     flank = np.zeros_like(h)
     for ridge in plan.ridges:
-        flank = np.maximum(flank, _path_mask(ridge.spine, ridge.width * 3.0))
-    line = line * np.clip(flank * 1.6, 0.0, 1.0)
-    # ...and only along a real mass. A contour line anywhere the ground happens
-    # to cross a height also outlines every hollow and swale, and reviewers read
-    # those as "an unexplained pit" or "a painted boundary". The flank of a
-    # planned ridge is the only place a rim means something.
-    flank = np.zeros_like(h)
-    for ridge in plan.ridges:
-        flank = np.maximum(flank, _path_mask(ridge.spine, ridge.width * 3.0))
-    line = line * np.clip(flank * 1.6, 0.0, 1.0)
+        flank = np.maximum(flank, _path_mask(ridge.spine, ridge.width * 3.4))
+    line = line * np.clip(flank * 1.7, 0.0, 1.0)
     cover = np.maximum(cover, line * 0.6)
     mask = np.maximum(mask, line * 0.2)
     base = np.asarray(pygame.surfarray.array3d(canvas)).astype(np.float32)
@@ -369,9 +397,9 @@ def paint_relief(canvas: Any, kit: TileKit, plan: SitePlan,
     src = _mat_array(kit, mat).astype(np.float32)
     blended = base * (1.0 - mask[:, :, None]) + src * mask[:, :, None]
     blended = blended * (1.0 - cover[:, :, None]) + rgb * cover[:, :, None]
-    blended = blended * (1.0 - line[:, :, None] * 0.4) \
+    blended = blended * (1.0 - line[:, :, None] * 0.62) \
         + np.asarray(rim, dtype=np.float32)[None, None, :] \
-        * (line[:, :, None] * 0.4)
+        * (line[:, :, None] * 0.62)
     # (a lit crest band along the spine was tried: it painted pale bands across
     # the map and the review's verdict became "competing terrain directions" -
     # a mass has to be carried by its slope shading, not by a stripe)
@@ -464,14 +492,14 @@ def paint_water(canvas: Any, kit: TileKit, plan: SitePlan,
         # sand or snow around the channel gives the dark/light adjacency the eye
         # uses to find water, without looking drawn.
         _fill_mask(canvas, kit, bank_mat,
-                   _path_mask(w.path, w.half * 2.0 + 22.0), 0.8)
+                   _path_mask(w.path, w.half * 2.0 + 10.0), 0.55)
         _fill_mask(canvas, kit, mat, _path_mask(w.path, w.half * 2.0), 1.0)
         dry = w.kind in ("wash", "arroyo")
         # a wet channel is darkened - water reads by value. A DRY wash is
         # lightened instead: a desert arroyo is pale bare sand between darker
         # desert pavement, and darkening one turns it into a black scratch
         _darken_band(canvas, _path_mask(w.path, w.half * 2.0),
-                     1.25 if dry else 0.62)
+                     1.12 if dry else 0.62)
         # floodplain: ground beside a river is not ground away from it - but at
         # under half the width, or it becomes one more pale smear
         # The floodplain is a *hint*: at the old width and alpha it was a band
@@ -538,7 +566,7 @@ def paint_roads(canvas: Any, kit: TileKit, plan: SitePlan,
                 d = r.width + rng.uniform(10.0, 22.0)
                 _splat(kit, canvas, shoulder, ax + math.cos(ang) * d,
                        ay + math.sin(ang) * d, rng.uniform(0.16, 0.3), rng)
-        surf = _path_mask(r.path, r.width * 2.0)
+        surf = _path_mask(r.path, r.width * 1.7)
         # A road that crosses a river does so on a bridge: the carriageway must
         # not smear into the channel, or the two become one corridor again. Cut
         # the water out of the road mask, then put the deck back at each
@@ -557,11 +585,12 @@ def paint_roads(canvas: Any, kit: TileKit, plan: SitePlan,
         # a lit edge on both sides: a road that is only a darker band disappears
         # into dirt and shadow while it scrolls. The edges are what make it read
         # as a formed surface with a thickness.
-        # a shoulder of the SAME material, wider and softer: a tinted stroke
-        # along the edge reads as masonry edging ("is that a road or a wall?"),
-        # while a graded edge reads as a formed surface with a thickness
-        _fill_mask(canvas, kit, mat, _path_mask(r.path, r.width * 2.0 + 20.0),
-                   0.34)
+        # A shoulder of the SAME material, wider and softer - but only a few px
+        # wider: at the old width and alpha the soft band plus the carriageway
+        # made a pale corridor the length of the map, and the review's verdict
+        # was "a broad pale strip: dry channel, dirt clearing, or enormous road".
+        _fill_mask(canvas, kit, mat, _path_mask(r.path, r.width * 1.7 + 8.0),
+                   0.22)
         if mat == "road_asphalt" and r.kind == "main":
             step = 0.0
             for i in range(len(r.path) - 1):
@@ -690,11 +719,6 @@ def paint_cover(canvas: Any, kit: TileKit, plan: SitePlan,
             continue
         names = _cover_props(plan.theme, wd.kind)
         for x, y, s in wd.items:
-            if wd.kind in ("scree", "outcrop"):
-                # rock debris keeps to a scale a player can compare against a
-                # bridge or a house; at full prop scale a boulder pile dwarfed
-                # the crossing next to it and the whole map lost its scale cue
-                s = min(s, 0.55)
             name = names[rng.randrange(len(names))]
             _prop(kit, canvas, name, x, y, s, rng,
                   rot4=wd.kind not in ("riparian", "orchard"),

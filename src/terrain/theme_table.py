@@ -108,7 +108,11 @@ ROAD_MAT = {
     cobbles."""
     "countryside": "gravel_rubble", "farmland": "gravel_rubble",
     "forest": "gravel_rubble", "ruins": "gravel_rubble",
-    "canyon": "gravel_rubble", "wasteland": "gravel_rubble",
+    # a canyon route is a cut in the sand, so it is DARKER than the sand
+    # (earth_cracked, lum 97 against sand_canyon 121). Pale grey gravel put the
+    # road at the same value as a pale wash beside it and the review asked
+    # "channel or track?" again
+    "canyon": "earth_cracked", "wasteland": "earth_cracked",
     "glacier": "gravel_rubble", "volcanic": "gravel_rubble",
     "swamp": "gravel_rubble", "city": "gravel_rubble",
     "ocean": "road_dirt", "airbase": "concrete_apron",
