@@ -34,11 +34,13 @@ from audio import MIXER_RATE as RATE  # noqa: E402
 
 OUT_DIR = ROOT / "assets" / "music" / "cues"
 
-# The trance / electro set, by name: the cues this batch of work added, so the
-# fastest way to hear the change is one flag rather than eight quoted names.
+# The trance / electro set, by name: every cue written in the dance bed, so the
+# fastest way to hear the bed is one flag rather than fifteen quoted names.
 DANCE = ("Freeway Pulse", "Neon Ascension", "Voltage Sky", "Static Bloom",
-         "Chrome Circuit", "Midnight Signal", "Overdrive Halo",
-         "Terminal Bloom")
+         "Chrome Circuit", "Midnight Signal", "Ion Drift", "Signal Rain",
+         "Turbo Prism", "Chrome Prayer", "Vapor Line", "Night Reactor",
+         "Open Circuit", "Static Sunrise", "Overdrive Halo", "Terminal Bloom",
+         "Hard Light")
 
 
 def _rms(values: array.array) -> float:

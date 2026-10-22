@@ -47,7 +47,10 @@ def test_boss_pool_exists_and_is_typed_for_fights():
         assert theme["drive"] is True, "boss cues must use the drive bed"
         assert theme["bpm"] >= 150
         assert theme.get("layout"), "boss cues need the short punchy layout"
-        assert theme["scale"] in ("harmonic", "natural", "minor")
+        # Minor family only: a boss in major or lydian would sound heroic rather
+        # than hostile. Phrygian's flatted second is the most hostile of them,
+        # which is why a phrygian boss cue is allowed in.
+        assert theme["scale"] in ("harmonic", "natural", "minor", "phrygian")
 
 
 def test_boss_cues_are_faster_than_any_level_cue():

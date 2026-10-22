@@ -266,8 +266,59 @@ def test_every_sector_has_pools_covering_the_whole_campaign():
 
 def test_pools_are_big_enough_to_vary_and_small_enough_to_mean_something():
     for level, pool in LEVEL_CUES.items():
-        assert 3 <= len(pool) <= 5, f"sector {level} pool is {len(pool)} cues"
+        # Six, not five: the roster doubled and every cue has to stay reachable,
+        # and a bigger pool is also what lets a sector hold two dusk cues
+        # alongside its two fastest ones without either half dominating.
+        assert 3 <= len(pool) <= 6, f"sector {level} pool is {len(pool)} cues"
         assert len(set(pool)) == len(pool), f"sector {level} lists a cue twice"
+
+
+# ------------------------------------------------------- pool weighting
+# The pools are not just reachable, they are weighted, and the weighting is the
+# answer to "the slow tracks keep interrupting the run". A slow cue is one the
+# table itself calls slow (under 210 tag-bpm, the half of the roster the docs
+# keep on purpose); the claim is about where those cues are allowed to land.
+
+SLOW_BPM = 210.0
+DANCE_GROOVES = ("offbeat", "electro", "hypnotic")
+
+
+def test_a_slow_cue_lives_in_one_sector_not_scattered_down_the_run():
+    """A slow cue belongs to the ground it describes. Scattering it down the
+    campaign is what made it keep landing in sectors that are not its own."""
+    homes: dict[str, int] = {}
+    for pool in LEVEL_CUES.values():
+        for name in pool:
+            if float(_by_name(name)["bpm"]) < SLOW_BPM:
+                homes[name] = homes.get(name, 0) + 1
+    scattered = {n: c for n, c in homes.items() if c > 1}
+    assert not scattered, f"slow cues in more than one sector: {scattered}"
+    assert len(homes) >= 5, "the roster lost its slow cues rather than placing"
+
+
+def test_every_sector_keeps_a_dance_floor_under_it():
+    for level, pool in LEVEL_CUES.items():
+        dance = sum(1 for n in pool
+                    if _by_name(n).get("groove") in DANCE_GROOVES)
+        assert dance >= 1, f"sector {level} can never play a dance cue"
+        slow = sum(1 for n in pool
+                   if float(_by_name(n)["bpm"]) < SLOW_BPM)
+        assert slow <= 2, f"sector {level} is more than a third slow cues"
+
+
+def test_the_run_spends_most_of_its_time_moving():
+    """Counted over every draw every sector can make, not over the cue tables:
+    this is what a playthrough actually hears."""
+    slots = [_by_name(n) for pool in LEVEL_CUES.values() for n in pool]
+    slow = sum(1 for t in slots if float(t["bpm"]) < SLOW_BPM)
+    dance = sum(1 for t in slots
+                if t.get("groove") in DANCE_GROOVES)
+    assert slow <= 0.15 * len(slots), \
+        f"{slow}/{len(slots)} draws are slow cues - too much of the run"
+    assert dance >= 0.30 * len(slots), \
+        f"only {dance}/{len(slots)} draws come from the dance bed"
+    assert max(float(t["bpm"]) for t in slots) < min(
+        float(t["bpm"]) for t in BOSS_THEMES), "a sector out-tempoed the bosses"
 
 
 def test_no_two_sectors_share_the_same_identity_cue():

@@ -32,13 +32,15 @@ bar, 8 bars per section, so a bar at `bpm 220` is `4 * 120/220` = 2.18 s. Groove
 and kit selection thresholds read the **tag** bpm, which is what makes a cue
 feel fast or heavy.
 
-**Where the table sits, and why.** Level cues run 172-256 (86-128 effective),
+**Where the table sits, and why.** Level cues run 172-266 (86-133 effective),
 boss cues 288-330 (144-165) and stay faster than every level cue - that ordering
 is a test, not a habit. Six level cues are held slow on purpose (`Daydream
 Vector` 172, `Empyrean Dread` 176, `Sunset Circuit` 178, `Cathedral Run` 186,
 `Crater Wastes` 188, `Peak of Regret` 196): a soundtrack that is uniformly fast
 has no fast cues left in it, so those are the troughs the ride cues spend their
-energy against. Every sector pool still holds at least two cues at 105+.
+energy against. Each one is placed in **one** sector rather than scattered down
+the run - see "The pools are weighted" below. Every sector pool still holds at
+least two cues at 105+.
 Tempo is not the only lever - `gallop` puts the speed in the kick pattern, so a
 cue can lurch forward without the melodies racing out of the register they were
 written for.
@@ -283,8 +285,8 @@ edit, the playlist builders pick it up, and `test_drum_kit.py` (rhythm tags) and
 ## Per-sector cue pools
 
 One cue per sector, chosen once, is why a long run starts to feel like the same
-tune. `LEVEL_CUES` gives each sector a **pool of 3–5 cues** that suit the ground
-it flies over, and a visit draws one at random:
+tune. `LEVEL_CUES` gives each sector a **pool of up to 6 cues** that suit the
+ground it flies over, and a visit draws one at random:
 
 ```python
 LEVEL_CUES = {0: ("Overture of Field", "Daydream Vector", ...),
@@ -309,6 +311,32 @@ cue in `THEMES` must appear in at least one pool, and every name in a pool must
 resolve — tests enforce both, because a cue no sector can reach is a cue that
 never gets heard. Sectors not in the table get the whole table rather than
 silence.
+
+### The pools are weighted, and that is a musical decision
+
+Reachability says a cue *can* be heard. Pool size is what decides how often it
+is, and a uniform pool is how a roster of 47 cues still managed to spend most of
+a run in its slow half. Two rules hold, both tested over **the draws a run can
+actually make** rather than over the cue tables:
+
+* **a slow cue lives in one sector.** `Daydream Vector` and `Sunset Circuit`
+  belong to the dusk field, `Crater Wastes` to the marsh, `Peak of Regret` and
+  `Empyrean Dread` to the mountain. They used to be scattered down the campaign,
+  which is what made a slow cue keep landing in ground that was not its own.
+  Under 210 tag-bpm is the line the test uses, and it also requires that the
+  roster *still has* slow cues: confining them is not the same as deleting them.
+  Counted over all 54 pool slots, slow cues are 7 of them; they used to be 8 of
+  45.
+* **every sector keeps a dance floor.** No pool is without a dance cue, no pool
+  is more than a third slow cues, and 18 of the 54 slots come from the dance bed.
+  Sector 0 carries both of its dusk cues *and* the two fastest cues in the roster:
+  the same stretch of open ground can be sunset or redline, and which one it is
+  stays the sector's business rather than the table's.
+
+One consequence worth naming: an identity cue is not sacred. Sector 3 used to
+open on `Peak of Regret` (196, `halftime`, `heavy`) while everything livelier in
+its pool waited behind it; it opens on `Hyrule Ascent` now, and the mountain cue
+still plays - as a draw rather than as a first impression.
 
 Rendering order follows the pools: `AudioManager._music_build_plan` schedules the
 menu cue, then this run's starting identity cue, then one boss cue, then the
@@ -369,15 +397,15 @@ background thread** and publishes each buffer as it finishes, so the title theme
 is not blocked by the other 58 cues; a cue that fails to render is skipped, not
 fatal, and cannot stop the rest (see `test_audio_music.py`).
 
-Perf at 22050 Hz (this machine, whole plan = 68 cues):
+Perf at 22050 Hz (this machine, whole plan = 77 cues):
 
 | milestone | wall time |
 |-----|-----|
 | menu cue ready | 0.5 s |
 | this run's starting sector cue ready | 1.6 s |
 | first boss cue ready | 2.0 s |
-| every sector has its own cue | ~9 s |
-| whole soundtrack (68 cues) | ~62 s |
+| every sector has its own cue | ~10 s |
+| whole soundtrack (77 cues) | ~75 s |
 
 ~0.9 s per voiced stage cue, ~0.55 s without voicing — the instruments are the
 reason the total is minutes rather than seconds. It runs on a daemon thread while
@@ -425,3 +453,23 @@ Six stage cues and two boss cues, all wired into the sector pools:
 | `Midnight Signal` | 240 | `offbeat` / `future` | the bright one, in major: evidence that "upbeat" is a mode decision as much as a tempo one |
 | `Overdrive Halo` | 306 | `offbeat` / `trance` | boss: a harmonic-minor fight over four on the floor, pumping |
 | `Terminal Bloom` | 322 | `electro` / `electro` | boss: the stutter riff and an acid bass at the fastest tempo in the roster |
+
+### The second half of the bed
+
+The first six cues were the argument; these eight are what an argument sounds
+like once it is accepted. Each one is required to differ from every other dance
+cue in **arrangement signature** - groove, kit, bass line, melody family, arp
+figure, chord pad - because "more tracks" is only worth having if it is not the
+same track more times, and a test fails a cue that repeats one.
+
+| cue | bpm | groove / kit | what it adds |
+|---|---|---|---|
+| `Ion Drift` | 260 | `offbeat` / `trance` | phrygian on four on the floor: the flatted second is how a trance cue goes gothic without borrowing a dungeon cue's notes, and the chopped offbeat chords are **bells**, so the stabs keep ringing after the chop |
+| `Signal Rain` | 254 | `hypnotic` / `electro` | harmonic minor over a bed with no backbeat snare, led by the hero set - a minimal cue that still arrives like a fanfare |
+| `Turbo Prism` | 266 | `offbeat` / `future` | lydian, the fastest stage cue in the roster, and a **violin** taking the B-section answer over the machine bed |
+| `Chrome Prayer` | 246 | `electro` / `metal` | bridge cue, rock side: an electro groove on the metal kit with a rock chug bass, and the only dance cue that never plays a chord |
+| `Vapor Line` | 250 | `hypnotic` / `trance` | a ballad tune (the lyric set) on a flute over a bed with no backbeat, driven by the running bass line the menu cues proved out - now with a kick in front of it |
+| `Night Reactor` | 258 | `electro` / `future` | an electro bed with a trance arp: the stutter riff answers a bell running gates, and the clap carries the backbeat the riff steps around |
+| `Open Circuit` | 262 | `offbeat` / `trance` | the euphoric one: hero set, chord pad, full pump - an octave leap is the oldest lift in dance writing because it lands on the note the body is already reaching for |
+| `Static Sunrise` | 242 | `electro` / `crisp` | bridge cue, dance side: a dance groove on a rock kit, pluck lead, in major, at the bottom of the upbeat band - proof that "upbeat" need not mean "loud" |
+| `Hard Light` | 296 | `offbeat` / `future` | boss: the roster's only phrygian boss cue, hammered from every direction by the stutter set over a reese bass |

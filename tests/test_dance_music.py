@@ -19,6 +19,7 @@ from music_content import (
     LEVEL_CUES,
     MENU_THEMES,
     MOTIF_SETS,
+    SCALES,
     THEMES,
 )
 
@@ -38,9 +39,16 @@ BAR_S = 2.0
 EIGHTH = int(BAR_S * RATE / 8)
 
 DANCE_CUES = ("Freeway Pulse", "Neon Ascension", "Voltage Sky", "Static Bloom",
-              "Chrome Circuit", "Midnight Signal")
+              "Chrome Circuit", "Midnight Signal", "Ion Drift", "Signal Rain",
+              "Turbo Prism", "Chrome Prayer", "Vapor Line", "Night Reactor",
+              "Open Circuit", "Static Sunrise")
 DANCE_GROOVES = ("offbeat", "electro", "hypnotic")
 DANCE_KITS = ("trance", "electro", "future")
+# Two cues pair a dance groove with a rock kit on purpose: one brings an 808 bed
+# in on a metal kit, the other plays a major tune on a crisp kit. They are the
+# handrails between the beds, so "not a dance kit" must not be read as "not a
+# dance cue".
+BRIDGE_CUES = ("Chrome Prayer", "Static Sunrise")
 
 
 class VoiceLog:
@@ -254,10 +262,37 @@ def test_the_dance_cues_are_tagged_as_dance_cues():
     for name in DANCE_CUES:
         th = _by_name(name)
         assert th.get("groove") in DANCE_GROOVES, name
-        assert th.get("kit") in DANCE_KITS, name
+        assert th.get("kit") in DANCE_KITS or name in BRIDGE_CUES, \
+            f"{name} is on {th.get('kit')} and is not a bridge cue"
         assert th.get("bass") in BASS_LINES, f"{name} has no named bass line"
         assert th.get("motifs") in MOTIF_SETS, f"{name} has no named melody set"
         assert float(th.get("pump", 0.0)) > 0.0, f"{name} does not pump"
+
+
+def test_more_dance_cues_does_not_mean_the_same_cue_twelve_times():
+    """Every extra cue has to buy something the bed did not already have. The
+    signature is the arrangement, not the name: groove, kit, bass line, melody
+    family and arp figure together, unique per cue."""
+    sigs: dict[tuple, str] = {}
+    for name in DANCE_CUES:
+        th = _by_name(name)
+        sig = (th.get("groove"), th.get("kit"), th.get("bass"),
+               th.get("motifs"), th.get("arp_mode", "stock"),
+               bool(th.get("pad_chord")))
+        assert sig not in sigs, \
+            f"{name} repeats {sigs[sig]}: {sig}"
+        sigs[sig] = name
+
+
+def test_the_dance_bed_covers_every_scale_the_engine_has():
+    """'Tracks sound too similar' is partly a harmony complaint. The dance bed
+    now says each mode the roster has, so the beat is a family and not a
+    template: gothic is phrygian, cathedral is harmonic, dusk is dorian, euphoria
+    is major. A cue with no ``scale`` key is running on the stock scale, and the
+    stock scale is natural minor - so those cues count as ``natural``."""
+    covered = {_by_name(n).get("scale", "natural") for n in DANCE_CUES}
+    missing = set(SCALES) - covered
+    assert not missing, f"no dance cue in {sorted(missing)}"
 
 
 def test_dance_cues_render_audibly_and_do_not_clip():

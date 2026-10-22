@@ -822,6 +822,82 @@ THEMES: tuple[dict, ...] = (
      "bass": "electro", "arp_mode": "off", "pad_chord": True, "pump": 0.3,
      "prog": (0, 3, 4, 5, 0, 3, 5, 4),   # I-IV-V-vi and nothing else
      "instruments": {"lead": "stab", "pad": "supersaw"}, },
+    # Phrygian on four on the floor. The flatted second is the only way a trance
+    # cue can sound gothic without borrowing a dungeon cue's notes, and degree 1
+    # (the bII chord) doing the moving is the whole flavour of the progression.
+    # The stabs are bells: a chord chopped on the offbeat but allowed to ring out
+    # afterwards, which is width from the tail rather than from a saw.
+    {"name": "Ion Drift", "root": 61, "bpm": 260, "lead": "saw",
+     "scale": "phrygian", "groove": "offbeat", "kit": "trance",
+     "motifs": "hero", "bass": "electro", "arp_mode": "off",
+     "pad_chord": True, "pump": 0.38,
+     "prog": (0, 1, 5, 0, 3, 1, 5, 6),   # i-bII-VI-i-iv-bII-VI-vii
+     "instruments": {"pad": "supersaw", "arp": "bell"}, },
+    # Harmonic minor over a bed with no backbeat snare: the augmented second
+    # does the gothic work and the missing snare does the space work. The lead is
+    # the hero set, which opens on an octave leap - how a minimal cue still
+    # arrives like a fanfare.
+    {"name": "Signal Rain", "root": 56, "bpm": 254, "lead": "saw",
+     "scale": "harmonic", "groove": "hypnotic", "kit": "electro",
+     "motifs": "hero", "bass": "electro", "arp_mode": "run16", "pump": 0.45,
+     "prog": (0, 4, 0, 5, 3, 4, 5, 0),   # tonic pedal, then a cycle that
+     #                                       keeps almost landing on i
+     "instruments": {"bass": "acid", "pad": "supersaw"}, },
+    # Lydian at the top of the stage table: the brightest thing the dance bed can
+    # say. A violin takes the B-section answer over the machine bed, which is the
+    # one combination that keeps a 266 cue from sounding clinical.
+    {"name": "Turbo Prism", "root": 62, "bpm": 266, "lead": "pulse",
+     "scale": "lydian", "groove": "offbeat", "kit": "future",
+     "motifs": "soar", "bass": "electro", "arp_mode": "run16",
+     "pad_chord": True, "pump": 0.48,
+     "prog": (0, 4, 3, 6, 0, 4, 6, 3),   # I-IV-iii-vii and back, no cadence
+     "instruments": {"pad": "supersaw", "lead_b": "violin"}, },
+    # The bridge between the two beds, from the rock side: an electro groove on
+    # the metal kit with a rock chug bass under it. Nothing polite about it, and
+    # the only dance cue that never plays a chord - stabs on the offbeats only.
+    {"name": "Chrome Prayer", "root": 55, "bpm": 246, "lead": "square",
+     "scale": "harmonic", "groove": "electro", "kit": "metal",
+     "motifs": "stutter", "bass": "chug", "arp_mode": "off", "pump": 0.25,
+     "prog": (0, 0, 4, 5, 0, 3, 4, 5),   # tonic hammered, then it climbs
+     "instruments": {"bass": "reese", "arp": "stab"}, },
+    # Progressive trance with a ballad tune: the lyric set (lift by a third,
+    # settle over two bars) over a bed with no backbeat, with the running bass
+    # line from the menu cues keeping sixteenths of motion underneath. The
+    # menu cues proved driving is a bass-line decision; this one gets to say it
+    # with a kick in front of it.
+    {"name": "Vapor Line", "root": 59, "bpm": 250, "lead": "triangle",
+     "scale": "dorian", "groove": "hypnotic", "kit": "trance",
+     "motifs": "lyric", "bass": "run", "arp_mode": "stock", "pump": 0.3,
+     "prog": (0, 3, 4, 3, 0, 5, 4, 0),   # i-iv-V-iv-i-vi-V-i: it goes nowhere
+     #                                       on purpose
+     "instruments": {"lead": "flute", "pad": "supersaw"}, },
+    # An electro bed with a trance arp: the stutter riff answers a bell running
+    # sixteenth gates, and the future kit's clap carries the backbeat the riff
+    # keeps stepping around.
+    {"name": "Night Reactor", "root": 58, "bpm": 258, "lead": "saw",
+     "groove": "electro", "kit": "future", "motifs": "stutter",
+     "bass": "offbeat", "arp_mode": "run16", "pump": 0.42,
+     "prog": (0, 5, 3, 6, 0, 4, 5, 3),   # i-VI-iv-vii: a lift that resets
+     "instruments": {"arp": "bell", "pad": "supersaw"}, },
+    # The euphoric one: the hero set over a four-on-the-floor bed with a chord
+    # pad and a full pump under it. An octave leap is the oldest lift in dance
+    # writing because it lands on the note the body is already reaching for.
+    {"name": "Open Circuit", "root": 63, "bpm": 262, "lead": "saw",
+     "scale": "natural", "groove": "offbeat", "kit": "trance",
+     "motifs": "hero", "bass": "offbeat", "arp_mode": "run16",
+     "pad_chord": True, "pump": 0.45,
+     "prog": (0, 5, 3, 4, 0, 5, 6, 3),   # i-VI-iv-V-i-VI-vii-iv
+     "instruments": {"pad": "supersaw", "bass": "reese"}, },
+    # The bridge from the other side: a dance groove on a rock kit, in major,
+    # at the bottom of the upbeat band. A pluck lead (partials that rot at
+    # different rates) over chopped offbeat stabs - what the run sounds like
+    # warming up rather than redlining, and the reason "upbeat" need not mean
+    # "loud".
+    {"name": "Static Sunrise", "root": 53, "bpm": 242, "lead": "triangle",
+     "scale": "major", "groove": "electro", "kit": "crisp",
+     "motifs": "soar", "bass": "electro", "arp_mode": "off", "pump": 0.18,
+     "prog": (0, 4, 5, 3, 0, 3, 4, 0),   # I-V-vi-IV around the tonic
+     "instruments": {"lead": "pluck", "arp": "stab"}, },
 )
 
 MENU_THEMES: tuple[dict, ...] = (
@@ -937,6 +1013,17 @@ BOSS_THEMES: tuple[dict, ...] = (
      "prog": (0, 3, 0, 3, 5, 3, 6, 3),
      "drive": True, "layout": BOSS_LAYOUT,
      "instruments": {"bass": "acid", "arp": "stab"}, },
+    # Phrygian boss, which no boss in the roster was: the flatted second against
+    # four on the floor is a fight that never asks permission. Slowest of the
+    # dance bosses - a boss is heavy before it is fast - and the only one whose
+    # pad carries the fifth.
+    {"name": "Hard Light", "root": 54, "bpm": 296, "lead": "saw",
+     "scale": "phrygian", "groove": "offbeat", "kit": "future",
+     "motifs": "stutter", "bass": "offbeat", "arp_mode": "run16",
+     "pad_chord": True, "pump": 0.35,
+     "prog": (0, 1, 0, 5, 1, 4, 1, 0),   # i-bII hammered from every direction
+     "drive": True, "layout": BOSS_LAYOUT,
+     "instruments": {"bass": "reese", "pad": "supersaw"}, },
 )
 
 # Which cues each sector may play, by name. A sector owns a short pool of cues
@@ -947,27 +1034,44 @@ BOSS_THEMES: tuple[dict, ...] = (
 # rest of the pool has not rendered yet, so every sector sounds right from the
 # first second of launch. Every cue in THEMES appears in at least one pool - an
 # unreachable cue would be a cue that never gets played or heard.
+#
+# The pools are weighted, and the weighting is deliberate. Most sectors carry
+# three or four cues from the dance bed, because that is the half of the roster
+# a run should spend most of its time in; the slow cues (Daydream Vector, Sunset
+# Circuit, Crater Wastes, Peak of Regret, Empyrean Dread) each live in **one
+# sector**, the one whose ground they describe, instead of being scattered down
+# the campaign where they would keep landing in sectors that are not theirs. A
+# slow cue is still reachable - a soundtrack that is uniformly fast has no fast
+# cues left in it - but it is now a place rather than a mood that keeps
+# interrupting the run. Sector 0 gets both of its dusk cues *and* the two fastest
+# cues in the roster: the same stretch of open ground can be sunset or redline.
 LEVEL_CUES: dict[int, tuple[str, ...]] = {
     0: ("Overture of Field", "Daydream Vector", "Sunset Circuit",
-        "Starfall Vale", "Neon Ascension"),
+        "Starfall Vale", "Neon Ascension", "Turbo Prism"),
     1: ("Knight of the Marsh", "Back Alley", "Crypt March", "Crater Wastes",
-        "Static Bloom"),
-    2: ("Neon Grid", "Midnight Run", "Neon Freeway", "Rooftop Duel",
-        "Freeway Pulse"),
-    3: ("Peak of Regret", "Empyrean Dread", "Hyrule Ascent",
-        "Kakariko Heights", "Clockwork Tide"),
+        "Static Bloom", "Signal Rain"),
+    2: ("Neon Grid", "Midnight Run", "Neon Freeway", "Freeway Pulse",
+        "Ion Drift", "Open Circuit"),
+    # The ascent: the two climbing cues, the two slow ones that belong to a
+    # mountain, and Vapor Line - a flute stating a ballad tune over a bed with no
+    # backbeat, which is the sector's folklore sound said in the new language.
+    3: ("Hyrule Ascent", "Kakariko Heights", "Peak of Regret",
+        "Empyrean Dread", "Vapor Line", "Turbo Prism"),
+    # All harmonic minor, so the gothic colour is the sector; Signal Rain is the
+    # second dance cue precisely because harmonic minor is how the old cues said
+    # "cathedral" and the new bed can say the same thing at 254.
     4: ("Cathedral Run", "Gearwork Cathedral", "Candelabra Hall",
-        "Magus Gate", "Night Fortress"),
+        "Magus Gate", "Chrome Prayer", "Signal Rain"),
     5: ("Oath of Flame", "Blood Moon Rite", "Battle Verge", "Steel Fist",
-        "Voltage Sky"),
-    6: ("Laser Night", "Hyper Grid", "Chrome Run", "Retro Cascade",
-        "Chrome Circuit"),
-    7: ("Clockwork Tide", "Gearwork Cathedral", "Turbo Drift", "Cathedral Run",
-        "Midnight Signal"),
+        "Voltage Sky", "Night Reactor"),
+    6: ("Laser Night", "Hyper Grid", "Chrome Run", "Chrome Circuit",
+        "Rooftop Duel", "Static Sunrise"),
+    7: ("Clockwork Tide", "Gearwork Cathedral", "Turbo Drift",
+        "Midnight Signal", "Ion Drift", "Retro Cascade"),
     # The fortress at the end of the run, so the march returns - plus the one
     # drumless cue from the valley, for the sector's empty middle.
     8: ("Final Wave", "Knight's Resolve", "Neon Freeway", "Night Fortress",
-        "Vale of the Sleeping Star"),
+        "Vale of the Sleeping Star", "Open Circuit"),
 }
 
 __all__ = ["SCALE", "SCALES", "MOTIFS", "MOTIF_SETS", "CADENCE", "BASS",
