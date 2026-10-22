@@ -5,7 +5,9 @@ import math
 import random
 from typing import Any
 
-from .theme_table import FAR_PAIR, NEAR_MEAN, THEME_MEAN
+from .features import paint_far, paint_site
+from .siteplan import plan_site
+from .theme_table import FAR_PAIR, NEAR_MATS, NEAR_MEAN, THEME_MEAN
 from .tilekit import (
     CH,
     CW,
@@ -52,8 +54,25 @@ def _grid(canvas: Any, k: TileKit, mats: list[tuple[str, float]],
         for gx in range(GRID_C):
             name = rng.choices(names, weights=wts)[0]
             if name != base:
-                canvas.blit(k.patch(name), (gx * TILE, gy * TILE))
+                # faded to a third: the mix keeps its grain, but at full
+                # strength every cell carries a soft stain, and the reviewers
+                # kept calling those stains "ambiguous patches" that compete
+                # with the actual landforms
+                canvas.blit(_fade(k.patch(name), 0.34), (gx * TILE, gy * TILE))
 
+
+def _fade(src: Any, f: float) -> Any:
+    """Scale a surface per-pixel alpha by f (numpy; a 160px tile is cheap)."""
+    import pygame
+    try:
+        import numpy as np
+    except ImportError:
+        return src
+    arr = np.asarray(pygame.surfarray.array3d(src)).transpose(1, 0, 2)
+    alpha = np.asarray(pygame.surfarray.array_alpha(src))
+    arr = np.dstack([arr, (alpha * f).astype(np.uint8)])
+    out = pygame.image.fromstring(arr.tobytes(), src.get_size(), "RGBA")
+    return out.convert_alpha()
 
 def _road_v(canvas: Any, k: TileKit, mat: str, center_x: float,
             terms: list[tuple[int, float, float]], rng: random.Random,
@@ -157,8 +176,15 @@ def _patches(canvas: Any, k: TileKit, name: str, count: int,
                   rng.uniform(smin, smax), rng)
 
 
-def _darken(surf: Any, target_mean: float) -> Any:
-    """Return surf with RGB scaled to the arcade brightness target."""
+def _darken(surf: Any, target_mean: float, contrast: float = 1.28) -> Any:
+    """Scale RGB to the arcade brightness target, then open the values back up.
+
+    Matching a mean is what keeps a bright sector from blinding the player - but
+    a bare mean-match *scales*, so a theme forced dark loses its whole bright
+    end too: pale sand, gravel and snow all land in the same band, and the map
+    reads as one flat tone no matter what was painted. The stretch afterwards is
+    centred on the target mean, so the mean is untouched while the spread -
+    field against fallow, water against bank, road against field - comes back."""
     try:
         import numpy as np
     except ImportError:
@@ -174,7 +200,9 @@ def _darken(surf: Any, target_mean: float) -> Any:
     if cur < 1:
         return surf
     factor = max(0.35, min(2.5, target_mean / cur))
-    arr = np.clip(arr * factor, 0, 255).astype(np.uint8)
+    arr = arr * factor
+    arr = target_mean + (arr - target_mean) * contrast
+    arr = np.clip(arr, 0, 255).astype(np.uint8)
     rgba = np.dstack([arr, alpha]).transpose(1, 0, 2)  # -> row-major (H,W,4)
     return pygame.image.fromstring(np.ascontiguousarray(rgba).tobytes(),
                                    (w, h), "RGBA")
@@ -379,31 +407,55 @@ _NEAR = {
 }
 
 
-def _near_for(theme: str, k: TileKit, rng: random.Random) -> Any:
+def _near_for(theme: str, k: TileKit, rng: random.Random,
+              plan: Any = None) -> Any:
     import pygame
     c = pygame.Surface((CW, CH), pygame.SRCALPHA)
-    _NEAR[theme](c, k, rng)
+    if plan is not None:
+        _grid(c, k, list(NEAR_MATS[theme]), rng)
+        paint_site(c, k, plan, rng)
+    else:
+        _NEAR[theme](c, k, rng)
     return _darken(c, THEME_MEAN.get(theme, NEAR_MEAN))
 
 
-def _far_for(theme: str, k: TileKit, rng: random.Random) -> Any:
-    """Slow distant layer: big soft low-alpha material patches."""
+def _far_for(theme: str, k: TileKit, rng: random.Random,
+             plan: Any = None) -> Any:
+    """Slow distant layer: big soft low-alpha material patches, and - for a
+    planned theme - the same ridge language seen further off, so the range the
+    player is flying along goes on behind them."""
     import pygame
     c = pygame.Surface((CW, CH), pygame.SRCALPHA)
     for name in FAR_PAIR[theme]:
         t = pygame.transform.smoothscale(k.patch(name), (280, 280))
-        for _ in range(4):
+        for _ in range(3 if plan is not None else 4):
             t.set_alpha(rng.randint(26, 44))
             _blit_wrap(c, t, rng.uniform(0, CW), rng.uniform(0, CH))
+    if plan is not None:
+        paint_far(c, k, plan, rng)
     return c
+
+
+#: Themes whose ground is designed by the site plan (see ``terrain.siteplan``)
+#: rather than hand-composed. Two are deliberately left hand-composed:
+#: ``ocean`` has no ground to plan, and ``airbase``'s runway is one specific
+#: object - a planned road network would route traffic through it.
+PLANNED = frozenset(("countryside", "farmland", "forest", "city", "ruins",
+                     "wasteland", "canyon", "swamp", "glacier", "volcanic",
+                     "industrial"))
 
 
 def build_layers(theme: str, rng: random.Random) -> Any:
     """(far, near) bake-space layers 1600x1120 SRCALPHA, y-periodic, or
-    None when the tileset or theme is unavailable (vector fallback)."""
+    None when the tileset or theme is unavailable (vector fallback).
+
+    A planned theme gets ONE site plan shared by both layers: the far layer is
+    the same ground seen further off, not a different landscape."""
     if not kit_available():
         return None
     k = kit()
     if theme not in _NEAR:
         return None
-    return _far_for(theme, k, rng), _near_for(theme, k, rng)
+    plan = plan_site(theme, rng.randrange(1, 1 << 30)) \
+        if theme in PLANNED else None
+    return _far_for(theme, k, rng, plan), _near_for(theme, k, rng, plan)

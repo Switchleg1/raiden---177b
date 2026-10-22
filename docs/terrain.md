@@ -140,6 +140,72 @@ rng)` first; the vector painters below remain the no-tileset fallback
   no `hash()`); `scripts/build.py` ships `data/textures/tiles/` alongside
   terrain/sprites.
 
+## The site plan (`terrain/siteplan.py` + `terrain/features.py`)
+
+Scattered props do not make a place. A landscape is **dependency-ordered**:
+the ridges decide where water runs, water and ridges decide where the road
+threads, the road decides where houses stand, the flat dry ground the road
+left over is what gets enclosed, and the trees follow the water and the
+treeline. `plan_site(theme, seed)` computes that chain as data; the painter
+`terrain/features.py` only draws it.
+
+- **Pure Python, no pygame, no numpy** — so the whole chain is testable
+  headlessly (see `tests/test_terrain_siteplan.py`) and cheap (70–300 ms).
+  The painter is where numpy lives.
+- **Orogeny first.** Ridges are real cross-sections — sawback, domefield,
+  mesa, cone, hogback, massif, ridge — each with a crest profile sampled
+  along its spine, so a mesa has a table top with a cosine shoulder and a
+  hogback has a scarp on one side and a dip slope on the other. The height
+  field is then normalised to `SiteSpec.relief_gain`: the painter's colour
+  ramp, rock coverage and snowline all key off `h` in 0..1, so an
+  un-normalised plan paints a range at two thirds of its own contrast.
+- **Drainage follows gravity**, then circulation *refuses* the two easy
+  traps: a road that fights a ridge, and a road that runs with the river.
+  The cost function rewards crossing water (a bridge is the most legible
+  human object in a scrolling map) and penalises the share of the route
+  hugging the channel — because low ground *is* the valley floor, and the
+  valley floor is where the river already lives. Where a route does stand
+  inside a channel band it gets decks: a short run one, a long run a
+  causeway of decks ~110 px apart (`_decks`).
+- **A grid city is planned as blocks.** Two mains (forced far enough apart
+  to enclose a block), cross streets that leave room for the block they
+  border, streets nudged off the river, and one parcel per cell of the
+  grid. The layout then reads as the *gaps between* parcels, and streets
+  that would otherwise run with the water stop doing that.
+- **Nothing may contradict the ground it stands on**: houses only on flat
+  dry ground with a road within reach and a drive to it, parcels only on
+  ploughable ground and never swallowing the road, scree only at a ridge
+  foot and never in a river, foliage never crowning a house or leaning over
+  a channel.
+- **Paint order = landscape order**: relief, water, parcels, roads, greens,
+  buildings, cover. Painting the relief *over* fields and channels washes
+  out both the cultivation and the elevation it was meant to explain.
+- **Value is measured, not tasted.** `THEME_MEAN` forces a mean luminance,
+  and a bare mean-match *scales*: a canyon forced to mean 46 ended with its
+  entire value range compressed into lum 24–62, pale sand and gravel alike
+  — that is what "everything shares one dark value range" is, arithmetically.
+  So the targets were raised per theme (a desert is allowed to be bright)
+  and `_darken` follows the mean-match with a stretch centred on the target
+  mean: the mean is untouched, the spread comes back. Measured near-layer
+  spread went from 39 (canyon) to 80.
+- **Material choice is by measured luminance**, not by name: crop fields are
+  brown earth (`road_dirt`, lum 105) and routes are grey gravel
+  (`gravel_rubble`, lum 99) — same brightness, different hue, so "is that a
+  field or a road?" stops being a question. Water gets a *band* of pale
+  gravel/sand/snow under it rather than a stroked outline, because a stroke
+  reads as drawn and a band reads as a shore.
+- **Two themes stay hand-composed**: `ocean` (no ground to plan) and
+  `airbase` (the runway is one specific object; a planned road network
+  routes traffic through it). See `compose.PLANNED`.
+- **What the review loop actually caught**, in order of cost: the road and
+  the river sharing one corridor at every sample point; the tileset's
+  "feathered patch" mask being a *square* (the grid tell); pygame thick
+  lines having no round joins (the staircase tell); slope shading clipping
+  to near-black on cliffs (the "rendering artefact" mesas); a NameError in
+  the relief painter that `2>/dev/null` hid for several review rounds, so
+  the reviewer was scoring stale PNGs. All of those are fixed, and the
+  render scripts no longer swallow stderr.
+
 ## Realism layers
 
 Three post/primitive passes give the maps a painted, non-flat look

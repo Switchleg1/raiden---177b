@@ -50,12 +50,16 @@ class TileKit:
         self.masked = dict(self.mats)
         try:
             import numpy as np
-            r = np.arange(TILE, dtype=np.float32)
-            dx = np.minimum(r, TILE - 1 - r)
-            dmap = np.minimum(dx[:, None], dx[None, :]) / (TILE * 0.50)
-            ramp = np.clip(dmap, 0.0, 1.0)
+            # A TRUE radial feather. The previous mask measured distance to the
+            # nearest tile edge, which is a square: every soft patch blitted as a
+            # soft SQUARE, and that is the single biggest reason the ground used
+            # to "expose its construction grid".
+            r = np.arange(TILE, dtype=np.float32) - (TILE - 1) / 2.0
+            dmap = np.sqrt(r[:, None] ** 2 + r[None, :] ** 2)
+            dmax = float(dmap.max())
+            ramp = 1.0 - np.clip(dmap / (dmax * 0.72), 0.0, 1.0)
             ramp = ramp * ramp * (3.0 - 2.0 * ramp)      # smoothstep rim
-            amask = (ramp ** 1.25 * 255).astype(np.uint8)
+            amask = (ramp * 255).astype(np.uint8)
             for n, m in self.mats.items():
                 rgb = np.asarray(pygame.surfarray.array3d(m))      # (x,y,3)
                 rgba = np.ascontiguousarray(

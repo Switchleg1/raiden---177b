@@ -1,0 +1,248 @@
+"""The site plan: what a sector's ground *is*.
+
+``terrain.siteplan`` is pure Python on purpose - no pygame, no numpy - so the
+whole dependency chain (ridges -> drainage -> roads -> parcels -> houses ->
+cover) can be checked headlessly and cheaply. The painter in ``terrain.features``
+just draws whatever this decides, so these are the tests that protect the
+landscape: a map that fails here is unrecognisable no matter how it is shaded.
+"""
+from __future__ import annotations
+
+import math
+
+import pytest
+
+from terrain.compose import PLANNED
+from terrain.siteplan import CELL, COLS, ROWS, SPEC, SitePlan, _in_poly, plan_site
+
+SEEDS = (1, 2, 3, 7, 11)
+
+
+def _seg_dist(x: float, y: float, a: tuple, b: tuple) -> float:
+    ax, ay = a
+    bx, by = b
+    ln2 = (bx - ax) ** 2 + (by - ay) ** 2
+    t = 0.0 if ln2 == 0 else max(0.0, min(1.0,
+                                          ((x - ax) * (bx - ax)
+                                           + (y - ay) * (by - ay)) / ln2))
+    return math.hypot(x - (ax + t * (bx - ax)), y - (ay + t * (by - ay)))
+
+
+def _plan(theme: str, seed: int = 1) -> SitePlan:
+    return plan_site(theme, seed)
+
+
+def _signature(p: SitePlan) -> tuple:
+    """Everything a plan *decides*, compared structurally."""
+    return (
+        [(r.shape, tuple(map(tuple, r.spine)), round(r.width, 3))
+         for r in p.ridges],
+        [(w.kind, [tuple(round(v, 1) for v in pt) for pt in w.path],
+          round(w.half, 3)) for w in p.water],
+        [(r.kind, [tuple(round(v, 1) for v in pt) for pt in r.path],
+          round(r.width, 3),
+          [tuple(round(v, 1) for v in b) for b in r.bridges])
+         for r in p.roads],
+        [(f.kind, tuple((round(q[0]), round(q[1])) for q in f.poly), f.mat)
+         for f in p.fields],
+        [(b.kind, round(b.x, 3), round(b.y, 3), b.angle, round(b.scale, 3))
+         for b in p.buildings],
+        [(wd.kind, [(round(x, 3), round(y, 3), round(s, 3))
+                    for x, y, s in wd.items]) for wd in p.woods],
+        tuple(tuple(round(v, 6) for v in row) for row in p.relief),
+    )
+
+
+# --------------------------------------------------------------------------
+# determinism: a seeded replay must rebuild the same ground
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("theme", sorted(PLANNED))
+def test_plan_is_deterministic(theme):
+    assert _signature(_plan(theme, 4)) == _signature(_plan(theme, 4))
+
+
+@pytest.mark.parametrize("theme", ["countryside", "canyon", "city"])
+def test_seed_changes_the_ground(theme):
+    assert _signature(_plan(theme, 1)) != _signature(_plan(theme, 2))
+
+
+def test_hash_of_a_string_is_not_used():
+    # PYTHONHASHSEED randomisation would break replays if a plan ever keyed off
+    # hash(); the plan must depend only on ints it can see
+    assert _signature(plan_site("countryside", 9)) == _signature(
+        plan_site("countryside", 9))
+
+
+# --------------------------------------------------------------------------
+# the dependency chain: nothing the plan places may contradict the ground
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("theme", sorted(PLANNED))
+def test_theme_plans_and_reaches_its_relief_target(theme):
+    p = _plan(theme, 3)
+    spec = SPEC[theme]
+    peak = max(max(row) for row in p.relief)
+    if spec.ridge_count[1]:
+        assert peak == pytest.approx(spec.relief_gain, abs=0.02)
+        assert p.ridges
+    else:
+        assert peak <= spec.relief_gain + 0.02
+    assert p.roads or spec.road == "none"
+
+
+@pytest.mark.parametrize("theme", sorted(PLANNED))
+@pytest.mark.parametrize("seed", SEEDS)
+def test_no_building_on_ground_it_cannot_stand_on(theme, seed):
+    p = _plan(theme, seed)
+    for b in p.buildings:
+        assert not p.is_wet(b.x, b.y), f"{b.kind} built in water"
+        assert p.relief_at(b.x, b.y) <= 0.45, f"{b.kind} built on a slope"
+        assert not p.near_water(b.x, b.y, 38.0), f"{b.kind} built in a channel"
+
+
+@pytest.mark.parametrize("theme", sorted(PLANNED))
+@pytest.mark.parametrize("seed", SEEDS)
+def test_every_house_is_reached_by_a_road(theme, seed):
+    p = _plan(theme, seed)
+    if not p.buildings or not p.roads:
+        pytest.skip("theme builds no houses")
+    for b in p.buildings:
+        near = any(p.near_road(b.x, b.y, 260.0) for _ in (0,))
+        assert near, f"{b.kind} at ({b.x:.0f},{b.y:.0f}) has no road"
+
+
+@pytest.mark.parametrize("theme", sorted(PLANNED - {"city"}))
+@pytest.mark.parametrize("seed", SEEDS)
+def test_fields_do_not_swallow_the_road(theme, seed):
+    p = _plan(theme, seed)
+    for f in p.fields:
+        for j in range(ROWS):
+            for i in range(COLS):
+                cx, cy = i * CELL + CELL / 2, j * CELL + CELL / 2
+                if _in_poly(cx, cy, f.poly):
+                    assert not p.near_road(cx, cy, 14.0), \
+                        f"{f.kind} parcel covers the road"
+
+
+@pytest.mark.parametrize("theme", sorted(PLANNED))
+def test_fields_sit_on_ploughable_ground(theme):
+    p = _plan(theme, 5)
+    for f in p.fields:
+        xs = [q[0] for q in f.poly]
+        ys = [q[1] for q in f.poly]
+        cx, cy = sum(xs) / len(xs), sum(ys) / len(ys)
+        if f.kind in ("crop", "paddy", "pasture", "orchard"):
+            assert p.relief_at(cx, cy) < 0.62, f"{f.kind} on a hillside"
+        assert not p.is_wet(cx, cy), f"{f.kind} parcel in a channel"
+
+
+@pytest.mark.parametrize("theme", sorted(PLANNED))
+@pytest.mark.parametrize("seed", SEEDS)
+def test_roads_cross_water_on_a_bridge(theme, seed):
+    p = _plan(theme, seed)
+    for r in p.roads:
+        for x, y in r.path:
+            # the carriageway itself, not the wet bank: a road may run beside a
+            # channel, it just may not run through one
+            wet = [w for w in p.water
+                   if min(math.hypot(x - wx, y - wy)
+                          for wx, wy in w.path) < w.half + r.width * 0.5]
+            if not wet:
+                continue
+            assert any(math.hypot(x - bx, y - by) < 110.0
+                       for w0 in wet for bx, by in r.bridges), \
+                f"{r.kind} road fords the water with no bridge"
+
+
+@pytest.mark.parametrize("theme", ["countryside", "canyon", "glacier", "city"])
+def test_a_road_does_not_follow_the_river(theme):
+    """The road and the watercourse are the two linear features in a map. When
+    one hugs the other the player cannot tell channel from carriageway - the
+    single most repeated note from the art review of the first planned maps."""
+    p = _plan(theme, 1)
+    if not p.water or not p.roads:
+        pytest.skip("no water on this plan")
+    w = max(p.water, key=lambda k: len(k.path))
+    road = max(p.roads, key=lambda r: len(r.path))
+    hug = sum(1 for x, y in road.path if p.near_water(x, y, w.half + 70.0))
+    assert hug / len(road.path) < 0.3, "road runs with the river"
+
+
+@pytest.mark.parametrize("theme", sorted(PLANNED))
+def test_a_bridge_exists_where_a_road_meets_water(theme):
+    p = _plan(theme, 2)
+    if not p.water:
+        pytest.skip("theme has no water")
+    crossed = [r for r in p.roads if r.bridges]
+    assert crossed, "water and a road, and not one bridge"
+
+
+@pytest.mark.parametrize("theme", ["countryside", "forest", "city"])
+def test_foliage_does_not_swallow_the_village(theme):
+    p = _plan(theme, 1)
+    for b in p.buildings:
+        for wd in p.woods:
+            for x, y, _s in wd.items:
+                assert math.hypot(x - b.x, y - b.y) > 34.0, \
+                    f"tree crowns the {b.kind} at ({b.x:.0f},{b.y:.0f})"
+
+
+@pytest.mark.parametrize("theme", sorted(PLANNED))
+def test_riparian_trees_stay_out_of_the_channel(theme):
+    p = _plan(theme, 2)
+    for wd in p.woods:
+        if wd.kind != "riparian":
+            continue
+        for x, y, _s in wd.items:
+            assert not p.is_wet(x, y), "riparian tree standing in the water"
+
+
+@pytest.mark.parametrize("theme", ["canyon", "glacier", "countryside"])
+def test_scree_and_outcrops_belong_to_a_ridge(theme):
+    p = _plan(theme, 1)
+    if not p.ridges:
+        pytest.skip("no ridges")
+    for wd in p.woods:
+        if wd.kind not in ("scree", "outcrop"):
+            continue
+        for x, y, _s in wd.items:
+            near = any(math.hypot(x - sx, y - sy) < r.width * 1.6
+                       for r in p.ridges for sx, sy in r.spine)
+            if not near:
+                # measure against the whole spine, not just its vertices: a long
+                # spine segment is still the ridge this debris came off
+                near = min(_seg_dist(x, y, a, b) < r.width * 1.6
+                           for r in p.ridges
+                           for a, b in zip(r.spine, r.spine[1:], strict=False))
+            assert near, f"{wd.kind} debris sits away from any ridge"
+            assert not p.near_water(x, y, 60.0), f"{wd.kind} dumped in a river"
+
+
+@pytest.mark.parametrize("seed", SEEDS)
+def test_city_blocks_come_from_the_street_grid(seed):
+    """A grid city is legible because its BLOCKS are the gaps between streets."""
+    p = _plan("city", seed)
+    assert len(p.fields) >= 1
+    for f in p.fields:
+        xs = [q[0] for q in f.poly]
+        ys = [q[1] for q in f.poly]
+        assert max(xs) - min(xs) > 60.0, "block too small to read as a block"
+        assert max(ys) - min(ys) > 50.0
+        assert not any(p.is_wet(qx, qy) for qx, qy in f.poly)
+
+
+def test_scree_boulders_never_belong_to_a_city():
+    assert not SPEC["city"].scree
+
+
+# --------------------------------------------------------------------------
+# bake budget: plan_site runs at bake time, per map, twice (far + near share it)
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("theme", sorted(PLANNED))
+def test_plan_is_fast_enough_to_bake(theme):
+    import time
+    t0 = time.perf_counter()
+    plan_site(theme, 5)
+    assert time.perf_counter() - t0 < 1.6, f"{theme} plan too slow to bake"
