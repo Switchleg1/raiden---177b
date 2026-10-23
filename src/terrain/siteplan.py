@@ -33,6 +33,7 @@ import math
 import random
 from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
+from typing import Any
 
 from .tilekit import CH, CW
 
@@ -175,6 +176,28 @@ class Green:
     lanes: list[list[Point]] = field(default_factory=list)
 
 
+def _y_extent(f: Any) -> tuple[float, float]:
+    """The y-range a planned feature occupies, before its reach is added."""
+    pts = getattr(f, "path", None)
+    if pts is None:
+        poly = getattr(f, "poly", None)
+        if poly is not None:
+            ys = [p[1] for p in poly]
+        elif hasattr(f, "items"):
+            ys = [p[1] for p in f.items]
+        elif hasattr(f, "y"):
+            ys = [f.y - getattr(f, "radius", 0.0),
+                  f.y + getattr(f, "radius", 0.0)]
+        else:                        # pragma: no cover - a new feature kind
+            return (0.0, 0.0)
+    else:
+        ys = [p[1] for p in pts]
+    drive = getattr(f, "drive", None)
+    if drive:
+        ys += [p[1] for p in drive]
+    return (min(ys), max(ys))
+
+
 @dataclass
 class SitePlan:
     theme: str
@@ -190,6 +213,50 @@ class SitePlan:
     wet: list[list[bool]]
     built: list[list[bool]]
     geom: Geom = SCREEN
+    _bands: dict | None = None
+
+    # ------------------------------------------------------------- windowing
+    # How far a feature of each kind reaches beyond its own y-range. The painter
+    # used to walk every feature of the plan for every window - 357 houses and
+    # 2700 wood stamps per slice, each rotated and blitted and thrown away. On a
+    # thirty-screen strip that is the difference between painting a slice in a
+    # second and in half a minute.
+    _REACH = {"ridges": 0.0, "water": 0.0, "roads": 0.0, "buildings": 130.0,
+              "fields": 30.0, "woods": 150.0, "greens": 70.0}
+
+    def band(self, kind: str, y0: float, y1: float) -> list[int]:
+        """Indices of the features of `kind` that can appear in a y-range.
+
+        Indices, not features: the painter's jitter is keyed to the feature's
+        index in the plan, and a window that saw a renumbered neighbourhood
+        would grow different hedges than the window next door.
+
+        A wrapping (one-screen) plan answers with everything: its features wrap
+        across the seam, so culling by y would drop the seam copies and change
+        the baked maps.
+        """
+        attr = {"ridges": "ridges", "water": "water", "roads": "roads",
+                "buildings": "buildings", "fields": "fields",
+                "woods": "woods", "greens": "greens"}[kind]
+        feats = getattr(self, attr)
+        if self.geom.cyclic:
+            return list(range(len(feats)))
+        self._bands = self._bands or {}
+        ranges = self._bands.get(kind)
+        if ranges is None:
+            reach = self._REACH[kind]
+            ranges = []
+            for i, f in enumerate(feats):
+                lo, hi = _y_extent(f)
+                if kind == "ridges":
+                    reach = f.width * 3.4 + 40.0
+                elif kind == "water":
+                    reach = max(f.flood, f.half * 2.0) + 60.0
+                elif kind == "roads":
+                    reach = f.width * 2.0 + 90.0
+                ranges.append((lo - reach, hi + reach, i))
+            self._bands[kind] = ranges
+        return [i for lo, hi, i in ranges if hi >= y0 and lo <= y1]
 
     # ------------------------------------------------------------------ asks
     def relief_at(self, x: float, y: float) -> float:

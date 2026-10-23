@@ -568,6 +568,19 @@ def _upsample(grid: Any, plane: Plane, gw: int, gh: int) -> Any:
     return np.ascontiguousarray(np.clip(out, 0.0, 1.2).T)      # (x, y)
 
 
+def _band(canvas: Any, plan: SitePlan, kind: str) -> list[int]:
+    """The plan features of `kind` that this window can show.
+
+    A thirty-screen strip carries tens of thousands of props. Walking all of
+    them for every slice - rotating a tree sprite only to blit it off the edge -
+    is what made a slice take half a minute to paint, and painting slices is
+    what has to stay ahead of the scroll.
+    """
+    y0 = getattr(canvas, "y0", 0.0)
+    h = getattr(canvas, "h", 0) or getattr(canvas, "get_height", lambda: 0)()
+    return plan.band(kind, y0, y0 + h)
+
+
 def _frand(plan: SitePlan, index: int, salt: int) -> random.Random:
     """A jitter stream belonging to ONE feature rather than to a paint pass.
 
@@ -682,12 +695,17 @@ def paint_relief(canvas: Any, kit: TileKit, plan: SitePlan,
     # the slope scale was normalised properly that gate killed the rim too, and
     # every mass went edgeless - "soft-edged raised strips, no readable crest".
     flank = np.zeros((canvas.w, canvas.h), dtype=np.float32)
-    for si, ridge in enumerate(plan.ridges):
+    for si in _band(canvas, plan, "ridges"):
+        ridge = plan.ridges[si]
         frng = _frand(plan, si, 41)
         _path_mask(ridge.spine, ridge.width * 3.4, canvas).paste(flank)
     line = line * np.clip(flank * 1.7, 0.0, 1.0)
     cover = np.maximum(cover, line * 0.6)
     mask = np.maximum(mask, line * 0.2)
+    # fold first: the far painter stamps its distant patches before it asks for
+    # relief, and reading the arrays without syncing throws them away
+    if isinstance(canvas, Plane):
+        canvas.sync()
     base = canvas.rgb if isinstance(canvas, Plane) \
         else np.asarray(pygame.surfarray.array3d(canvas)).astype(np.float32)
     alpha = canvas.a if isinstance(canvas, Plane) \
@@ -718,7 +736,8 @@ def paint_relief(canvas: Any, kit: TileKit, plan: SitePlan,
     # middle of a green valley is a landslide of decoration, not a landform.
     foot = tuple(int(c * 0.8) for c in low)
     surf = _target(canvas)
-    for wi, wd in enumerate(plan.woods):
+    for wi in _band(canvas, plan, "woods"):
+        wd = plan.woods[wi]
         if wd.kind != "scree":
             continue
         frng = _frand(plan, wi, 53)
@@ -745,7 +764,8 @@ def paint_relief(canvas: Any, kit: TileKit, plan: SitePlan,
 
 def paint_fields(canvas: Any, kit: TileKit, plan: SitePlan,
                  rng: random.Random) -> None:
-    for fi, f in enumerate(plan.fields):
+    for fi in _band(canvas, plan, "fields"):
+        f = plan.fields[fi]
         frng = _frand(plan, fi, 11)
         mask = _poly_mask(f.poly, canvas)
         _fill_mask(canvas, kit, f.mat, mask, 0.92)
@@ -799,7 +819,8 @@ def paint_water(canvas: Any, kit: TileKit, plan: SitePlan,
     bank_mat = {"glacier": "ice_sheet", "canyon": "sand_canyon",
                 "wasteland": "sand_canyon", "volcanic": "obsidian",
                 "swamp": "mud_flat"}.get(plan.theme, "gravel_rubble")
-    for wi, w in enumerate(plan.water):
+    for wi in _band(canvas, plan, "water"):
+        w = plan.water[wi]
         frng = _frand(plan, wi, 17)
         mat = WATER_MAT.get(plan.theme, "water_river")
         # A bank of material first, water on top of it. Water_river is lum 35 on
@@ -878,7 +899,8 @@ def paint_roads(canvas: Any, kit: TileKit, plan: SitePlan,
                 rng: random.Random) -> None:
     from .theme_table import ROAD_MAT
     np = _numpy()
-    for ri, r in enumerate(plan.roads):
+    for ri in _band(canvas, plan, "roads"):
+        r = plan.roads[ri]
         frng = _frand(plan, ri, 29)
         mat = ROAD_MAT.get(plan.theme, "road_dirt")
         # shoulders first: dirt/grass soiling under the road edge, then the
@@ -942,7 +964,8 @@ def paint_roads(canvas: Any, kit: TileKit, plan: SitePlan,
                     d = r.width * 0.45 * side
                     pts.append((ax + nx * d, ay + ny * d))
                 _tint_lines(canvas, pts, (0, 0, 0), 1)
-    for ri, r in enumerate(plan.roads):
+    for ri in _band(canvas, plan, "roads"):
+        r = plan.roads[ri]
         frng = _frand(plan, ri, 29)
         for (bx, by) in r.bridges:
             _bridge(canvas, kit, r, bx, by, frng)
@@ -978,7 +1001,8 @@ def _bridge(canvas: Any, kit: TileKit, road: Any, x: float, y: float,
 
 def paint_greens(canvas: Any, kit: TileKit, plan: SitePlan,
                  rng: random.Random) -> None:
-    for gi, g in enumerate(plan.greens):
+    for gi in _band(canvas, plan, "greens"):
+        g = plan.greens[gi]
         frng = _frand(plan, gi, 31)
         _fill_mask(canvas, kit, g.mat,
                    _disc_mask(g.x, g.y, g.radius, canvas), 0.95)
@@ -995,7 +1019,8 @@ def paint_greens(canvas: Any, kit: TileKit, plan: SitePlan,
 
 def paint_buildings(canvas: Plane, kit: TileKit, plan: SitePlan,
                     rng: random.Random) -> None:
-    for bi, b in enumerate(plan.buildings):
+    for bi in _band(canvas, plan, "buildings"):
+        b = plan.buildings[bi]
         frng = _frand(plan, bi, 47)
         # the approach first: a drive from the door to the road, and a yard
         if b.drive:
@@ -1039,7 +1064,8 @@ def _cover_props(theme: str, kind: str) -> tuple[str, ...]:
 
 def paint_cover(canvas: Any, kit: TileKit, plan: SitePlan,
                 rng: random.Random) -> None:
-    for wdi, wd in enumerate(plan.woods):
+    for wdi in _band(canvas, plan, "woods"):
+        wd = plan.woods[wdi]
         frng = _frand(plan, wdi, 37)
         if wd.kind in ("scree", "outcrop"):
             # rock DEBRIS is not a landform. Stamping cluster sprites along a
