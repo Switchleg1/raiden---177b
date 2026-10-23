@@ -216,6 +216,51 @@ treeline. `plan_site(theme, seed)` computes that chain as data; the painter
   the reviewer was scoring stale PNGs. All of those are fixed, and the
   render scripts no longer swallow stderr.
 
+## Streaming a sector (`Geom` + a windowed `Plane`)
+
+The baked map is one screen tall: 1120 px, about 3.5 s of scroll. A 75 s sector
+shows it end over end roughly twenty times, and the repeat is the reason the
+mid-level zone change had to exist at all - a sector that never runs out of new
+ground has no boundary to hide.
+
+The groundwork is in, in two halves.
+
+**Planning a strip.** `plan_site(theme, seed, geom)` takes a `Geom(w, h, cell,
+cyclic)`; the default `Geom()` is the old one-screen map, so every existing
+call site is unchanged. A streamed sector passes `Geom(h=21 * CH, cyclic=False)`
+and gets a designed 21 screens, not one screen stretched: ridge trunks one to
+two screens long, streets down the city's whole length at block spacing,
+drainage every couple of screens, and path wander at *screen* scale even on a
+long strip (a meander is something a player sees in one screen of flight). A
+six-screen countryside strip plans in about 0.5 s - cheap enough to run once per
+sector on the prefetch thread.
+
+**Painting a window.** `Plane(w, h, x0, y0, wrap)` is a window of the world, not
+the world. Masks, stamps and strokes come back in window coordinates, a feature
+that misses the window costs nothing (`_raster` returns None), materials are
+read phase-locked to world position (`_view`) so the tile grid cannot jump at a
+chunk edge, and the relief field - the steepest flank, the usual steepness, the
+height ramp - is measured once on the planning grid so that every window shades
+with the same contrast. Jitter is keyed to the *feature* (`_frand(plan, index,
+salt)`) rather than to the paint pass, which is what lets two windows paint the
+same hedge identically.
+
+**The open blocker, measured.** Two windows overlapping on the same world rows
+still disagree on 0.05-2.9% of those pixels (max around 150/255), concentrated
+within about one margin of the boundary. Painting with a ~96 px margin and a
+chunk several tiles high drives it down; it does not remove it. Suspects, in the
+order I would test them: `Mask._feather`'s box-edge `np.roll` (a mask clipped by
+a window edge thickens differently there than the same mask unclipped), and
+features whose *extent* reaches a window they are not anchored in (a tall tree
+anchored a hundred-odd px below the kept band). Nothing streams at runtime until
+that is closed, because a chunk boundary that changes a tree's edge is exactly
+the tell the whole exercise is meant to remove.
+
+The plan when it is closed: chunk bank (LRU, 3-4 chunks) painted by the existing
+prefetch worker, one continuous strip per sector, and `TerrainTrack`'s zones and
+seam code deleted - the mid-level change becomes a change of land use along the
+strip (roads, rivers and ridges carrying across it) rather than a boundary.
+
 ## Realism layers
 
 Three post/primitive passes give the maps a painted, non-flat look
