@@ -8,12 +8,13 @@ landscape: a map that fails here is unrecognisable no matter how it is shaded.
 """
 from __future__ import annotations
 
+import itertools
 import math
 
 import pytest
 
 from terrain.compose import PLANNED
-from terrain.siteplan import CELL, COLS, ROWS, SPEC, SitePlan, _in_poly, plan_site
+from terrain.siteplan import CELL, CH, COLS, CW, ROWS, SPEC, Geom, SitePlan, _in_poly, plan_site
 
 SEEDS = (1, 2, 3, 7, 11)
 
@@ -268,3 +269,76 @@ def test_plan_is_fast_enough_to_bake(theme):
     t0 = time.perf_counter()
     plan_site(theme, 5)
     assert time.perf_counter() - t0 < 1.6, f"{theme} plan too slow to bake"
+
+
+# --- strips: the ground a streamed sector is designed on -----------------
+
+@pytest.mark.parametrize("theme", ["countryside", "canyon", "city"])
+@pytest.mark.parametrize("seed", [1, 4, 7])
+def test_a_strip_is_designed_not_stretched(theme, seed):
+    """A six-screen strip is a designed six screens. If the planner kept the
+    one-screen habits, a streamed sector would be the same picture repeated."""
+    strip = plan_site(theme, seed, Geom(h=6 * CH, cyclic=False))
+    g = strip.geom
+    assert (g.w, g.h, g.cyclic) == (CW, 6 * CH, False)
+    assert g.screens == 6
+
+    pts = ([(b.x, b.y) for b in strip.buildings]
+           + [(f.poly[0][0], f.poly[0][1]) for f in strip.fields]
+           + [(w.items[0][0], w.items[0][1]) for w in strip.woods if w.items])
+    assert pts, "a strip with nothing in it"
+    for x, y in pts:
+        assert -40.0 <= x <= CW + 40.0, f"outside the strip in x: {x}"
+        assert -40.0 <= y <= g.h + 40.0, f"outside the strip in y: {y}"
+    # routes are allowed to bleed past the ends so they read as continuing
+    assert any(p[1] > 0.9 * g.h for r in strip.roads for p in r.path)
+
+    # content spread along the whole length, not bunched at one end
+    ys = sorted(p[1] for p in pts)
+    gap = max(b - a for a, b in zip(ys, ys[1:], strict=False))
+    assert gap < 2.5 * CH, f"{gap:.0f} px of strip with nothing in it"
+    # and the strip is richer than a screen, by design
+    screen = plan_site(theme, seed)
+    assert len(strip.woods) > len(screen.woods)
+
+
+def test_a_strip_does_not_repeat_itself():
+    """The whole point of the long plan: the same layout must not come round
+    every screen. With one-screen geometry and cyclic paths it did."""
+    strip = plan_site("countryside", 1, Geom(h=6 * CH, cyclic=False))
+    sig = [(round(b.x), round(b.y)) for b in strip.buildings]
+    repeats = sum(1 for a, b in itertools.combinations(sig, 2)
+                  if a[0] == b[0] and abs((b[1] - a[1]) % CH) < 1.0
+                  and abs(b[1] - a[1]) > 0.5 * CH)
+    assert repeats <= 1, f"{repeats} pairs of houses repeat at screen spacing"
+    roads = {len(r.path) for r in strip.roads}
+    assert max(roads) > 30, "a route that stops after one screen"
+
+
+def test_a_strip_plan_is_deterministic():
+    a = plan_site("canyon", 3, Geom(h=4 * CH, cyclic=False))
+    b = plan_site("canyon", 3, Geom(h=4 * CH, cyclic=False))
+    assert ([(round(p[0]), round(p[1])) for r in a.ridges for p in r.spine]
+            == [(round(p[0]), round(p[1])) for r in b.ridges for p in r.spine])
+    assert ([(round(s[0]), round(s[1])) for w in a.woods for s in w.items]
+            == [(round(s[0]), round(s[1])) for w in b.woods for s in w.items])
+    c = plan_site("canyon", 4, Geom(h=4 * CH, cyclic=False))
+    assert ([(round(p[0]), round(p[1])) for r in c.ridges for p in r.spine]
+            != [(round(p[0]), round(p[1])) for r in b.ridges for p in r.spine])
+
+
+def test_an_unknown_theme_is_refused():
+    """An unknown theme used to paint the default landscape instead: plausible
+    farmland where a glacier was intended."""
+    with pytest.raises(KeyError) as exc:
+        plan_site("ice", 1)
+    assert "glacier" in str(exc.value)
+
+
+def test_a_window_is_a_place_not_a_scale():
+    g = Geom(h=3 * CH, cyclic=False)
+    assert g.screens == 3
+    assert g.shifts() == (0.0,)                 # a strip does not loop
+    assert Geom().shifts() == (0.0, -float(CH), float(CH))
+    assert g.row(-20) == 0 and g.row(9 * CH) == g.rows - 1
+    assert g.col(-5) == 0 and g.col(CW + 5) == g.cols - 1

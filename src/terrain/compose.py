@@ -417,7 +417,7 @@ def _near_for(theme: str, k: TileKit, rng: random.Random,
     import pygame
     if plan is not None:
         from .features import Plane
-        p = Plane(CW, CH)
+        p = Plane(CW, CH, wrap=plan.geom.h if plan.geom.cyclic else 0.0)
         _grid(p.stamp, k, list(NEAR_MATS[theme]), rng)
         p.sync()                      # the base ground goes under the plan
         paint_site(p, k, plan, rng)
@@ -436,7 +436,7 @@ def _far_for(theme: str, k: TileKit, rng: random.Random,
     import pygame
     if plan is not None:
         from .features import Plane
-        c: Any = Plane(CW, CH)
+        c: Any = Plane(CW, CH, wrap=plan.geom.h if plan.geom.cyclic else 0.0)
     else:
         c = pygame.Surface((CW, CH), pygame.SRCALPHA)
     for name in FAR_PAIR[theme]:

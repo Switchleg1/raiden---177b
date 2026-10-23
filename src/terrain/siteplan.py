@@ -32,7 +32,7 @@ from __future__ import annotations
 import math
 import random
 from collections.abc import Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from .tilekit import CH, CW
 
@@ -42,6 +42,61 @@ from .tilekit import CH, CW
 CELL = 20
 COLS = CW // CELL
 ROWS = CH // CELL
+
+# One screen is the unit everything is calibrated in: how far a ridge reaches,
+# how wide a meander swings, how many fields a theme wants. A plan may cover
+# many screens; these stay fixed and the counts scale with them.
+SCREEN_W = CW
+SCREEN_H = CH
+
+
+@dataclass(frozen=True)
+class Geom:
+    """The ground a site plan is designed for: a bake-space strip w x h.
+
+    The default is one screen, and it is a loop in y: the sine paths close on
+    themselves so the map wraps with no cut. A streamed sector plans a much
+    longer strip, which is NOT a loop - nothing has to line up with the top of
+    it, and that is what lets one river, one road and one range run the length
+    of a sector instead of one screen repeating twenty-one times.
+    """
+
+    w: int = SCREEN_W
+    h: int = SCREEN_H
+    cell: int = CELL
+    cyclic: bool = True
+
+    @property
+    def cols(self) -> int:
+        return self.w // self.cell
+
+    @property
+    def rows(self) -> int:
+        return self.h // self.cell
+
+    @property
+    def screens(self) -> int:
+        """How many screens tall this is. Densities and path sinuosity scale
+        with it, so a long strip is designed rather than one map stretched."""
+        return max(1, int(round(self.h / SCREEN_H)))
+
+    def col(self, x: float) -> int:
+        return max(0, min(self.cols - 1, int(x // self.cell)))
+
+    def row(self, y: float) -> int:
+        yy = y % self.h if self.cyclic else y
+        return max(0, min(self.rows - 1, int(yy // self.cell)))
+
+    def shifts(self) -> tuple[float, ...]:
+        """y offsets a shape must be tested at: the wrap copies for a looping
+        map, nothing extra for a strip that does not loop."""
+        if not self.cyclic:
+            return (0.0,)
+        return (0.0, -float(self.h), float(self.h))
+
+
+#: the one-screen ground every calibration constant in this module assumes
+SCREEN = Geom()
 
 Point = tuple[float, float]
 
@@ -134,61 +189,65 @@ class SitePlan:
     relief: list[list[float]]         # [row][col], 0..1
     wet: list[list[bool]]
     built: list[list[bool]]
+    geom: Geom = SCREEN
 
     # ------------------------------------------------------------------ asks
     def relief_at(self, x: float, y: float) -> float:
-        return self.relief[_row(y)][_col(x)]
+        return self.relief[self.geom.row(y)][self.geom.col(x)]
 
     def is_wet(self, x: float, y: float) -> bool:
-        return self.wet[_row(y)][_col(x)]
+        return self.wet[self.geom.row(y)][self.geom.col(x)]
 
     def is_built(self, x: float, y: float) -> bool:
-        return self.built[_row(y)][_col(x)]
+        return self.built[self.geom.row(y)][self.geom.col(x)]
 
     def near_water(self, x: float, y: float, dist: float) -> bool:
-        return any(_dist_path(x, y, w.path) < dist for w in self.water)
+        return any(_dist_path(self.geom, x, y, w.path) < dist
+                   for w in self.water)
 
     def near_road(self, x: float, y: float, dist: float) -> bool:
-        return any(_dist_path(x, y, r.path) < dist for r in self.roads)
-
-
-def _col(x: float) -> int:
-    return max(0, min(COLS - 1, int(x // CELL)))
-
-
-def _row(y: float) -> int:
-    yy = y % CH
-    return max(0, min(ROWS - 1, int(yy // CELL)))
+        return any(_dist_path(self.geom, x, y, r.path) < dist
+                   for r in self.roads)
 
 
 # ---------------------------------------------------------------------------
 # geometry
 # ---------------------------------------------------------------------------
 
-def _vpath(x0: float, terms: Iterable[tuple[int, float, float]],
-           step: int = 40) -> list[Point]:
-    """A vertical path x(y), periodic over CH: every sine term uses an INTEGER
-    frequency, so x(0) == x(CH) and the map wraps with no cut."""
+def _vpath(g: Geom, x0: float, terms: Iterable[tuple[int, float, float]],
+           step: int = 40, y_lo: float | None = None,
+           y_hi: float | None = None) -> list[Point]:
+    """A vertical path x(y).
+
+    On a wrapping map every sine term uses an INTEGER frequency over the screen,
+    so x(0) == x(CH) and the map wraps with no cut. A long strip repeats that
+    screen-scale wander once per screen instead of bending once over twenty:
+    the meander a player can actually see has screen scale, whichever way the
+    ground was designed.
+    """
     pts: list[Point] = []
-    y = -step
-    while y <= CH + step:
-        f = y / CH
-        x = x0 + sum(a * CH * math.sin(2.0 * math.pi * k * f + p)
+    lo = -step if y_lo is None else y_lo
+    hi = g.h + step if y_hi is None else y_hi
+    cyc = g.screens
+    y = lo
+    while y <= hi + step:
+        f = y / SCREEN_H
+        x = x0 + sum(a * SCREEN_H * math.sin(2.0 * math.pi * (k * cyc) * f + p)
                      for k, a, p in terms)
         pts.append((x, y))
         y += step
     return pts
 
 
-def _hpath(y0: float, terms: Iterable[tuple[int, float, float]],
+def _hpath(g: Geom, y0: float, terms: Iterable[tuple[int, float, float]],
            step: int = 40) -> list[Point]:
-    """A horizontal path y(x). Not wrapped in x (x is canvas-wide), and the
-    amplitude is kept small so it never crosses the y seam."""
+    """A horizontal path y(x). Not wrapped in x (x is the strip's width), and
+    the amplitude is kept small so it never crosses the y seam."""
     pts: list[Point] = []
     x = -step
-    while x <= CW + step:
-        f = x / CW
-        y = y0 + sum(a * CW * math.sin(2.0 * math.pi * k * f + p)
+    while x <= g.w + step:
+        f = x / SCREEN_W
+        y = y0 + sum(a * SCREEN_W * math.sin(2.0 * math.pi * k * f + p)
                      for k, a, p in terms)
         pts.append((x, y))
         x += step
@@ -204,10 +263,10 @@ def _seg_dist(px: float, py: float, a: Point, b: Point) -> float:
     return math.hypot(px - (a[0] + t * dx), py - (a[1] + t * dy))
 
 
-def _dist_path(px: float, py: float, path: list[Point]) -> float:
-    """Distance to a polyline; the path repeats in y, so the seam is checked."""
+def _dist_path(g: Geom, px: float, py: float, path: list[Point]) -> float:
+    """Distance to a polyline; on a wrapping map the seam copies are checked."""
     best = float("inf")
-    for shift in (0.0, -CH, CH):
+    for shift in g.shifts():
         yy = py - shift
         for i in range(len(path) - 1):
             d = _seg_dist(px, yy, path[i], path[i + 1])
@@ -457,8 +516,9 @@ def _rng(theme: str, seed: int) -> random.Random:
 # passes, in the order a landscape actually forms
 # ---------------------------------------------------------------------------
 
-def _orogeny(spec: SiteSpec, rng: random.Random) -> tuple[list[Ridge], list[list[float]]]:
-    relief = [[0.0] * COLS for _ in range(ROWS)]
+def _orogeny(g: Geom, spec: SiteSpec,
+             rng: random.Random) -> tuple[list[Ridge], list[list[float]]]:
+    relief = [[0.0] * g.cols for _ in range(g.rows)]
     ridges: list[Ridge] = []
     lo, hi = spec.ridge_count
     want = rng.randint(lo, hi) if spec.ridge_shapes else 0
@@ -481,7 +541,8 @@ def _orogeny(spec: SiteSpec, rng: random.Random) -> tuple[list[Ridge], list[list
             (ax, ay), tang = _along(parent.spine, rng.uniform(0.25, 0.95))
             side = 1.0 if rng.random() < 0.5 else -1.0
             ang = tang + side * rng.uniform(0.5, 1.15)
-            reach = rng.uniform(0.22, 0.5) * (CW if across else CH)
+            reach = rng.uniform(0.22, 0.5) * (SCREEN_W if across
+                                             else SCREEN_H)
             steps = 16
             spine = []
             for i in range(steps + 1):
@@ -506,22 +567,32 @@ def _orogeny(spec: SiteSpec, rng: random.Random) -> tuple[list[Ridge], list[list
             height = rng.uniform(0.55, 1.0) * spec.ridge_weight
             asym = rng.uniform(0.0, 0.75) if shape in ("hogback", "mesa") else 0.0
             if across:
-                y0 = rng.uniform(0.15, 0.85) * CH
+                y0 = rng.uniform(0.15, 0.85) * g.h
                 terms = [(1, rng.uniform(0.01, 0.05), rng.uniform(0, 6.28))]
                 if rng.random() < 0.5:
                     terms.append((2, rng.uniform(0.005, 0.02),
                                   rng.uniform(0, 6.28)))
-                spine = _hpath(y0, terms, step=40)
+                spine = _hpath(g, y0, terms, step=40)
             else:
-                x0 = rng.uniform(0.12, 0.88) * CW
+                x0 = rng.uniform(0.12, 0.88) * g.w
                 terms = [(1, rng.uniform(0.03, 0.12), rng.uniform(0, 6.28))]
                 if rng.random() < 0.6:
                     terms.append((2, rng.uniform(0.01, 0.05),
                                   rng.uniform(0, 6.28)))
-                spine = _vpath(x0, terms, step=40)
-            spine = [(max(-80.0, min(CW + 80.0, x)), y) for x, y in spine]
-        spine = [(max(-120.0, min(CW + 120.0, x)),
-                  max(-120.0, min(CH + 120.0, y))) for x, y in spine]
+                if g.cyclic:
+                    spine = _vpath(g, x0, terms, step=40)
+                else:
+                    # A trunk holds one or two screens of a long strip, not the
+                    # whole thing: the range the player flies along changes over
+                    # a sector, the way the ground does on a real campaign.
+                    span = rng.uniform(0.8, 1.9) * SCREEN_H
+                    ys = rng.uniform(-0.15 * SCREEN_H,
+                                     max(0.0, g.h - span))
+                    spine = _vpath(g, x0, terms, step=40,
+                                   y_lo=ys, y_hi=ys + span)
+            spine = [(max(-80.0, min(g.w + 80.0, x)), y) for x, y in spine]
+        spine = [(max(-120.0, min(g.w + 120.0, x)),
+                  max(-120.0, min(g.h + 120.0, y))) for x, y in spine]
         ridge = Ridge(shape=shape, spine=spine, crest=crest, width=width,
                       height=height, asym=asym)
         # spurs: shorter arms leaving the spine at angles - a ridge system, not
@@ -546,15 +617,15 @@ def _orogeny(spec: SiteSpec, rng: random.Random) -> tuple[list[Ridge], list[list
                 pts.append((bx + math.cos(ang) * ln * t + wob,
                             by + math.sin(ang) * ln * t + wob * 0.4))
             ridge.spurs.append(pts)
-            _carve_relief(relief, pts, height * rng.uniform(0.45, 0.75),
+            _carve_relief(g, relief, pts, height * rng.uniform(0.45, 0.75),
                           width * rng.uniform(0.35, 0.6), asym, taper=0.55)
         ridges.append(ridge)
-        _carve_relief(relief, spine, height, width, asym, crest=crest)
+        _carve_relief(g, relief, spine, height, width, asym, crest=crest)
     return ridges, relief
 
 
-def _carve_relief(relief: list[list[float]], path: list[Point], height: float,
-                  width: float, asym: float,
+def _carve_relief(g: Geom, relief: list[list[float]], path: list[Point],
+                  height: float, width: float, asym: float,
                   crest: list[float] | None = None,
                   taper: float = 0.0) -> None:
     """Raise the relief field around a spine. The flanks differ: an asymmetric
@@ -589,14 +660,14 @@ def _carve_relief(relief: list[list[float]], path: list[Point], height: float,
         for m in range(steps + 1):
             t = m / steps
             px, py = ax + dx * t, ay + dy * t
-            for shift in (0.0, -CH, CH):
+            for shift in g.shifts():
                 py_s = py + shift
-                if not -CELL <= py_s <= CH + CELL:
+                if not -CELL <= py_s <= g.h + CELL:
                     continue
-                j0 = max(0, _row(py_s) - reach)
-                j1 = min(ROWS - 1, _row(py_s) + reach)
-                i0 = max(0, _col(px) - reach)
-                i1 = min(COLS - 1, _col(px) + reach)
+                j0 = max(0, g.row(py_s) - reach)
+                j1 = min(g.rows - 1, g.row(py_s) + reach)
+                i0 = max(0, g.col(px) - reach)
+                i1 = min(g.cols - 1, g.col(px) + reach)
                 for j in range(j0, j1 + 1):
                     cy = j * CELL + CELL / 2
                     for i in range(i0, i1 + 1):
@@ -612,7 +683,7 @@ def _carve_relief(relief: list[list[float]], path: list[Point], height: float,
                             relief[j][i] = min(1.0, val)
 
 
-def _drainage(spec: SiteSpec, relief: list[list[float]],
+def _drainage(g: Geom, spec: SiteSpec, relief: list[list[float]],
               rng: random.Random) -> list[Water]:
     """Water goes where the ground falls away. Candidates are scored on how
     much ridge they would have to cut through, so the river is in the valley it
@@ -621,39 +692,47 @@ def _drainage(spec: SiteSpec, relief: list[list[float]],
         return []
     kinds = list(spec.water_kinds)
     out: list[Water] = []
+    # one body per kind fills a screen; a strip needs drainage along its whole
+    # length, or twenty screens of level have one brook in them
+    want = 1 if g.cyclic else max(1, round(g.screens * 0.7))
     for kind in kinds:
-        best: Water | None = None
-        best_score = float("inf")
-        for _ in range(16):
-            vertical = rng.random() < (0.4 if kind == "wash" else 0.7)
-            amp_a = (0.02, 0.06) if kind == "wash" else (0.04, 0.14)
-            amp_b = (0.0, 0.02) if kind == "wash" else (0.01, 0.05)
-            if vertical:
-                path = _vpath(rng.uniform(0.1, 0.9) * CW,
-                              [(1, rng.uniform(*amp_a), rng.uniform(0, 6.28)),
-                               (2, rng.uniform(*amp_b), rng.uniform(0, 6.28))],
-                              step=32)
-            else:
-                path = _hpath(rng.uniform(0.15, 0.85) * CH,
-                              [(1, rng.uniform(0.02, 0.05),
-                                rng.uniform(0, 6.28))], step=32)
-            score = _path_relief(relief, path) + 0.6 * _path_max(relief, path)
-            for prev in out:            # channels spread out, they do not stack
-                if _paths_close(path, prev.path, 130.0):
-                    score += 2.0
-            if score < best_score:
-                best_score = score
-                # a channel has to read at playfield scale, where these numbers
-                # are halved: a 12 px half-width is a scratch, not a watercourse
-                half = {"wash": rng.uniform(30.0, 44.0),
-                        "arroyo": rng.uniform(26.0, 40.0),
-                        "channel": rng.uniform(22.0, 34.0),
-                        "fjord": rng.uniform(40.0, 70.0),
-                        }.get(kind, rng.uniform(30.0, 46.0))
-                best = Water(kind=kind, path=path, half=half,
-                             flood=rng.uniform(60.0, 130.0))
-        if best is not None:
-            out.append(best)
+        for _ in range(want):
+            best: Water | None = None
+            best_score = float("inf")
+            for _ in range(16):
+                vertical = rng.random() < (0.4 if kind == "wash" else 0.7)
+                amp_a = (0.02, 0.06) if kind == "wash" else (0.04, 0.14)
+                amp_b = (0.0, 0.02) if kind == "wash" else (0.01, 0.05)
+                if vertical:
+                    path = _vpath(
+                        g, rng.uniform(0.1, 0.9) * g.w,
+                        [(1, rng.uniform(*amp_a), rng.uniform(0, 6.28)),
+                         (2, rng.uniform(*amp_b), rng.uniform(0, 6.28))],
+                        step=32)
+                else:
+                    path = _hpath(g, rng.uniform(0.15, 0.85) * g.h,
+                                  [(1, rng.uniform(0.02, 0.05),
+                                    rng.uniform(0, 6.28))], step=32)
+                score = (_path_relief(g, relief, path)
+                         + 0.6 * _path_max(g, relief, path))
+                # channels spread out, they do not stack
+                for prev in out:
+                    if _paths_close(g, path, prev.path, 130.0):
+                        score += 2.0
+                if score < best_score:
+                    best_score = score
+                    # a channel has to read at playfield scale, where these
+                    # numbers are halved: a 12 px half-width is a scratch, not a
+                    # watercourse
+                    half = {"wash": rng.uniform(30.0, 44.0),
+                            "arroyo": rng.uniform(26.0, 40.0),
+                            "channel": rng.uniform(22.0, 34.0),
+                            "fjord": rng.uniform(40.0, 70.0),
+                            }.get(kind, rng.uniform(30.0, 46.0))
+                    best = Water(kind=kind, path=path, half=half,
+                                 flood=rng.uniform(60.0, 130.0))
+            if best is not None:
+                out.append(best)
     # carve the valley: a river lowers the ground it runs in, and everything
     # beside it reads as its floodplain
     for w in out:
@@ -661,15 +740,40 @@ def _drainage(spec: SiteSpec, relief: list[list[float]],
         # wash as deep as a river leaves a hollow that shades into "a brown
         # stain", which is what the canyon review kept calling an unexplained pit
         depth = 0.35 if w.kind in ("wash", "arroyo") else 0.85
-        for j in range(ROWS):
+        # bound the cell scan to the corridor the channel can actually reach:
+        # on a twenty-screen strip an unbounded scan is 20x the work for cells
+        # that are nowhere near the water
+        lo_j, hi_j, lo_i, hi_i = _cell_box(g, w.path, w.flood)
+        for j in range(lo_j, hi_j + 1):
             cy = j * CELL + CELL / 2
-            for i in range(COLS):
+            for i in range(lo_i, hi_i + 1):
                 cx = i * CELL + CELL / 2
-                d = _dist_path(cx, cy, w.path)
+                d = _dist_path(g, cx, cy, w.path)
                 if d < w.flood:
                     t = 1.0 - d / w.flood
                     relief[j][i] = max(0.0, relief[j][i] - depth * t * t)
     return out
+
+
+def _cell_box(g: Geom, path: list[Point], pad: float) -> tuple[int, int, int, int]:
+    """The planning cells a path plus `pad` can touch, as (row0, row1, col0,
+    col1) inclusive.
+
+    Clamped by RAW index: the row helper wraps y on a cyclic map (that is what
+    makes a shape crossing the seam stitch), and a box computed through it can
+    come out inverted - which silently skips the checks the box was there to
+    keep cheap.
+    """
+    xs = [p[0] for p in path]
+    ys = [p[1] for p in path]
+    r0, r1 = _span(min(ys) - pad, max(ys) + pad, g.rows, g.cell)
+    c0, c1 = _span(min(xs) - pad, max(xs) + pad, g.cols, g.cell)
+    return r0, r1, c0, c1
+
+
+def _span(lo: float, hi: float, count: int, cell: int) -> tuple[int, int]:
+    return (max(0, int(math.floor(lo / cell))),
+            min(count - 1, int(math.floor(hi / cell))))
 
 
 def _decks(run: list[Point]) -> list[Point]:
@@ -684,7 +788,8 @@ def _decks(run: list[Point]) -> list[Point]:
     return [run[int((k + 0.5) / n * len(run))] for k in range(n)]
 
 
-def _bridge_spans(path: list[Point], water: list[Water]) -> list[Point]:
+def _bridge_spans(g: Geom, path: list[Point],
+                water: list[Water]) -> list[Point]:
     """Where a route needs a deck.
 
     ``_crossings`` only finds a route that passes clean through a channel. A spur
@@ -698,7 +803,7 @@ def _bridge_spans(path: list[Point], water: list[Water]) -> list[Point]:
     for w in water:
         run: list[Point] = []
         for pt in path:
-            if _dist_path(pt[0], pt[1], w.path) < w.half + 14.0:
+            if _dist_path(g, pt[0], pt[1], w.path) < w.half + 14.0:
                 run.append(pt)
             elif run:
                 out.extend(_decks(run))
@@ -707,43 +812,44 @@ def _bridge_spans(path: list[Point], water: list[Water]) -> list[Point]:
     return out
 
 
-def _paths_close(a: list[Point], b: list[Point], dist: float) -> bool:
+def _paths_close(g: Geom, a: list[Point], b: list[Point], dist: float) -> bool:
     for pt in a[::2]:
-        if _dist_path(pt[0], pt[1], b) < dist:
+        if _dist_path(g, pt[0], pt[1], b) < dist:
             return True
     return False
 
 
-def _path_relief(relief: list[list[float]], path: list[Point]) -> float:
-    return sum(relief[_row(y)][_col(x)] for x, y in path) / max(1, len(path))
+def _path_relief(g: Geom, relief: list[list[float]], path: list[Point]) -> float:
+    return sum(relief[g.row(y)][g.col(x)] for x, y in path) / max(1, len(path))
 
 
-def _path_max(relief: list[list[float]], path: list[Point]) -> float:
-    return max(relief[_row(y)][_col(x)] for x, y in path)
+def _path_max(g: Geom, relief: list[list[float]], path: list[Point]) -> float:
+    return max(relief[g.row(y)][g.col(x)] for x, y in path)
 
 
-def _circulation(spec: SiteSpec, relief: list[list[float]], water: list[Water],
-                 rng: random.Random) -> list[Road]:
+def _circulation(g: Geom, spec: SiteSpec, relief: list[list[float]],
+                 water: list[Water], rng: random.Random) -> list[Road]:
     """Route the road: it follows the low ground, crosses water on a bridge,
     and reaches a col rather than fighting a ridge."""
     if spec.road == "none":
         return []
     if spec.road == "grid":
-        return _city_grid(water, rng)
+        return _city_grid(g, water, rng)
     best: Road | None = None
     best_score = float("inf")
     for _ in range(22):
         vertical = rng.random() < 0.72
         if vertical:
-            path = _vpath(rng.uniform(0.12, 0.88) * CW,
+            path = _vpath(g, rng.uniform(0.12, 0.88) * g.w,
                           [(1, rng.uniform(0.02, 0.1), rng.uniform(0, 6.28)),
                            (2, rng.uniform(0.0, 0.04), rng.uniform(0, 6.28))],
                           step=32)
         else:
-            path = _hpath(rng.uniform(0.2, 0.8) * CH,
+            path = _hpath(g, rng.uniform(0.2, 0.8) * g.h,
                           [(1, rng.uniform(0.02, 0.05), rng.uniform(0, 6.28))],
                           step=32)
-        score = 3.0 * _path_relief(relief, path) + 2.0 * _path_max(relief, path)
+        score = (3.0 * _path_relief(g, relief, path)
+                 + 2.0 * _path_max(g, relief, path))
         crossings = 0
         for w in water:
             crossings += len(_crossings(path, w.path))
@@ -773,7 +879,7 @@ def _circulation(spec: SiteSpec, relief: list[list[float]], water: list[Water],
     for w in water:
         for hit in _crossings(best.path, w.path):
             best.bridges.append(hit)
-    for span in _bridge_spans(best.path, water):
+    for span in _bridge_spans(g, best.path, water):
         if not any(math.hypot(span[0] - bx, span[1] - by) < w0.half + 40.0
                    for w0 in water for bx, by in best.bridges):
             best.bridges.append(span)
@@ -794,14 +900,15 @@ def _circulation(spec: SiteSpec, relief: list[list[float]], water: list[Water],
             # a spur that runs off along a bank is the "is that a road or the
             # river?" ambiguity again: it may reach the water, it may not follow
             # it, so the run stops at the near bank
-            if any(_dist_path(px, py, w.path) < w.half + 26.0 for w in water) \
+            if any(_dist_path(g, px, py, w.path) < w.half + 26.0
+                       for w in water) \
                     and len(pts) > 2:
                 break
             pts.append((px, py))
         spur = Road(kind="spur", path=pts, width=rng.uniform(10.0, 13.0))
         for w in water:
             spur.bridges.extend(_crossings(spur.path, w.path))
-        spur.bridges.extend(_bridge_spans(spur.path, water))
+        spur.bridges.extend(_bridge_spans(g, spur.path, water))
         roads.append(spur)
     return roads
 
@@ -825,7 +932,7 @@ def _dist_path_max(path: list[Point], water: list[Water]) -> float:
     return 1.0
 
 
-def _city_grid(water: list[Water], rng: random.Random) -> list[Road]:
+def _city_grid(g: Geom, water: list[Water], rng: random.Random) -> list[Road]:
     """City: a street grid, because that is what a city is. Two main streets and
     their cross streets, with a bridge if the grid meets water."""
     roads: list[Road] = []
@@ -835,18 +942,25 @@ def _city_grid(water: list[Water], rng: random.Random) -> list[Road]:
     xs: list[float] = []
     ys: list[float] = []
     for _ in range(40):
-        xs = sorted(rng.uniform(0.12, 0.88) * CW for _ in range(2))
+        xs = sorted(rng.uniform(0.12, 0.88) * g.w for _ in range(2))
         if xs[1] - xs[0] > 320.0:
             break
-    for _ in range(40):
-        ys = sorted(rng.uniform(0.2, 0.8) * CH for _ in range(2))
-        if ys[1] - ys[0] > 280.0:
-            break
+    if g.cyclic:
+        for _ in range(40):
+            ys = sorted(rng.uniform(0.2, 0.8) * g.h for _ in range(2))
+            if ys[1] - ys[0] > 280.0:
+                break
+    else:
+        # a city down a long strip is a grid, not two streets: the streets
+        # repeat at block spacing over the whole length, so the player keeps
+        # flying through the same plan rather than a single giant block
+        ys = list(range(int(g.h * 0.12), int(g.h * 0.9), 460))
     for x in xs:
-        r = Road("main", _vpath(x, [(1, 0.0, 0.0)], step=40), 18.0)
+        r = Road("main", _vpath(g, x, [(1, 0.0, 0.0)], step=40), 18.0)
         roads.append(r)
     for y in ys:
-        roads.append(Road("main", _hpath(y, [(1, 0.0, 0.0)], step=40), 18.0))
+        roads.append(Road("main", _hpath(g, float(y), [(1, 0.0, 0.0)],
+                                         step=40), 18.0))
     # cross streets fill the block between the mains
     # block spacing is the city's real scale: at 150 px a block is 40 px on the
     # playfield, too small to read as anything, and a city is nothing but blocks.
@@ -854,31 +968,32 @@ def _city_grid(water: list[Water], rng: random.Random) -> list[Road]:
     # from a main makes a sliver instead of a yard
     x0, x1 = xs
     for x in range(int(x0) + 240, int(x1) - 180, 240):
-        roads.append(Road("track", _vpath(float(x), [(1, 0.0, 0.0)], step=40),
-                          12.0))
-    y0, y1 = ys
-    for y in range(int(y0) + 220, int(y1) - 170, 220):
-        roads.append(Road("track", _hpath(float(y), [(1, 0.0, 0.0)], step=40),
-                          12.0))
+        roads.append(Road("track", _vpath(g, float(x), [(1, 0.0, 0.0)],
+                                         step=40), 12.0))
+    y0, y1 = ys[0], ys[-1]
+    step_y = 220 if g.cyclic else 240
+    for y in range(int(y0) + step_y, int(y1) - 170, step_y):
+        roads.append(Road("track", _hpath(g, float(y), [(1, 0.0, 0.0)],
+                                         step=40), 12.0))
     # a street that runs WITH the river for most of its length is the same
     # ambiguity the serpentine routes had; nudge it off the channel instead
     if water:
         for r in roads:
             for _ in range(6):
                 wet = sum(1 for x, y in r.path
-                          if any(_dist_path(x, y, w.path) < w.half + 26.0
+                          if any(_dist_path(g, x, y, w.path) < w.half + 26.0
                                  for w in water))
                 if wet <= max(2, len(r.path) // 8):
                     break
                 off = 60.0 * (1.0 if _ % 2 == 0 else -1.0) * (1 + _ // 2)
-                if abs(r.path[0][0] - r.path[-1][0]) > CW * 0.5:
+                if abs(r.path[0][0] - r.path[-1][0]) > g.w * 0.5:
                     r.path = [(x, y + off) for x, y in r.path]
                 else:
                     r.path = [(x + off, y) for x, y in r.path]
     for r in roads:
         for w in water:
             r.bridges.extend(_crossings(r.path, w.path))
-        r.bridges.extend(_bridge_spans(r.path, water))
+        r.bridges.extend(_bridge_spans(g, r.path, water))
     return roads
 
 
@@ -917,8 +1032,14 @@ def _settlement(spec: SiteSpec, plan: SitePlan, rng: random.Random) -> None:
             _mark_built(plan, hx, hy, 26.0)
         plan.greens.append(green)
     # frontage: the row of houses along the road the player reads as a lane
+    # Frontage spacing is a DISTANCE along the road, not a share of it: eight
+    # screens of lane must have eight screens of houses, not eight houses
+    # smeared over eight screens.
+    lane = sum(math.hypot(main.path[i + 1][0] - main.path[i][0],
+                          main.path[i + 1][1] - main.path[i][1])
+               for i in range(len(main.path) - 1)) or 1.0
     s = 0.04
-    gap = rng.uniform(0.05, 0.09)
+    gap = rng.uniform(0.05, 0.09) * SCREEN_H / lane
     side = 1.0
     while s < 0.96:
         (bx, by), tang = _along(main.path, s)
@@ -940,7 +1061,7 @@ def _settlement(spec: SiteSpec, plan: SitePlan, rng: random.Random) -> None:
                   rng.uniform(14.0, 22.0))))
         _mark_built(plan, nx, ny, 30.0)
     # farmyards: set back off the road, at the edge of the fields
-    for _ in range(rng.randint(1, 2)):
+    for _ in range(rng.randint(1, 2) * plan.geom.screens):
         (bx, by), tang = _along(main.path, rng.uniform(0.1, 0.9))
         fx = bx + math.cos(tang + math.pi / 2) * rng.uniform(70.0, 120.0)
         fy = by + math.sin(tang + math.pi / 2) * rng.uniform(70.0, 120.0)
@@ -967,7 +1088,7 @@ def _near_building(plan: SitePlan, x: float, y: float, dist: float) -> bool:
 
 def _buildable(plan: SitePlan, x: float, y: float,
                gap: float = 78.0) -> bool:
-    if not 20.0 < x < CW - 20.0:
+    if not 20.0 < x < plan.geom.w - 20.0:
         return False
     if plan.relief_at(x, y) > 0.42 or plan.is_wet(x, y) or plan.is_built(x, y):
         return False
@@ -980,8 +1101,9 @@ def _buildable(plan: SitePlan, x: float, y: float,
 
 
 def _mark_built(plan: SitePlan, x: float, y: float, r: float) -> None:
-    j0, j1 = _row(y - r), _row(y + r)
-    i0, i1 = _col(x - r), _col(x + r)
+    g = plan.geom
+    j0, j1 = g.row(y - r), g.row(y + r)
+    i0, i1 = g.col(x - r), g.col(x + r)
     for j in range(j0, j1 + 1):
         for i in range(i0, i1 + 1):
             plan.built[j][i] = True
@@ -995,12 +1117,15 @@ def _fields(spec: SiteSpec, plan: SitePlan, rng: random.Random) -> None:
     if spec.road == "grid":
         _city_blocks(spec, plan, rng)
         return
+    g = plan.geom
     lo, hi = spec.field_count
-    want = rng.randint(lo, hi)
+    # one screen's worth of parcels per screen of strip: a sector that is
+    # twenty screens long cannot be farmed by eight fields
+    want = max(1, int(round(rng.randint(lo, hi) * g.screens)))
     tries = 0
     while len(plan.fields) < want and tries < want * 14:
         tries += 1
-        cx, cy = rng.uniform(60, CW - 60), rng.uniform(40, CH - 40)
+        cx, cy = rng.uniform(60, g.w - 60), rng.uniform(40, g.h - 40)
         if plan.relief_at(cx, cy) > 0.34 or plan.is_wet(cx, cy):
             continue
         w = rng.uniform(120.0, 260.0)
@@ -1009,6 +1134,7 @@ def _fields(spec: SiteSpec, plan: SitePlan, rng: random.Random) -> None:
         poly = _parcel(cx, cy, w, h, rng)
         if not _parcel_ok(plan, poly):
             continue
+        poly = _clip_poly(plan.geom, poly)
         mat = _field_mat(plan.theme, kind)
         furrows = _furrows(poly, w, h, kind, rng)
         plan.fields.append(Field(poly=poly, mat=mat, kind=kind,
@@ -1056,8 +1182,23 @@ def _city_blocks(spec: SiteSpec, plan: SitePlan, rng: random.Random) -> None:
             # no furrows in a city: parallel strips inside a paved block read as
             # planking or decking, not as land use
             plan.fields.append(Field(
-                poly=poly, mat=_field_mat(plan.theme, kind), kind=kind,
+                poly=_clip_poly(plan.geom, poly),
+                mat=_field_mat(plan.theme, kind), kind=kind,
                 furrows=[], hedge=False))
+
+
+def _clip_poly(g: Geom, poly: list[Point]) -> list[Point]:
+    """Keep a parcel inside the ground it was designed for.
+
+    Parcels are laid out against routes, and routes deliberately bleed past the
+    ends of a strip so they read as continuing. A parcel bleeding with them puts
+    half a field past the end of the sector, where it is painted once per chunk
+    window and never seen. A wrapping map is different: its ends are the same
+    place, so nothing is clipped there."""
+    if g.cyclic:
+        return poly
+    lo, hi = 0.0, float(g.h)
+    return [(x, lo if y < lo else (hi if y > hi else y)) for x, y in poly]
 
 
 def _parcel(cx: float, cy: float, w: float, h: float,
@@ -1095,11 +1236,15 @@ def _in_poly(x: float, y: float, poly: list[Point]) -> bool:
 def _parcel_ok(plan: SitePlan, poly: list[Point]) -> bool:
     """A parcel has to sit on ground a plough can reach, and must not swallow
     the road, a house or the water."""
+    g = plan.geom
     xs = [p[0] for p in poly]
-    if min(xs) < 10 or max(xs) > CW - 10:
+    ys = [p[1] for p in poly]
+    if min(xs) < 10 or max(xs) > g.w - 10:
         return False
-    for j in range(ROWS):
-        for i in range(COLS):
+    jr = _span(min(ys) - 4, max(ys) + 4, g.rows, CELL)
+    ic = _span(min(xs) - 4, max(xs) + 4, g.cols, CELL)
+    for j in range(jr[0], jr[1] + 1):
+        for i in range(ic[0], ic[1] + 1):
             cx, cy = i * CELL + CELL / 2, j * CELL + CELL / 2
             if not _in_poly(cx, cy, poly):
                 continue
@@ -1111,8 +1256,13 @@ def _parcel_ok(plan: SitePlan, poly: list[Point]) -> bool:
 
 
 def _mark_parcel(plan: SitePlan, poly: list[Point]) -> None:
-    for j in range(ROWS):
-        for i in range(COLS):
+    g = plan.geom
+    xs = [p[0] for p in poly]
+    ys = [p[1] for p in poly]
+    jr = _span(min(ys) - 4, max(ys) + 4, g.rows, CELL)
+    ic = _span(min(xs) - 4, max(xs) + 4, g.cols, CELL)
+    for j in range(jr[0], jr[1] + 1):
+        for i in range(ic[0], ic[1] + 1):
             if _in_poly(i * CELL + CELL / 2, j * CELL + CELL / 2, poly):
                 plan.built[j][i] = True      # parcels claim their ground
 
@@ -1151,17 +1301,28 @@ def _furrows(poly: list[Point], w: float, h: float, kind: str,
     return rows
 
 
+def _in_strip(g: Geom, y: float) -> bool:
+    """Can a thing sit at this y?
+
+    A one-screen plan loops in y, so anything goes and the painter's seam copies
+    stitch it. A strip has an end: a tree placed past it is a tree the player
+    never sees, painted again and again by every chunk window that overlaps it.
+    """
+    return True if g.cyclic else 12.0 < y < g.h - 12.0
+
+
 def _cover(spec: SiteSpec, plan: SitePlan, rng: random.Random) -> None:
     """Vegetation and debris follow the ground: woods on ground nothing else
     claims, a treeline where the hillside turns, trees along the water, scree at
     the ridge foot and outcrops on its crest. Trees come in clusters with gaps,
     because a uniform scatter of foliage is the single loudest tell of generated
     ground."""
+    g = plan.geom
     props = spec.tree_props
     if props:
         lo, hi = spec.woods
-        for _ in range(rng.randint(lo, hi)):
-            cx, cy = rng.uniform(40, CW - 40), rng.uniform(20, CH - 20)
+        for _ in range(rng.randint(lo, hi) * g.screens):
+            cx, cy = rng.uniform(40, g.w - 40), rng.uniform(20, g.h - 20)
             if plan.relief_at(cx, cy) > 0.7 or plan.is_wet(cx, cy) \
                     or plan.is_built(cx, cy) or plan.near_road(cx, cy, 34.0):
                 continue
@@ -1171,7 +1332,8 @@ def _cover(spec: SiteSpec, plan: SitePlan, rng: random.Random) -> None:
                 a = rng.uniform(0, math.tau)
                 r = abs(rng.gauss(0, 46.0))
                 x, y = cx + math.cos(a) * r, cy + math.sin(a) * r * 0.8
-                if 12 < x < CW - 12 and plan.relief_at(x, y) < 0.72 \
+                if 12 < x < g.w - 12 and _in_strip(g, y) \
+                        and plan.relief_at(x, y) < 0.72 \
                         and not plan.is_built(x, y) \
                         and not _near_building(plan, x, y, 60.0):
                     items.append((x, y, rng.uniform(0.45, 1.05)))
@@ -1196,7 +1358,8 @@ def _cover(spec: SiteSpec, plan: SitePlan, rng: random.Random) -> None:
                         d = w.half + rng.uniform(42.0, 76.0)
                         x = a[0] + math.cos(ang) * d
                         y = a[1] + math.sin(ang) * d
-                        if 12 < x < CW - 12 and not plan.is_built(x, y) \
+                        if 12 < x < g.w - 12 and _in_strip(g, y) \
+                                and not plan.is_built(x, y) \
                                 and not _near_building(plan, x, y, 50.0):
                             plan.woods.append(Wood(
                                 kind="riparian",
@@ -1213,9 +1376,10 @@ def _cover(spec: SiteSpec, plan: SitePlan, rng: random.Random) -> None:
                     ang = math.atan2(by - ay, bx - ax) + math.pi / 2
                     d = ridge.width * rng.uniform(0.55, 0.8)
                     x = ax + math.cos(ang) * d
-                    if 12 < x < CW - 12:
+                    if 12 < x < g.w - 12:
                         y = ay + math.sin(ang) * d
-                        if not _near_building(plan, x, y, 50.0):
+                        if _in_strip(g, y) and not _near_building(plan, x, y,
+                                                                 50.0):
                             items.append((x, y, rng.uniform(0.6, 1.0)))
                 if len(items) >= 6:
                     plan.woods.append(Wood(kind="treeline", items=items))
@@ -1256,7 +1420,8 @@ def _cover(spec: SiteSpec, plan: SitePlan, rng: random.Random) -> None:
                     # a scree fan does not sit in a river, and not next to a
                     # barn either: nothing stands where the slope lets go
                     if not plan.near_water(fx, fy, 70.0) \
-                            and not _near_building(plan, fx, fy, 70.0):
+                            and not _near_building(plan, fx, fy, 70.0) \
+                            and 12.0 < fx < plan.geom.w - 12.0:
                         fan.append((fx, fy, 0.3 + 0.5 * hgt))
                 if hgt > 0.68 and not plan.near_water(ax, ay, 60.0):
                     # a rocky crest is CONTINUOUS: outcrops every few spine
@@ -1277,11 +1442,13 @@ def _cover(spec: SiteSpec, plan: SitePlan, rng: random.Random) -> None:
 
 
 def _water_mark(plan: SitePlan) -> None:
+    g = plan.geom
     for w in plan.water:
-        for j in range(ROWS):
-            for i in range(COLS):
+        lo_j, hi_j, lo_i, hi_i = _cell_box(g, w.path, w.half + 14.0)
+        for j in range(lo_j, hi_j + 1):
+            for i in range(lo_i, hi_i + 1):
                 cx, cy = i * CELL + CELL / 2, j * CELL + CELL / 2
-                if _dist_path(cx, cy, w.path) < w.half + 14.0:
+                if _dist_path(g, cx, cy, w.path) < w.half + 14.0:
                     plan.wet[j][i] = True
 
 
@@ -1289,11 +1456,32 @@ def _water_mark(plan: SitePlan) -> None:
 # entry point
 # ---------------------------------------------------------------------------
 
-def plan_site(theme: str, seed: int) -> SitePlan:
-    """Design a sector's ground. Deterministic from ``(seed, theme)``."""
-    spec = SPEC.get(theme, _DEFAULT)
+def plan_site(theme: str, seed: int, geom: Geom | None = None) -> SitePlan:
+    """Design a sector's ground. Deterministic from ``(seed, theme, geom)``.
+
+    ``geom`` is the ground being designed: one screen by default, a longer strip
+    for a streamed sector. Densities and the reach of a meander key off it, so a
+    six-screen strip is a designed six screens and not one screen stretched.
+    """
+    g = geom or SCREEN
+    if theme not in SPEC:
+        # an unknown theme used to fall back to the default landscape, so a typo
+        # in a level table silently painted rolling farmland where a glacier was
+        # intended - and the picture looked plausible enough to ship
+        raise KeyError(f"no site spec for theme {theme!r}; "
+                       f"known: {', '.join(sorted(SPEC))}")
+    spec = SPEC[theme]
     rng = _rng(theme, seed)
-    ridges, relief = _orogeny(spec, rng)
+    if not g.cyclic:
+        # more than one of everything a screen gets: a range, a hamlet, a
+        # stand of woods per screen, each a local story the next one continues
+        spec = replace(
+            spec,
+            ridge_count=(max(1, round(spec.ridge_count[0] * g.screens * 0.6)),
+                         max(1, round(spec.ridge_count[1] * g.screens * 0.6))),
+            woods=(max(1, round(spec.woods[0] * g.screens)),
+                   max(1, round(spec.woods[1] * g.screens))))
+    ridges, relief = _orogeny(g, spec, rng)
     # Normalise the height field. Raw orogeny peaks near 0.6, and the painter's
     # colour ramp, rock coverage and snowline are all calibrated 0..1 - so an
     # un-normalised plan paints a mountain range at two thirds of its own
@@ -1306,14 +1494,14 @@ def plan_site(theme: str, seed: int) -> SitePlan:
         # ground, and the painter's rock and snow thresholds key off h
         gain = spec.relief_gain / peak
         relief = [[min(1.0, v * gain) for v in row] for row in relief]
-    water = _drainage(spec, relief, rng)
+    water = _drainage(g, spec, relief, rng)
     plan = SitePlan(theme=theme, seed=seed, ridges=ridges, water=water,
                     roads=[], buildings=[], fields=[], woods=[], greens=[],
                     relief=relief,
-                    wet=[[False] * COLS for _ in range(ROWS)],
-                    built=[[False] * COLS for _ in range(ROWS)])
+                    wet=[[False] * g.cols for _ in range(g.rows)],
+                    built=[[False] * g.cols for _ in range(g.rows)], geom=g)
     _water_mark(plan)
-    plan.roads = _circulation(spec, plan.relief, water, rng)
+    plan.roads = _circulation(g, spec, plan.relief, water, rng)
     _fields(spec, plan, rng)
     _settlement(spec, plan, rng)
     _cover(spec, plan, rng)
@@ -1321,5 +1509,6 @@ def plan_site(theme: str, seed: int) -> SitePlan:
 
 
 __all__ = ["Building", "Field", "Green", "Road", "Ridge", "SitePlan",
-           "SiteSpec", "SPEC", "Water", "Wood", "CELL", "COLS", "ROWS",
+           "Geom", "SCREEN", "SCREEN_H", "SCREEN_W", "SiteSpec", "SPEC",
+           "Water", "Wood", "CELL", "COLS", "ROWS",
            "SHAPES", "plan_site"]

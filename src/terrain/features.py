@@ -29,6 +29,8 @@ from .tilekit import TILE, TileKit
 
 _TILED: dict[str, Any] = {}          # material tiled to canvas size, cached
 _ARR: dict[str, Any] = {}            # the same, as float32 numpy (W,H,3)
+_TILE3: dict[str, Any] = {}          # one material tile as uint8 (TILE,TILE,3)
+_VIEWS: dict[tuple, Any] = {}        # material as it lies under one window
 _SOFT: list[Any] = []                # one soft shadow blob, built once
 
 
@@ -47,15 +49,32 @@ class Plane:
     paintable in windows: a window is a row range of the same arrays.
     """
 
-    def __init__(self, w: int, h: int) -> None:
+    def __init__(self, w: int, h: int, x0: int = 0, y0: int = 0,
+                 wrap: float = 0.0) -> None:
         import pygame
         np = _numpy()
         self.w, self.h = w, h
+        # where this window sits in plan coordinates. A strip is painted as a
+        # run of windows; the world position is what keeps materials, masks and
+        # props in the same place in every window that touches them.
+        self.x0, self.y0 = int(x0), int(y0)
+        # a plan that loops in y paints its seam copies; a strip does not
+        self.wrap = float(wrap)
         self.rgb = np.zeros((w, h, 3), dtype=np.float32)
         self.a = np.zeros((w, h), dtype=np.float32)     # 0..1
         self._layer = pygame.Surface((w, h), pygame.SRCALPHA)
         self._dirty = False
         self._box: tuple[int, int, int, int] | None = None
+
+    def shifts(self) -> tuple[float, ...]:
+        """y offsets a shape must be stamped at: the seam copies of a looping
+        map, nothing else for a strip."""
+        if not self.wrap:
+            return (0.0,)
+        return (0.0, -self.wrap, self.wrap)
+
+    def local(self, x: float, y: float) -> tuple[int, int]:
+        return int(round(x - self.x0)), int(round(y - self.y0))
 
     @property
     def stamp(self) -> Any:
@@ -152,6 +171,40 @@ def _tiled(kit: TileKit, mat: str) -> Any:
     return _TILED[key]
 
 
+def _tile3(kit: TileKit, mat: str) -> Any:
+    """One 160 px material tile as uint8 (x, y, 3), cached."""
+    import pygame
+    np = _numpy()
+    if mat not in _TILE3:
+        t = kit.material(mat)
+        _TILE3[mat] = np.ascontiguousarray(
+            np.asarray(pygame.surfarray.array3d(t)))
+    return _TILE3[mat]
+
+
+def _view(kit: TileKit, mat: str, plane: Plane) -> Any:
+    """The material tiling as it lies under this window, uint8 (x, y, 3).
+
+    The tile grid is fixed in WORLD coordinates: two windows of one strip read
+    the same material at the same world position, so the tile phase cannot jump
+    at a chunk boundary. That is the seam a player would actually see.
+    """
+    np = _numpy()
+    key = (mat, plane.x0, plane.y0, plane.w, plane.h)
+    v = _VIEWS.get(key)
+    if v is None:
+        if len(_VIEWS) > 24:                    # windows come and go; do not
+            _VIEWS.clear()                      # grow with the sector
+        tile = _tile3(kit, mat)
+        reps_x = plane.w // TILE + 2
+        reps_y = plane.h // TILE + 2
+        big = np.tile(tile, (reps_x, reps_y, 1))
+        ox, oy = plane.x0 % TILE, plane.y0 % TILE
+        v = np.ascontiguousarray(big[ox:ox + plane.w, oy:oy + plane.h, :])
+        _VIEWS[key] = v
+    return v
+
+
 def _mat_array(kit: TileKit, mat: str) -> Any:
     """The canvas-sized material as float32 numpy (W,H,3), cached. Filling a
     mask and shading a relief field both need the same material as numbers, and
@@ -198,21 +251,22 @@ def _shadow_on(canvas: Any, x: float, y: float, rx: float, ry: float,
 
 
 def _blit_wrap(canvas: Any, img: Any, x: float, y: float) -> None:
+    """Stamp a sprite, in window coordinates, plus its seam copies."""
     surf = _target(canvas)
-    xi, yi = int(round(x)), int(round(y % CH))
+    if not isinstance(canvas, Plane):                # bare surface (legacy)
+        xi, yi = int(round(x)), int(round(y % CH))
+        span = CH
+    else:
+        xi, yi = canvas.local(x, y)
+        span = int(canvas.wrap)
     surf.blit(img, (xi, yi))
-    if isinstance(canvas, Plane):
-        canvas.touch_box(xi, yi, xi + img.get_width(), yi + img.get_height())
-    if yi + img.get_height() > CH:
-        surf.blit(img, (xi, yi - CH))
-        if isinstance(canvas, Plane):
-            canvas.touch_box(xi, yi - CH, xi + img.get_width(),
-                             yi - CH + img.get_height())
-    if yi - img.get_height() < 0:
-        surf.blit(img, (xi, yi + CH))
-        if isinstance(canvas, Plane):
-            canvas.touch_box(xi, yi + CH, xi + img.get_width(),
-                             yi + CH + img.get_height())
+    canvas.touch_box(xi, yi, xi + img.get_width(), yi + img.get_height()) \
+        if isinstance(canvas, Plane) else None
+    if span:
+        if yi + img.get_height() > span:
+            surf.blit(img, (xi, yi - span))
+        if yi - img.get_height() < 0:
+            surf.blit(img, (xi, yi + span))
 
 
 class Mask:
@@ -244,7 +298,8 @@ class Mask:
         dst[x0:x1, y0:y1] = np.maximum(dst[x0:x1, y0:y1], self.arr)
 
 
-def _path_mask(path: list[tuple[float, float]], width: float) -> Mask:
+def _path_mask(path: list[tuple[float, float]], width: float,
+               plane: Plane) -> Mask:
     """Alpha mask (numpy, H x W) of a path painted with a **round brush**.
 
     A thick ``pygame.draw.lines`` has no round joins: at any bend it leaves
@@ -261,34 +316,41 @@ def _path_mask(path: list[tuple[float, float]], width: float) -> Mask:
     import pygame
     np = _numpy()
     r = max(1.0, width * 0.5)
-    painted = _raster(path, r, (0, -CH, CH))
+    painted = _raster(path, r, plane)
     if painted is None:
-        return Mask(np.zeros((1, 1), dtype=np.float32), (0, 0, 0, 0))
+        # an empty mask still has to describe itself: box and array agree,
+        # or a caller that slices by the box reads someone else's pixels
+        return Mask(np.zeros((1, 1), dtype=np.float32), (0, 0, 1, 1))
     (x0, y0, x1, y1), surf = painted
     m = np.asarray(pygame.surfarray.array3d(surf))[:, :, 0].astype(np.float32)
     m = _feather(m * (1.0 / 255.0), 2)
     return Mask(m, (x0, y0, x1, y1))
 
 
-def _raster(path: list[tuple[float, float]], r: float,
-            shifts: tuple[float, ...], poly: bool = False) -> Any:
+def _raster(path: list[tuple[float, float]], r: float, plane: Plane,
+            poly: bool = False) -> Any:
     """Rasterize a brushstroke (or a polygon) over just the box it covers.
 
-    Returns ``((x0, y0, x1, y1), surface)`` or None when nothing lands inside
-    the canvas. The 4 px margin is the room a feather pass needs."""
+    Returns ``((x0, y0, x1, y1), surface)`` in PLANE coordinates, or None when
+    the geometry misses this window - which is the other half of why painting a
+    strip in chunks is cheap: a window skips every feature that is not in it.
+    The 4 px margin is the room a feather pass needs."""
     import pygame
     lo_x = min(p[0] for p in path) - r
     hi_x = max(p[0] for p in path) + r
-    ys = [p[1] + s for p in path for s in shifts]
+    ys = [p[1] + sh for p in path for sh in plane.shifts()]
     lo_y, hi_y = min(ys) - r, max(ys) + r
-    x0, x1 = max(0, int(lo_x) - 4), min(CW, int(hi_x) + 5)
-    y0, y1 = max(0, int(lo_y) - 4), min(CH, int(hi_y) + 5)
-    if x1 <= x0 or y1 <= y0:
+    x0 = max(0, int(lo_x - plane.x0) - 4)
+    y0 = max(0, int(lo_y - plane.y0) - 4)
+    x1 = min(plane.w, int(hi_x - plane.x0) + 5)
+    y1 = min(plane.h, int(hi_y - plane.y0) + 5)
+    if x1 - x0 < 2 or y1 - y0 < 2:
         return None
     surf = pygame.Surface((x1 - x0, y1 - y0))
     surf.fill((0, 0, 0))
-    for shift in shifts:
-        pts = [(x - x0, y + shift - y0) for x, y in path]
+    for shift in plane.shifts():
+        pts = [(x - plane.x0 - x0, y + shift - plane.y0 - y0)
+               for x, y in path]
         if max(p[1] for p in pts) < -60 \
                 or min(p[1] for p in pts) > surf.get_height() + 60:
             continue
@@ -327,22 +389,26 @@ def _paste(mask: Any, painted: Any, feather: int) -> Any:
     return mask
 
 
-def _poly_mask(poly: list[tuple[float, float]], feather: int = 3) -> Mask:
-    return _raster_mask(poly, 0.0, feather, poly=True)
+def _poly_mask(poly: list[tuple[float, float]], plane: Plane,
+               feather: int = 3) -> Mask:
+    return _raster_mask(poly, 0.0, feather, plane, poly=True)
 
 
-def _disc_mask(x: float, y: float, radius: float, feather: int = 4) -> Mask:
+def _disc_mask(x: float, y: float, radius: float, plane: Plane,
+               feather: int = 4) -> Mask:
     """A soft circular mask - the shape of a tree crown, a green, a yard."""
-    return _raster_mask([(x, y)], max(1.0, radius), feather)
+    return _raster_mask([(x, y)], max(1.0, radius), feather, plane)
 
 
 def _raster_mask(path: list[tuple[float, float]], r: float, feather: int,
-                 poly: bool = False) -> Mask:
+                 plane: Plane, poly: bool = False) -> Mask:
     import pygame
     np = _numpy()
-    painted = _raster(path, r, (0, -CH, CH), poly=poly)
+    painted = _raster(path, r, plane, poly=poly)
     if painted is None:
-        return Mask(np.zeros((1, 1), dtype=np.float32), (0, 0, 0, 0))
+        # an empty mask still has to describe itself: box and array agree,
+        # or a caller that slices by the box reads someone else's pixels
+        return Mask(np.zeros((1, 1), dtype=np.float32), (0, 0, 1, 1))
     (x0, y0, x1, y1), surf = painted
     m = np.asarray(pygame.surfarray.array3d(surf))[:, :, 0].astype(np.float32)
     return Mask(_feather(m * (1.0 / 255.0), feather), (x0, y0, x1, y1))
@@ -367,7 +433,8 @@ def _fill_mask(canvas: Any, kit: TileKit, mat: str, mask: Any,
     x0, y0, x1, y1 = box
     mm = m[:, :, None]
     rgb = canvas.rgb[x0:x1, y0:y1]
-    rgb[...] = rgb * (1.0 - mm) + _mat_array(kit, mat)[x0:x1, y0:y1] * mm
+    src = _view(kit, mat, canvas)[x0:x1, y0:y1].astype(np.float32)
+    rgb[...] = rgb * (1.0 - mm) + src * mm
     a = canvas.a[x0:x1, y0:y1]
     a[...] = np.maximum(a, m)
 
@@ -393,11 +460,20 @@ def _darken_band(canvas: Any, mask: Any, factor: float) -> None:
 
 def _tint_lines(canvas: Any, pts: list[tuple[float, float]], col: Any,
                 width: float, shift_wraps: bool = True) -> None:
+    """A stroke on the sprite layer, in window coordinates."""
     import pygame
     surf = _target(canvas)
-    for shift in ((0, -CH, CH) if shift_wraps else (0,)):
-        seg = [(x, y + shift) for x, y in pts]
-        if max(p[1] for p in seg) < -20 or min(p[1] for p in seg) > CH + 20:
+    if isinstance(canvas, Plane):
+        shifts = canvas.shifts() if shift_wraps else (0.0,)
+        ox, oy = canvas.x0, canvas.y0
+        lo, hi = 0, canvas.h
+    else:                                            # bare surface (legacy)
+        shifts = (0, -CH, CH) if shift_wraps else (0,)
+        ox, oy = 0, 0
+        lo, hi = 0, CH
+    for shift in shifts:
+        seg = [(x - ox, y + shift - oy) for x, y in pts]
+        if max(p[1] for p in seg) < lo - 20 or min(p[1] for p in seg) > hi + 20:
             continue
         pygame.draw.lines(surf, col, False,
                           [(int(x), int(y)) for x, y in seg],
@@ -437,22 +513,31 @@ def _prop(kit: TileKit, canvas: Any, name: str, x: float, y: float,
 # relief: the one thing that has to be painted, not stamped
 # ---------------------------------------------------------------------------
 
-def _upsample(grid: Any, w: int, h: int) -> Any:
-    """Resample the planning grid to canvas resolution with **Catmull-Rom**,
-    returning a numpy array in pygame's (x, y) order.
+def _clamp(v: float, lo: float, hi: float) -> float:
+    return lo if v < lo else (hi if v > hi else v)
+
+
+def _upsample(grid: Any, plane: Plane, gw: int, gh: int) -> Any:
+    """Resample the planning grid over one window with **Catmull-Rom**, in
+    pygame's (x, y) order.
 
     Bilinear was the wrong interpolant: it is only C0, so its derivative jumps
     at every cell boundary, and a slope-shaded field paints those jumps as lit
     and dark stripes - exactly the "blurred vertical bands" and "separate
     raised blobs" the art review kept naming. A cubic kernel is C1, so the
     shading has nothing to draw.
+
+    Sampling is driven by WORLD position, so two windows of a strip meet mid
+    curve instead of each resampling its own half.
     """
     np = _numpy()
     g = np.asarray(grid, dtype=np.float32)            # (y, x)
+    w, h = plane.w, plane.h
 
-    def cr(n: int, m: int) -> tuple:
-        xs = np.linspace(0, n - 1, m)
-        i1 = np.floor(xs).astype(np.int32)
+    def cr(n: int, m: int, lo: float = 0.0,
+           hi: float | None = None) -> tuple:
+        xs = np.linspace(lo, (n - 1) if hi is None else hi, m)
+        i1 = np.clip(np.floor(xs), 0, n - 1).astype(np.int32)
         t = (xs - i1).astype(np.float32)
         i0 = np.clip(i1 - 1, 0, n - 1)
         i2 = np.clip(i1 + 1, 0, n - 1)
@@ -465,14 +550,34 @@ def _upsample(grid: Any, w: int, h: int) -> Any:
                 0.5 * t3 - 0.5 * t2)
 
     rows, cols = g.shape
-    a0, a1, a2, a3, q0, q1, q2, q3 = cr(rows, h)
+    # grid coordinate of the window's first and last pixel row: identical to the
+    # full-canvas map when the window IS the whole map. Clamped: a chunk at the
+    # end of a strip asks for rows past the last one, and an unclipped index
+    # would wrap to the OTHER end of the grid and paint the far side of the map
+    # here.
+    r_lo = _clamp(plane.y0 / gh * (rows - 1), 0.0, rows - 1)
+    r_hi = _clamp((plane.y0 + plane.h - 1) / gh * (rows - 1), 0.0, rows - 1)
+    c_lo = _clamp(plane.x0 / gw * (cols - 1), 0.0, cols - 1)
+    c_hi = _clamp((plane.x0 + plane.w - 1) / gw * (cols - 1), 0.0, cols - 1)
+    a0, a1, a2, a3, q0, q1, q2, q3 = cr(rows, h, r_lo, r_hi)
     tmp = (g[a0] * q0[:, None] + g[a1] * q1[:, None]
            + g[a2] * q2[:, None] + g[a3] * q3[:, None])       # (h, cols)
-    b0, b1, b2, b3, r0, r1, r2, r3 = cr(cols, w)
+    b0, b1, b2, b3, r0, r1, r2, r3 = cr(cols, w, c_lo, c_hi)
     out = (tmp[:, b0] * r0[None, :] + tmp[:, b1] * r1[None, :]
            + tmp[:, b2] * r2[None, :] + tmp[:, b3] * r3[None, :])
     return np.ascontiguousarray(np.clip(out, 0.0, 1.2).T)      # (x, y)
 
+
+def _frand(plan: SitePlan, index: int, salt: int) -> random.Random:
+    """A jitter stream belonging to ONE feature rather than to a paint pass.
+
+    A shared stream makes a chunk's contents depend on which features happened
+    to be painted before it - so a strip painted in pieces would grow different
+    hedges in the overlap than the piece next door, and the seam would show as
+    half a hedgerow. Keyed by plan seed and feature index instead: the same
+    jitter, every time, in every window that shows the feature.
+    """
+    return random.Random(plan.seed * 1_000_003 + index * 4093 + salt)
 
 def paint_relief(canvas: Any, kit: TileKit, plan: SitePlan,
                  rng: random.Random, far: bool = False) -> bool:
@@ -488,24 +593,20 @@ def paint_relief(canvas: Any, kit: TileKit, plan: SitePlan,
     if pal is None:
         return False
     low, high, scree_col, mat = pal
-    h_raw = _upsample(plan.relief, CW, CH)
-    # The COVER comes from the field as planned (a ridge keeps its edge); the
-    # SLOPE is measured on the same field smoothed at *planning* resolution,
-    # where a blur pass costs almost nothing and removes the cell-scale wobble
-    # that shading would otherwise turn into stripes.
-    h = h_raw
-    hs = _blur(_upsample(_blur(np.asarray(plan.relief, dtype=np.float32),
-                               2 if not far else 4), CW, CH),
-               3 if not far else 8)
-    # Compress the field away from its floor: a hollow that reaches h 0 lands on
-    # the base tone and reads as a stain of "unexplained depression", while a
-    # hollow that only dips a little reads as what it is - shallow ground
-    h = 0.24 + 0.76 * h
-    hs = 0.24 + 0.76 * hs
-    if far:
-        h = h * 0.75
-        hs = hs * 0.75
-    gy, gx = np.gradient(hs)
+    geom = plan.geom
+    # Everything that is a property of the LANDFORM - how steep its steepest
+    # flank is, how steep the ground usually is, what the field looks like at
+    # all - is measured on the planning grid, once, before any window is
+    # resampled. Doing it per window would normalise each chunk to its own
+    # terrain, and the seams would show up as bands of different contrast.
+    field = np.asarray(plan.relief, dtype=np.float32)
+    hs_grid = _blur(field, 2 if not far else 4)
+    h_grid = 0.24 + 0.76 * field                     # away from the floor: a
+    hs_grid = 0.24 + 0.76 * hs_grid                  # hollow that dips a little
+    if far:                                          # is shallow ground, not
+        h_grid = h_grid * 0.75                       # an unexplained pit
+        hs_grid = hs_grid * 0.75
+    gy, gx = np.gradient(hs_grid)
     # --- slope lighting, normalised per map ---
     # An unnormalised coefficient is either invisible on a gentle hillside or
     # clipped to near-black on a cliff, and that clipped black is what made the
@@ -532,11 +633,17 @@ def paint_relief(canvas: Any, kit: TileKit, plan: SitePlan,
     gdot = np.clip((lx * gy + ly * gx) / scale, -3.0, 3.0)
     # Height itself barely brightens: a pale wash along the high ground reads as
     # fog or a rendering seam. The MASS is carried by which flank is lit.
-    lit = 0.70 + h * 0.20 + 0.52 * np.tanh(gdot * 1.05) \
+    lit_g = 0.70 + h_grid * 0.20 + 0.52 * np.tanh(gdot * 1.05) \
         + 0.16 * np.tanh(np.clip(gx / scale, -3.0, 3.0))
     # the floor matters: a deep shadow at the foot of every rise is a dark ring,
     # and a dark ring around nothing reads as a painted halo, not as ground
-    lit = np.clip(lit, 0.55, 1.6)
+    lit_g = np.clip(lit_g, 0.55, 1.6)
+
+    # only now is anything resampled to canvas resolution, and only this
+    # window's slice of it
+    h = _upsample(h_grid, canvas, geom.w, geom.h)
+    lit = _upsample(lit_g, canvas, geom.w, geom.h)
+    slope_n = _upsample(slope_n, canvas, geom.w, geom.h)
     lo = np.asarray(low, dtype=np.float32)
     hi = np.asarray(high, dtype=np.float32)
     rgb = (lo[None, None, :] * (1.0 - h[:, :, None])
@@ -574,9 +681,10 @@ def paint_relief(canvas: Any, kit: TileKit, plan: SitePlan,
     # painted boundary". Note this replaces an earlier gate on local slope: once
     # the slope scale was normalised properly that gate killed the rim too, and
     # every mass went edgeless - "soft-edged raised strips, no readable crest".
-    flank = np.zeros((CW, CH), dtype=np.float32)
-    for ridge in plan.ridges:
-        _path_mask(ridge.spine, ridge.width * 3.4).paste(flank)
+    flank = np.zeros((canvas.w, canvas.h), dtype=np.float32)
+    for si, ridge in enumerate(plan.ridges):
+        frng = _frand(plan, si, 41)
+        _path_mask(ridge.spine, ridge.width * 3.4, canvas).paste(flank)
     line = line * np.clip(flank * 1.7, 0.0, 1.0)
     cover = np.maximum(cover, line * 0.6)
     mask = np.maximum(mask, line * 0.2)
@@ -585,7 +693,7 @@ def paint_relief(canvas: Any, kit: TileKit, plan: SitePlan,
     alpha = canvas.a if isinstance(canvas, Plane) \
         else np.asarray(pygame.surfarray.array_alpha(canvas)).astype(np.float32) \
         * (1.0 / 255.0)
-    src = _mat_array(kit, mat)
+    src = _view(kit, mat, canvas).astype(np.float32)
     blended = base * (1.0 - mask[:, :, None]) + src * mask[:, :, None]
     blended = blended * (1.0 - cover[:, :, None]) + rgb * cover[:, :, None]
     blended = blended * (1.0 - line[:, :, None] * 0.62) \
@@ -610,17 +718,23 @@ def paint_relief(canvas: Any, kit: TileKit, plan: SitePlan,
     # middle of a green valley is a landslide of decoration, not a landform.
     foot = tuple(int(c * 0.8) for c in low)
     surf = _target(canvas)
-    for wd in plan.woods:
+    for wi, wd in enumerate(plan.woods):
         if wd.kind != "scree":
             continue
+        frng = _frand(plan, wi, 53)
         for x, y, s in wd.items:
             r = int(3 + 7 * s)
-            pygame.draw.circle(surf, foot, (int(x), int(y % CH)), r)
+            fx, fy = (canvas.local(x, y) if isinstance(canvas, Plane)
+                      else (int(x), int(y % CH)))
+            pygame.draw.circle(surf, foot, (int(fx), int(fy)), r)
             if isinstance(canvas, Plane):
-                canvas.touch_box(x - r, y - r, x + r, y + r)
-            pygame.draw.circle(surf, scree_col,
-                               (int(x + rng.uniform(-r, r) * 1.6),
-                                int((y + rng.uniform(-r, r)) % CH)),
+                canvas.touch_box(fx - r, fy - r, fx + r, fy + r)
+            gx, gy = (canvas.local(x + frng.uniform(-r, r) * 1.6,
+                                   y + frng.uniform(-r, r))
+                      if isinstance(canvas, Plane)
+                      else (int(x + frng.uniform(-r, r) * 1.6),
+                            int((y + frng.uniform(-r, r)) % CH)))
+            pygame.draw.circle(surf, scree_col, (int(gx), int(gy)),
                                max(1, r // 3))
     return True
 
@@ -631,8 +745,9 @@ def paint_relief(canvas: Any, kit: TileKit, plan: SitePlan,
 
 def paint_fields(canvas: Any, kit: TileKit, plan: SitePlan,
                  rng: random.Random) -> None:
-    for f in plan.fields:
-        mask = _poly_mask(f.poly)
+    for fi, f in enumerate(plan.fields):
+        frng = _frand(plan, fi, 11)
+        mask = _poly_mask(f.poly, canvas)
         _fill_mask(canvas, kit, f.mat, mask, 0.92)
         if f.kind in ("crop", "paddy", "lot", "orchard"):
             # tilled and built parcels are brighter than the waste around them:
@@ -667,9 +782,9 @@ def paint_fields(canvas: Any, kit: TileKit, plan: SitePlan,
                 for s in range(n):
                     t = (s + 0.5) / n
                     x, y = ax + (bx - ax) * t, ay + (by - ay) * t
-                    if rng.random() < 0.82:      # hedges have gaps and gates
+                    if frng.random() < 0.82:      # hedges have gaps and gates
                         _prop(kit, canvas, "tree_clump", x, y,
-                              rng.uniform(0.22, 0.34), rng, shadow=3.0)
+                              frng.uniform(0.22, 0.34), frng, shadow=3.0)
 
 
 def paint_water(canvas: Any, kit: TileKit, plan: SitePlan,
@@ -684,7 +799,8 @@ def paint_water(canvas: Any, kit: TileKit, plan: SitePlan,
     bank_mat = {"glacier": "ice_sheet", "canyon": "sand_canyon",
                 "wasteland": "sand_canyon", "volcanic": "obsidian",
                 "swamp": "mud_flat"}.get(plan.theme, "gravel_rubble")
-    for w in plan.water:
+    for wi, w in enumerate(plan.water):
+        frng = _frand(plan, wi, 17)
         mat = WATER_MAT.get(plan.theme, "water_river")
         # A bank of material first, water on top of it. Water_river is lum 35 on
         # a lum 42 grass base - almost no value separation - and a *stroke*
@@ -692,13 +808,16 @@ def paint_water(canvas: Any, kit: TileKit, plan: SitePlan,
         # sand or snow around the channel gives the dark/light adjacency the eye
         # uses to find water, without looking drawn.
         _fill_mask(canvas, kit, bank_mat,
-                   _path_mask(w.path, w.half * 2.0 + 10.0), 0.55)
-        _fill_mask(canvas, kit, mat, _path_mask(w.path, w.half * 2.0), 1.0)
+                   _path_mask(w.path, w.half * 2.0 + 10.0, canvas),
+                   0.55)
+        _fill_mask(canvas, kit, mat,
+                   _path_mask(w.path, w.half * 2.0, canvas),
+                   1.0)
         dry = w.kind in ("wash", "arroyo")
         # a wet channel is darkened - water reads by value. A DRY wash is
         # lightened instead: a desert arroyo is pale bare sand between darker
         # desert pavement, and darkening one turns it into a black scratch
-        _darken_band(canvas, _path_mask(w.path, w.half * 2.0),
+        _darken_band(canvas, _path_mask(w.path, w.half * 2.0, canvas),
                      1.12 if dry else 0.62)
         # floodplain: ground beside a river is not ground away from it - but at
         # under half the width, or it becomes one more pale smear
@@ -708,18 +827,20 @@ def paint_water(canvas: Any, kit: TileKit, plan: SitePlan,
         # dark river material is the feature; the mud only softens its edge.
         if w.half >= 34.0:      # only a wide channel earns a floodplain
             _fill_mask(canvas, kit, "mud_flat" if plan.theme != "glacier"
-                       else "ice_sheet", _path_mask(w.path, w.flood * 0.45),
+                       else "ice_sheet",
+                       _path_mask(w.path,
+                                  w.flood * 0.45, canvas),
                        0.10)
         edge = "splat_mud" if plan.theme not in ("glacier", "volcanic") \
             else "splat_snow"
         for i in range(0, len(w.path) - 1, 3):
-            if rng.random() < 0.34:
+            if frng.random() < 0.34:
                 (ax, ay), (bx, by) = w.path[i], w.path[i + 1]
-                side = 1.0 if rng.random() < 0.5 else -1.0
+                side = 1.0 if frng.random() < 0.5 else -1.0
                 ang = math.atan2(by - ay, bx - ax) + side * math.pi / 2
-                d = w.half + rng.uniform(4.0, 16.0)
+                d = w.half + frng.uniform(4.0, 16.0)
                 _splat(kit, canvas, edge, ax + math.cos(ang) * d,
-                       ay + math.sin(ang) * d, rng.uniform(0.18, 0.34), rng)
+                       ay + math.sin(ang) * d, frng.uniform(0.18, 0.34), frng)
         # a bank line on each side: water needs an edge to be read against, or a
         # river is just a dark smear with rocks in it
         for side in (-1.0, 1.0):
@@ -739,7 +860,7 @@ def paint_water(canvas: Any, kit: TileKit, plan: SitePlan,
             ln = math.hypot(bx - ax, by - ay)
             if ln > 1:
                 nx, ny = -(by - ay) / ln, (bx - ax) / ln
-                off = rng.uniform(0.0, w.half * 0.7)
+                off = frng.uniform(0.0, w.half * 0.7)
                 a = (ax + nx * off, ay + ny * off)
                 b = (bx + nx * off, by + ny * off)
                 _tint_lines(canvas, [a, b], (255, 255, 255), 1)
@@ -757,7 +878,8 @@ def paint_roads(canvas: Any, kit: TileKit, plan: SitePlan,
                 rng: random.Random) -> None:
     from .theme_table import ROAD_MAT
     np = _numpy()
-    for r in plan.roads:
+    for ri, r in enumerate(plan.roads):
+        frng = _frand(plan, ri, 29)
         mat = ROAD_MAT.get(plan.theme, "road_dirt")
         # shoulders first: dirt/grass soiling under the road edge, then the
         # road itself. Order matters: the road has a crisp edge, the shoulder
@@ -767,26 +889,26 @@ def paint_roads(canvas: Any, kit: TileKit, plan: SitePlan,
         # road into one wide pale corridor whose identity - road? track? bare
         # ground? - stopped being readable.
         for i in range(0, len(r.path) - 1, 3):
-            if rng.random() < 0.3:
+            if frng.random() < 0.3:
                 (ax, ay), (bx, by) = r.path[i], r.path[i + 1]
-                side = 1.0 if rng.random() < 0.5 else -1.0
+                side = 1.0 if frng.random() < 0.5 else -1.0
                 ang = math.atan2(by - ay, bx - ax) + side * math.pi / 2
-                d = r.width + rng.uniform(10.0, 22.0)
+                d = r.width + frng.uniform(10.0, 22.0)
                 _splat(kit, canvas, shoulder, ax + math.cos(ang) * d,
-                       ay + math.sin(ang) * d, rng.uniform(0.16, 0.3), rng)
-        surf = _path_mask(r.path, r.width * 1.7)
+                       ay + math.sin(ang) * d, frng.uniform(0.16, 0.3), frng)
+        surf = _path_mask(r.path, r.width * 1.7, canvas)
         # A road that crosses a river does so on a bridge: the carriageway must
         # not smear into the channel, or the two become one corridor again. Cut
         # the water out of the road mask, then put the deck back at each
         # crossing so the bridge still spans its gap.
         if plan.water and r.bridges:
-            wet = np.zeros((CW, CH), dtype=np.float32)
+            wet = np.zeros((canvas.w, canvas.h), dtype=np.float32)
             for w in plan.water:
-                _path_mask(w.path, w.half * 2.0).paste(wet)
-            deck = np.zeros((CW, CH), dtype=np.float32)
+                _path_mask(w.path, w.half * 2.0, canvas).paste(wet)
+            deck = np.zeros((canvas.w, canvas.h), dtype=np.float32)
             for bx, by in r.bridges:
                 _path_mask([(bx - 40.0, by), (bx + 40.0, by)],
-                           r.width * 2.6).paste(deck)
+                           r.width * 2.6, canvas).paste(deck)
             surf = _bridge_cut(surf, wet, deck)
         _fill_mask(canvas, kit, mat, surf, 1.0)
         # a lit edge on both sides: a road that is only a darker band disappears
@@ -796,7 +918,8 @@ def paint_roads(canvas: Any, kit: TileKit, plan: SitePlan,
         # wider: at the old width and alpha the soft band plus the carriageway
         # made a pale corridor the length of the map, and the review's verdict
         # was "a broad pale strip: dry channel, dirt clearing, or enormous road".
-        _fill_mask(canvas, kit, mat, _path_mask(r.path, r.width * 1.7 + 8.0),
+        _fill_mask(canvas, kit, mat,
+                   _path_mask(r.path, r.width * 1.7 + 8.0, canvas),
                    0.22)
         if mat == "road_asphalt" and r.kind == "main":
             step = 0.0
@@ -819,9 +942,10 @@ def paint_roads(canvas: Any, kit: TileKit, plan: SitePlan,
                     d = r.width * 0.45 * side
                     pts.append((ax + nx * d, ay + ny * d))
                 _tint_lines(canvas, pts, (0, 0, 0), 1)
-    for r in plan.roads:
+    for ri, r in enumerate(plan.roads):
+        frng = _frand(plan, ri, 29)
         for (bx, by) in r.bridges:
-            _bridge(canvas, kit, r, bx, by, rng)
+            _bridge(canvas, kit, r, bx, by, frng)
 
 
 def _bridge(canvas: Any, kit: TileKit, road: Any, x: float, y: float,
@@ -854,29 +978,32 @@ def _bridge(canvas: Any, kit: TileKit, road: Any, x: float, y: float,
 
 def paint_greens(canvas: Any, kit: TileKit, plan: SitePlan,
                  rng: random.Random) -> None:
-    for g in plan.greens:
-        _fill_mask(canvas, kit, g.mat, _disc_mask(g.x, g.y, g.radius), 0.95)
+    for gi, g in enumerate(plan.greens):
+        frng = _frand(plan, gi, 31)
+        _fill_mask(canvas, kit, g.mat,
+                   _disc_mask(g.x, g.y, g.radius, canvas), 0.95)
         for lane in g.lanes:
             _fill_mask(canvas, kit, "road_dirt",
-                       _path_mask(lane, 11.0), 0.9)
+                       _path_mask(lane, 11.0, canvas), 0.9)
         # a green has a stand of trees and often a stack of crates or a trough
-        for _ in range(rng.randint(1, 3)):
-            a = rng.uniform(0, math.tau)
+        for _ in range(frng.randint(1, 3)):
+            a = frng.uniform(0, math.tau)
             _prop(kit, canvas, "tree_clump", g.x + math.cos(a) * g.radius * 0.6,
-                  g.y + math.sin(a) * g.radius * 0.6, rng.uniform(0.3, 0.45),
-                  rng, shadow=4.0)
+                  g.y + math.sin(a) * g.radius * 0.6, frng.uniform(0.3, 0.45),
+                  frng, shadow=4.0)
 
 
-def paint_buildings(canvas: Any, kit: TileKit, plan: SitePlan,
+def paint_buildings(canvas: Plane, kit: TileKit, plan: SitePlan,
                     rng: random.Random) -> None:
-    for b in plan.buildings:
+    for bi, b in enumerate(plan.buildings):
+        frng = _frand(plan, bi, 47)
         # the approach first: a drive from the door to the road, and a yard
         if b.drive:
-            _fill_mask(canvas, kit, "road_dirt", _path_mask(b.drive, 12.0),
-                       0.8)
+            _fill_mask(canvas, kit, "road_dirt",
+                   _path_mask(b.drive, 12.0, canvas), 0.8)
         if b.yard:
             yx, yy, yr = b.yard
-            _splat(kit, canvas, "splat_dirt", yx, yy, yr / 60.0, rng)
+            _splat(kit, canvas, "splat_dirt", yx, yy, yr / 60.0, frng)
         name = b.kind if b.kind in kit.props else "house_top"
         import pygame
         p = kit.props[name]
@@ -888,9 +1015,13 @@ def paint_buildings(canvas: Any, kit: TileKit, plan: SitePlan,
         _blit_wrap(canvas, p, b.x - p.get_width() / 2, b.y - p.get_height() / 2)
         # a house's near edge catches the light: this is what makes a sprite
         # read as a built thing sitting on ground rather than pasted on it
-        pygame.draw.circle(_target(canvas), (255, 255, 255),
-                           (int(b.x - p.get_width() * 0.18),
-                            int((b.y - p.get_height() * 0.2) % CH)), 1)
+        lx, ly = (canvas.local(b.x - p.get_width() * 0.18,
+                               b.y - p.get_height() * 0.2)
+                  if isinstance(canvas, Plane)
+                  else (int(b.x - p.get_width() * 0.18),
+                        int((b.y - p.get_height() * 0.2) % CH)))
+        pygame.draw.circle(_target(canvas), (255, 255, 255), (int(lx), int(ly)),
+                           1)
         if isinstance(canvas, Plane):
             canvas.touch_box(b.x - p.get_width() * 0.18 - 2,
                              b.y - p.get_height() * 0.2 - 2,
@@ -908,7 +1039,8 @@ def _cover_props(theme: str, kind: str) -> tuple[str, ...]:
 
 def paint_cover(canvas: Any, kit: TileKit, plan: SitePlan,
                 rng: random.Random) -> None:
-    for wd in plan.woods:
+    for wdi, wd in enumerate(plan.woods):
+        frng = _frand(plan, wdi, 37)
         if wd.kind in ("scree", "outcrop"):
             # rock DEBRIS is not a landform. Stamping cluster sprites along a
             # crest gave "boulder fences" - a row of individually drawn rocks
@@ -917,7 +1049,7 @@ def paint_cover(canvas: Any, kit: TileKit, plan: SitePlan,
             continue
         names = _cover_props(plan.theme, wd.kind)
         for x, y, s in wd.items:
-            name = names[rng.randrange(len(names))]
+            name = names[frng.randrange(len(names))]
             _prop(kit, canvas, name, x, y, s, rng,
                   rot4=wd.kind not in ("riparian", "orchard"),
                   shadow=6.0 * s)
@@ -930,15 +1062,16 @@ def paint_far(canvas: Any, kit: TileKit, plan: SitePlan,
     import pygame
 
     from .theme_table import FAR_PAIR
-    for name in FAR_PAIR[plan.theme]:
+    for namei, name in enumerate(FAR_PAIR[plan.theme]):
+        frng = _frand(plan, namei, 43)
         t = pygame.transform.smoothscale(kit.patch(name), (280, 280))
         for _ in range(3):
-            t.set_alpha(rng.randint(22, 40))
-            _blit_wrap(canvas, t, rng.uniform(0, CW), rng.uniform(0, CH))
+            t.set_alpha(frng.randint(22, 40))
+            _blit_wrap(canvas, t, frng.uniform(0, CW), frng.uniform(0, CH))
     paint_relief(canvas, kit, plan, rng, far=True)
 
 
-def paint_site(canvas: Any, kit: TileKit, plan: SitePlan,
+def paint_site(canvas: Plane, kit: TileKit, plan: SitePlan,
                rng: random.Random) -> None:
     """The whole near layer, in the order a landscape is built up."""
     # In the order a landscape exists: ground, then the water in its hollows,

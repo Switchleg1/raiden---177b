@@ -93,17 +93,46 @@ def test_plane_masks_stay_inside_the_canvas():
     from terrain.tilekit import CH, CW
 
     p = plan_site("countryside", 1)
+    plane = features.Plane(CW, CH, wrap=CH)
     for path in [w.path for w in p.water] + [r.path for r in p.roads]:
-        m = features._path_mask(path, 24.0)
+        m = features._path_mask(path, 24.0, plane)
         x0, y0, x1, y1 = m.box
         assert 0 <= x0 <= x1 <= CW and 0 <= y0 <= y1 <= CH
         # pygame's arrays are (x, y): the box is (width, height)
         assert m.arr.shape == (x1 - x0, y1 - y0)
     for f in p.fields:
-        m = features._poly_mask(f.poly)
+        m = features._poly_mask(f.poly, plane)
         x0, y0, x1, y1 = m.box
         assert m.arr.shape == (x1 - x0, y1 - y0)
         assert m.arr.max() <= 1.0 and m.arr.min() >= 0.0
+
+
+def test_a_window_paints_its_own_local_geometry():
+    """A plane is a window of the world. Masks and stamps come back in WINDOW
+    coordinates and must stay inside it - a mask that leaks outside shows up as
+    a missing strip, and a stamp at world coordinates lands somewhere else."""
+    from terrain import features
+    from terrain.siteplan import Geom, plan_site
+    from terrain.tilekit import CH, CW
+
+    strip = plan_site("countryside", 1, Geom(h=3 * CH, cyclic=False))
+    win = features.Plane(CW, CH, x0=0, y0=2 * CH)
+    assert win.wrap == 0.0 and win.shifts() == (0.0,)
+    inside = 0
+    for w in strip.water:
+        m = features._path_mask(w.path, w.half * 2.0, win)
+        x0, y0, x1, y1 = m.box
+        assert 0 <= x0 <= x1 <= CW and 0 <= y0 <= y1 <= win.h
+        assert m.arr.shape == (x1 - x0, y1 - y0)
+        # geometry far above the window must not paint into it at all
+        if all(p[1] < 2 * CH - 200.0 for p in w.path):
+            assert (x1 - x0) * (y1 - y0) == 0 or m.arr.max() == 0.0
+        else:
+            inside += 1
+    assert inside, "the window should overlap some of the strip's water"
+    # a one-screen plan does wrap, so its seam copies still get stamped
+    whole = features.Plane(CW, CH, wrap=CH)
+    assert whole.shifts() == (0.0, -float(CH), float(CH))
 
 
 def test_planned_ground_covers_the_layer():
