@@ -28,8 +28,102 @@ from .theme_table import ROCK
 from .tilekit import TILE, TileKit
 
 _TILED: dict[str, Any] = {}          # material tiled to canvas size, cached
-_ARR: dict[str, Any] = {}            # the same, as a numpy array (W,H,3)
+_ARR: dict[str, Any] = {}            # the same, as float32 numpy (W,H,3)
 _SOFT: list[Any] = []                # one soft shadow blob, built once
+
+
+# ---------------------------------------------------------------------------
+# the plane: pixels as numbers, for the whole pass
+# ---------------------------------------------------------------------------
+
+class Plane:
+    """A bake-space ground layer held as numpy arrays while it is painted.
+
+    Every feature here is a mask filled with a material, which is arithmetic.
+    The canvas used to be a pygame surface, so each of the ~24 fills read 1.8 M
+    pixels out of the surface and wrote them back: 5.2 s for one map. The plane
+    keeps the pixels as arrays, folds in the sprite layer only when a fill needs
+    to see it, and converts to a surface once. It is also what makes a strip
+    paintable in windows: a window is a row range of the same arrays.
+    """
+
+    def __init__(self, w: int, h: int) -> None:
+        import pygame
+        np = _numpy()
+        self.w, self.h = w, h
+        self.rgb = np.zeros((w, h, 3), dtype=np.float32)
+        self.a = np.zeros((w, h), dtype=np.float32)     # 0..1
+        self._layer = pygame.Surface((w, h), pygame.SRCALPHA)
+        self._dirty = False
+        self._box: tuple[int, int, int, int] | None = None
+
+    @property
+    def stamp(self) -> Any:
+        """The sprite layer: props, decks, strokes. Reading it marks it dirty."""
+        self._dirty = True
+        return self._layer
+
+    def touch(self) -> None:
+        self._dirty = True
+
+    def touch_box(self, x0: float, y0: float, x1: float, y1: float) -> None:
+        """Register where a stamp or stroke landed, so the fold-in only has to
+        read that part of the sprite layer."""
+        self._dirty = True
+        bx0, by0 = max(0, int(x0)), max(0, int(y0))
+        bx1 = min(self.w, int(x1) + 1)
+        by1 = min(self.h, int(y1) + 1)
+        if bx1 <= bx0 or by1 <= by0:
+            return
+        if self._box is None:
+            self._box = (bx0, by0, bx1, by1)
+        else:
+            px0, py0, px1, py1 = self._box
+            self._box = (min(px0, bx0), min(py0, by0),
+                         max(px1, bx1), max(py1, by1))
+
+    def sync(self) -> None:
+        """Fold the sprite layer into the arrays - only over the box that was
+        stamped since the last fold, which for a prop or a stroke is a small
+        fraction of the canvas."""
+        if not self._dirty:
+            return
+        import pygame
+        np = _numpy()
+        box = self._box or (0, 0, self.w, self.h)
+        x0, y0, x1, y1 = box
+        view = self._layer.subsurface(pygame.Rect(x0, y0, x1 - x0, y1 - y0))
+        s = np.asarray(pygame.surfarray.array3d(view), dtype=np.float32)
+        sa = np.asarray(pygame.surfarray.array_alpha(view),
+                        dtype=np.float32) * (1.0 / 255.0)
+        m = sa[:, :, None]
+        rgb = self.rgb[x0:x1, y0:y1]
+        rgb[...] = rgb * (1.0 - m) + s * m
+        a = self.a[x0:x1, y0:y1]
+        a[...] = np.maximum(a, sa)
+        self._layer.fill((0, 0, 0, 0), pygame.Rect(x0, y0, x1 - x0, y1 - y0))
+        self._dirty = False
+        self._box = None
+
+    def surface(self) -> Any:
+        """The finished layer as a pygame surface."""
+        import pygame
+        np = _numpy()
+        self.sync()
+        rgba = np.dstack([np.clip(self.rgb, 0.0, 255.0).astype(np.uint8),
+                          np.clip(self.a * 255.0, 0.0, 255.0).astype(np.uint8)])
+        out = pygame.image.fromstring(
+            np.ascontiguousarray(rgba.transpose(1, 0, 2)).tobytes(),
+            (self.w, self.h), "RGBA")
+        if pygame.display.get_init():
+            out = out.convert_alpha()
+        return out
+
+
+def _target(canvas: Any) -> Any:
+    """The pygame layer to draw sprites on, whether the caller holds a Plane or
+    a bare surface (the hand-composed vector painters still pass one)."""
+    return canvas.stamp if isinstance(canvas, Plane) else canvas
 
 
 # ---------------------------------------------------------------------------
@@ -59,13 +153,14 @@ def _tiled(kit: TileKit, mat: str) -> Any:
 
 
 def _mat_array(kit: TileKit, mat: str) -> Any:
-    """The canvas-sized material as a numpy array (W,H,3), cached. Filling a
+    """The canvas-sized material as float32 numpy (W,H,3), cached. Filling a
     mask and shading a relief field both need the same material as numbers, and
     tiling it once per material is why a map bakes in a second, not a minute."""
     import pygame
     np = _numpy()
     if mat not in _ARR:
-        _ARR[mat] = np.asarray(pygame.surfarray.array3d(_tiled(kit, mat)))
+        _ARR[mat] = np.asarray(pygame.surfarray.array3d(
+            _tiled(kit, mat)), dtype=np.float32)
     return _ARR[mat]
 
 
@@ -103,15 +198,53 @@ def _shadow_on(canvas: Any, x: float, y: float, rx: float, ry: float,
 
 
 def _blit_wrap(canvas: Any, img: Any, x: float, y: float) -> None:
+    surf = _target(canvas)
     xi, yi = int(round(x)), int(round(y % CH))
-    canvas.blit(img, (xi, yi))
+    surf.blit(img, (xi, yi))
+    if isinstance(canvas, Plane):
+        canvas.touch_box(xi, yi, xi + img.get_width(), yi + img.get_height())
     if yi + img.get_height() > CH:
-        canvas.blit(img, (xi, yi - CH))
+        surf.blit(img, (xi, yi - CH))
+        if isinstance(canvas, Plane):
+            canvas.touch_box(xi, yi - CH, xi + img.get_width(),
+                             yi - CH + img.get_height())
     if yi - img.get_height() < 0:
-        canvas.blit(img, (xi, yi + CH))
+        surf.blit(img, (xi, yi + CH))
+        if isinstance(canvas, Plane):
+            canvas.touch_box(xi, yi + CH, xi + img.get_width(),
+                             yi + CH + img.get_height())
 
 
-def _path_mask(path: list[tuple[float, float]], width: float) -> Any:
+class Mask:
+    """A float32 mask plus the box of canvas it covers, stored as (x, y).
+
+    Every fill is arithmetic over a mask, and a road, a river, a field or a
+    tree crown only covers a corridor or a blob: painting that box instead of
+    the whole 1.8 M-pixel canvas is the difference between ~100 ms and ~5 ms a
+    fill, and it is what makes a window of a long strip paintable at all.
+    """
+
+    __slots__ = ("arr", "box")
+
+    def __init__(self, arr: Any, box: tuple[int, int, int, int]) -> None:
+        self.arr = arr
+        self.box = box
+
+    def full(self) -> Any:
+        """A canvas-sized copy, for the few callers that shade the whole map."""
+        np = _numpy()
+        out = np.zeros((CW, CH), dtype=np.float32)
+        self.paste(out)
+        return out
+
+    def paste(self, dst: Any) -> None:
+        """Union this mask into a canvas-sized one."""
+        np = _numpy()
+        x0, y0, x1, y1 = self.box
+        dst[x0:x1, y0:y1] = np.maximum(dst[x0:x1, y0:y1], self.arr)
+
+
+def _path_mask(path: list[tuple[float, float]], width: float) -> Mask:
     """Alpha mask (numpy, H x W) of a path painted with a **round brush**.
 
     A thick ``pygame.draw.lines`` has no round joins: at any bend it leaves
@@ -120,15 +253,48 @@ def _path_mask(path: list[tuple[float, float]], width: float) -> Any:
     small steps and stamping a disc gives a real road edge, and lets the width
     vary along the run - a road that widens at a junction and narrows on a
     bridge approach is a road a player believes.
+
+    The raster runs over the geometry's own bounding box, not the whole canvas:
+    the mask is zero outside it, and feathering a 90x960 array is worth doing
+    when the alternative is feathering 1.8 M pixels two dozen times per map.
     """
     import pygame
     np = _numpy()
-    surf = pygame.Surface((CW, CH))
-    surf.fill((0, 0, 0))
     r = max(1.0, width * 0.5)
-    for shift in (0, -CH, CH):
-        pts = [(x, y + shift) for x, y in path]
-        if max(p[1] for p in pts) < -60 or min(p[1] for p in pts) > CH + 60:
+    painted = _raster(path, r, (0, -CH, CH))
+    if painted is None:
+        return Mask(np.zeros((1, 1), dtype=np.float32), (0, 0, 0, 0))
+    (x0, y0, x1, y1), surf = painted
+    m = np.asarray(pygame.surfarray.array3d(surf))[:, :, 0].astype(np.float32)
+    m = _feather(m * (1.0 / 255.0), 2)
+    return Mask(m, (x0, y0, x1, y1))
+
+
+def _raster(path: list[tuple[float, float]], r: float,
+            shifts: tuple[float, ...], poly: bool = False) -> Any:
+    """Rasterize a brushstroke (or a polygon) over just the box it covers.
+
+    Returns ``((x0, y0, x1, y1), surface)`` or None when nothing lands inside
+    the canvas. The 4 px margin is the room a feather pass needs."""
+    import pygame
+    lo_x = min(p[0] for p in path) - r
+    hi_x = max(p[0] for p in path) + r
+    ys = [p[1] + s for p in path for s in shifts]
+    lo_y, hi_y = min(ys) - r, max(ys) + r
+    x0, x1 = max(0, int(lo_x) - 4), min(CW, int(hi_x) + 5)
+    y0, y1 = max(0, int(lo_y) - 4), min(CH, int(hi_y) + 5)
+    if x1 <= x0 or y1 <= y0:
+        return None
+    surf = pygame.Surface((x1 - x0, y1 - y0))
+    surf.fill((0, 0, 0))
+    for shift in shifts:
+        pts = [(x - x0, y + shift - y0) for x, y in path]
+        if max(p[1] for p in pts) < -60 \
+                or min(p[1] for p in pts) > surf.get_height() + 60:
+            continue
+        if poly:
+            pygame.draw.polygon(surf, (255, 255, 255),
+                                [(int(px), int(py)) for px, py in pts])
             continue
         for i in range(len(pts) - 1):
             (ax, ay), (bx, by) = pts[i], pts[i + 1]
@@ -139,86 +305,108 @@ def _path_mask(path: list[tuple[float, float]], width: float) -> Any:
                 pygame.draw.circle(surf, (255, 255, 255),
                                    (int(ax + (bx - ax) * t),
                                     int(ay + (by - ay) * t)), int(r))
-    arr = pygame.surfarray.array3d(surf)              # (W,H,3)
-    m = arr[:, :, 0].astype(np.float32) / 255.0
-    for _ in range(2):                                # feather the edge
+    return (x0, y0, x1, y1), surf
+
+
+def _feather(m: Any, passes: int) -> Any:
+    """Soften a mask edge, in the mask's own box."""
+    np = _numpy()
+    for _ in range(passes):
         m = (m + np.roll(m, 1, 0) + np.roll(m, -1, 0)
              + np.roll(m, 1, 1) + np.roll(m, -1, 1)) / 5.0
     return m
 
 
-def _poly_mask(poly: list[tuple[float, float]], feather: int = 3) -> Any:
+def _paste(mask: Any, painted: Any, feather: int) -> Any:
     import pygame
     np = _numpy()
-    surf = pygame.Surface((CW, CH))
-    surf.fill((0, 0, 0))
-    for shift in (0, -CH, CH):
-        pts = [(int(x), int(y + shift)) for x, y in poly]
-        if max(p[1] for p in pts) < -40 or min(p[1] for p in pts) > CH + 40:
-            continue
-        pygame.draw.polygon(surf, (255, 255, 255), pts)
-    arr = pygame.surfarray.array3d(surf)
-    m = arr[:, :, 0].astype(np.float32) / 255.0
-    for _ in range(feather):
-        m = (m + np.roll(m, 1, 0) + np.roll(m, -1, 0)
-             + np.roll(m, 1, 1) + np.roll(m, -1, 1)) / 5.0
-    return m
+    (x0, y0, x1, y1), surf = painted
+    m = np.asarray(pygame.surfarray.array3d(surf))[:, :, 0].astype(np.float32)
+    m = _feather(m * (1.0 / 255.0), feather)
+    mask[x0:x1, y0:y1] = np.maximum(mask[x0:x1, y0:y1], m)
+    return mask
+
+
+def _poly_mask(poly: list[tuple[float, float]], feather: int = 3) -> Mask:
+    return _raster_mask(poly, 0.0, feather, poly=True)
+
+
+def _disc_mask(x: float, y: float, radius: float, feather: int = 4) -> Mask:
+    """A soft circular mask - the shape of a tree crown, a green, a yard."""
+    return _raster_mask([(x, y)], max(1.0, radius), feather)
+
+
+def _raster_mask(path: list[tuple[float, float]], r: float, feather: int,
+                 poly: bool = False) -> Mask:
+    import pygame
+    np = _numpy()
+    painted = _raster(path, r, (0, -CH, CH), poly=poly)
+    if painted is None:
+        return Mask(np.zeros((1, 1), dtype=np.float32), (0, 0, 0, 0))
+    (x0, y0, x1, y1), surf = painted
+    m = np.asarray(pygame.surfarray.array3d(surf))[:, :, 0].astype(np.float32)
+    return Mask(_feather(m * (1.0 / 255.0), feather), (x0, y0, x1, y1))
 
 
 def _fill_mask(canvas: Any, kit: TileKit, mat: str, mask: Any,
                strength: float = 1.0) -> None:
-    """Blit a material through a mask, keeping canvas alpha. The curve comes
+    """Fill a material through a mask, keeping the layer's alpha. The curve comes
     from the mask, not from the tile grid - which is exactly where the old
     square-edged road shoulders came from."""
-    import pygame
     np = _numpy()
-    if np is None:                                    # pragma: no cover
+    if np is None or not isinstance(canvas, Plane):   # pragma: no cover
         return
-    m = np.clip(np.asarray(mask, dtype=np.float32) * strength, 0.0, 1.0)
+    box = mask.box if isinstance(mask, Mask) else (0, 0, canvas.w, canvas.h)
+    if box[2] <= box[0] or box[3] <= box[1]:
+        return
+    arr = mask.arr if isinstance(mask, Mask) else mask
+    m = np.clip(np.asarray(arr, dtype=np.float32) * strength, 0.0, 1.0)
     if m.ndim == 3:
         m = m[:, :, 0]
-    base = np.asarray(pygame.surfarray.array3d(canvas)).astype(np.float32)
-    alpha = np.asarray(pygame.surfarray.array_alpha(canvas)).astype(np.uint8)
-    src = _mat_array(kit, mat).astype(np.float32)
+    canvas.sync()
+    x0, y0, x1, y1 = box
     mm = m[:, :, None]
-    out = base * (1.0 - mm) + src * mm
-    a = np.maximum(alpha, (m * 255.0).astype(np.uint8))
-    rgba = np.dstack([np.clip(out, 0, 255).astype(np.uint8), a]) \
-        .transpose(1, 0, 2)                       # (W,H,4) -> (H,W,4)
-    canvas.blit(pygame.image.fromstring(
-        np.ascontiguousarray(rgba).tobytes(), (CW, CH), "RGBA"), (0, 0))
+    rgb = canvas.rgb[x0:x1, y0:y1]
+    rgb[...] = rgb * (1.0 - mm) + _mat_array(kit, mat)[x0:x1, y0:y1] * mm
+    a = canvas.a[x0:x1, y0:y1]
+    a[...] = np.maximum(a, m)
 
 
 def _darken_band(canvas: Any, mask: Any, factor: float) -> None:
     """Multiply the pixels under a mask by ``factor``: the same surface, less
     light. Water is read as much by its value as by its hue."""
-    import pygame
     np = _numpy()
-    if np is None:                                    # pragma: no cover
+    if np is None or not isinstance(canvas, Plane):   # pragma: no cover
         return
-    m = np.clip(np.asarray(mask, dtype=np.float32), 0.0, 1.0)
+    box = mask.box if isinstance(mask, Mask) else (0, 0, canvas.w, canvas.h)
+    if box[2] <= box[0] or box[3] <= box[1]:
+        return
+    arr = mask.arr if isinstance(mask, Mask) else mask
+    m = np.clip(np.asarray(arr, dtype=np.float32), 0.0, 1.0)
     if m.ndim == 3:
         m = m[:, :, 0]
-    base = np.asarray(pygame.surfarray.array3d(canvas)).astype(np.float32)
-    alpha = np.asarray(pygame.surfarray.array_alpha(canvas)).astype(np.uint8)
-    want = base * factor
-    out = base * (1.0 - m[:, :, None]) + want * m[:, :, None]
-    rgba = np.dstack([np.clip(out, 0, 255).astype(np.uint8), alpha]) \
-        .transpose(1, 0, 2)
-    canvas.blit(pygame.image.fromstring(
-        np.ascontiguousarray(rgba).tobytes(), (CW, CH), "RGBA"), (0, 0))
+    canvas.sync()
+    x0, y0, x1, y1 = box
+    rgb = canvas.rgb[x0:x1, y0:y1]
+    rgb[...] = rgb * (1.0 - m[:, :, None] * (1.0 - factor))
 
 
 def _tint_lines(canvas: Any, pts: list[tuple[float, float]], col: Any,
                 width: float, shift_wraps: bool = True) -> None:
     import pygame
+    surf = _target(canvas)
     for shift in ((0, -CH, CH) if shift_wraps else (0,)):
         seg = [(x, y + shift) for x, y in pts]
         if max(p[1] for p in seg) < -20 or min(p[1] for p in seg) > CH + 20:
             continue
-        pygame.draw.lines(canvas, col, False,
+        pygame.draw.lines(surf, col, False,
                           [(int(x), int(y)) for x, y in seg],
                           max(1, int(width)))
+        if isinstance(canvas, Plane):
+            canvas.touch_box(min(p[0] for p in seg) - width,
+                             min(p[1] for p in seg) - width,
+                             max(p[0] for p in seg) + width,
+                             max(p[1] for p in seg) + width)
 
 
 def _splat(kit: TileKit, canvas: Any, name: str, x: float, y: float,
@@ -386,15 +574,18 @@ def paint_relief(canvas: Any, kit: TileKit, plan: SitePlan,
     # painted boundary". Note this replaces an earlier gate on local slope: once
     # the slope scale was normalised properly that gate killed the rim too, and
     # every mass went edgeless - "soft-edged raised strips, no readable crest".
-    flank = np.zeros_like(h)
+    flank = np.zeros((CW, CH), dtype=np.float32)
     for ridge in plan.ridges:
-        flank = np.maximum(flank, _path_mask(ridge.spine, ridge.width * 3.4))
+        _path_mask(ridge.spine, ridge.width * 3.4).paste(flank)
     line = line * np.clip(flank * 1.7, 0.0, 1.0)
     cover = np.maximum(cover, line * 0.6)
     mask = np.maximum(mask, line * 0.2)
-    base = np.asarray(pygame.surfarray.array3d(canvas)).astype(np.float32)
-    alpha = np.asarray(pygame.surfarray.array_alpha(canvas)).astype(np.uint8)
-    src = _mat_array(kit, mat).astype(np.float32)
+    base = canvas.rgb if isinstance(canvas, Plane) \
+        else np.asarray(pygame.surfarray.array3d(canvas)).astype(np.float32)
+    alpha = canvas.a if isinstance(canvas, Plane) \
+        else np.asarray(pygame.surfarray.array_alpha(canvas)).astype(np.float32) \
+        * (1.0 / 255.0)
+    src = _mat_array(kit, mat)
     blended = base * (1.0 - mask[:, :, None]) + src * mask[:, :, None]
     blended = blended * (1.0 - cover[:, :, None]) + rgb * cover[:, :, None]
     blended = blended * (1.0 - line[:, :, None] * 0.62) \
@@ -403,22 +594,31 @@ def paint_relief(canvas: Any, kit: TileKit, plan: SitePlan,
     # (a lit crest band along the spine was tried: it painted pale bands across
     # the map and the review's verdict became "competing terrain directions" -
     # a mass has to be carried by its slope shading, not by a stripe)
-    out_a = np.maximum(alpha, (cover * 255.0).astype(np.uint8))
-    rgba = np.dstack([np.clip(blended, 0, 255).astype(np.uint8), out_a]) \
-        .transpose(1, 0, 2)
-    canvas.blit(pygame.image.fromstring(
-        np.ascontiguousarray(rgba).tobytes(), (CW, CH), "RGBA"), (0, 0))
+    out_a = np.maximum(alpha, cover)
+    if isinstance(canvas, Plane):
+        canvas.sync()
+        canvas.rgb = blended
+        canvas.a = out_a
+    else:                                             # pragma: no cover
+        rgba = np.dstack([np.clip(blended, 0, 255).astype(np.uint8),
+                          (out_a * 255.0).astype(np.uint8)]) \
+            .transpose(1, 0, 2)
+        canvas.blit(pygame.image.fromstring(
+            np.ascontiguousarray(rgba).tobytes(), (CW, CH), "RGBA"), (0, 0))
     # scree and slumps at the foot: debris where the slope lets go. Small and
     # dark, and in the theme's own rock tone - a bright grey belt across the
     # middle of a green valley is a landslide of decoration, not a landform.
     foot = tuple(int(c * 0.8) for c in low)
+    surf = _target(canvas)
     for wd in plan.woods:
         if wd.kind != "scree":
             continue
         for x, y, s in wd.items:
             r = int(3 + 7 * s)
-            pygame.draw.circle(canvas, foot, (int(x), int(y % CH)), r)
-            pygame.draw.circle(canvas, scree_col,
+            pygame.draw.circle(surf, foot, (int(x), int(y % CH)), r)
+            if isinstance(canvas, Plane):
+                canvas.touch_box(x - r, y - r, x + r, y + r)
+            pygame.draw.circle(surf, scree_col,
                                (int(x + rng.uniform(-r, r) * 1.6),
                                 int((y + rng.uniform(-r, r)) % CH)),
                                max(1, r // 3))
@@ -545,6 +745,14 @@ def paint_water(canvas: Any, kit: TileKit, plan: SitePlan,
                 _tint_lines(canvas, [a, b], (255, 255, 255), 1)
 
 
+def _bridge_cut(surf: Mask, wet: Any, deck: Any) -> Mask:
+    """Cut the water out of a road mask and put the bridge decks back."""
+    np = _numpy()
+    x0, y0, x1, y1 = surf.box
+    kept = surf.arr * (1.0 - wet[x0:x1, y0:y1])
+    return Mask(np.maximum(kept, deck[x0:x1, y0:y1]), surf.box)
+
+
 def paint_roads(canvas: Any, kit: TileKit, plan: SitePlan,
                 rng: random.Random) -> None:
     from .theme_table import ROAD_MAT
@@ -572,15 +780,14 @@ def paint_roads(canvas: Any, kit: TileKit, plan: SitePlan,
         # the water out of the road mask, then put the deck back at each
         # crossing so the bridge still spans its gap.
         if plan.water and r.bridges:
-            wet = np.zeros_like(surf)
+            wet = np.zeros((CW, CH), dtype=np.float32)
             for w in plan.water:
-                wet = np.maximum(wet, _path_mask(w.path, w.half * 2.0))
-            deck = np.zeros_like(surf)
+                _path_mask(w.path, w.half * 2.0).paste(wet)
+            deck = np.zeros((CW, CH), dtype=np.float32)
             for bx, by in r.bridges:
-                d = _path_mask([(bx - 40.0, by), (bx + 40.0, by)],
-                               r.width * 2.6)
-                deck = np.maximum(deck, d)
-            surf = np.maximum(surf * (1.0 - wet), deck)
+                _path_mask([(bx - 40.0, by), (bx + 40.0, by)],
+                           r.width * 2.6).paste(deck)
+            surf = _bridge_cut(surf, wet, deck)
         _fill_mask(canvas, kit, mat, surf, 1.0)
         # a lit edge on both sides: a road that is only a darker band disappears
         # into dirt and shadow while it scrolls. The edges are what make it read
@@ -647,22 +854,8 @@ def _bridge(canvas: Any, kit: TileKit, road: Any, x: float, y: float,
 
 def paint_greens(canvas: Any, kit: TileKit, plan: SitePlan,
                  rng: random.Random) -> None:
-    import pygame
     for g in plan.greens:
-        r = int(g.radius)
-        mask_surf = pygame.Surface((CW, CH))
-        mask_surf.fill((0, 0, 0))
-        for shift in (0, -CH, CH):
-            pygame.draw.circle(mask_surf, (255, 255, 255),
-                               (int(g.x), int(g.y + shift)), r)
-        np = _numpy()
-        if np is not None:
-            m = np.asarray(pygame.surfarray.array3d(mask_surf))[:, :, 0]
-            m = m.astype(np.float32) / 255.0
-            for _ in range(4):
-                m = (m + np.roll(m, 1, 0) + np.roll(m, -1, 0)
-                     + np.roll(m, 1, 1) + np.roll(m, -1, 1)) / 5.0
-            _fill_mask(canvas, kit, g.mat, m, 0.95)
+        _fill_mask(canvas, kit, g.mat, _disc_mask(g.x, g.y, g.radius), 0.95)
         for lane in g.lanes:
             _fill_mask(canvas, kit, "road_dirt",
                        _path_mask(lane, 11.0), 0.9)
@@ -695,9 +888,14 @@ def paint_buildings(canvas: Any, kit: TileKit, plan: SitePlan,
         _blit_wrap(canvas, p, b.x - p.get_width() / 2, b.y - p.get_height() / 2)
         # a house's near edge catches the light: this is what makes a sprite
         # read as a built thing sitting on ground rather than pasted on it
-        pygame.draw.circle(canvas, (255, 255, 255),
+        pygame.draw.circle(_target(canvas), (255, 255, 255),
                            (int(b.x - p.get_width() * 0.18),
                             int((b.y - p.get_height() * 0.2) % CH)), 1)
+        if isinstance(canvas, Plane):
+            canvas.touch_box(b.x - p.get_width() * 0.18 - 2,
+                             b.y - p.get_height() * 0.2 - 2,
+                             b.x + p.get_width() * 0.18 + 2,
+                             b.y + p.get_height() * 0.2 + 2)
 
 
 def _cover_props(theme: str, kind: str) -> tuple[str, ...]:
@@ -756,6 +954,6 @@ def paint_site(canvas: Any, kit: TileKit, plan: SitePlan,
     paint_cover(canvas, kit, plan, rng)
 
 
-__all__ = ["paint_site", "paint_far", "paint_relief", "paint_roads",
+__all__ = ["Plane", "paint_site", "paint_far", "paint_relief", "paint_roads",
            "paint_fields", "paint_water", "paint_buildings", "paint_cover",
            "paint_greens"]

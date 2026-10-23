@@ -30,13 +30,18 @@ def _wave_y(y: float, terms: list[tuple[int, float, float]]) -> float:
 
 
 def _blit_wrap(c: Any, img: Any, x: float, y: float) -> None:
-    """Blit with wrap copies so shapes crossing the y seam stay continuous."""
+    """Blit with wrap copies so shapes crossing the y seam stay continuous.
+
+    ``c`` is either a pygame surface or a features.Plane (whose sprite layer is
+    what a stamp actually lands on)."""
+    from .features import Plane
+    surf = c.stamp if isinstance(c, Plane) else c
     xi, yi = int(round(x)), int(round(y % CH))
-    c.blit(img, (xi, yi))
+    surf.blit(img, (xi, yi))
     if yi + img.get_height() > CH:
-        c.blit(img, (xi, yi - CH))
+        surf.blit(img, (xi, yi - CH))
     if yi - img.get_height() < 0:
-        c.blit(img, (xi, yi + CH))
+        surf.blit(img, (xi, yi + CH))
 
 
 def _grid(canvas: Any, k: TileKit, mats: list[tuple[str, float]],
@@ -410,11 +415,15 @@ _NEAR = {
 def _near_for(theme: str, k: TileKit, rng: random.Random,
               plan: Any = None) -> Any:
     import pygame
-    c = pygame.Surface((CW, CH), pygame.SRCALPHA)
     if plan is not None:
-        _grid(c, k, list(NEAR_MATS[theme]), rng)
-        paint_site(c, k, plan, rng)
+        from .features import Plane
+        p = Plane(CW, CH)
+        _grid(p.stamp, k, list(NEAR_MATS[theme]), rng)
+        p.sync()                      # the base ground goes under the plan
+        paint_site(p, k, plan, rng)
+        c = p.surface()
     else:
+        c = pygame.Surface((CW, CH), pygame.SRCALPHA)
         _NEAR[theme](c, k, rng)
     return _darken(c, THEME_MEAN.get(theme, NEAR_MEAN))
 
@@ -425,7 +434,11 @@ def _far_for(theme: str, k: TileKit, rng: random.Random,
     planned theme - the same ridge language seen further off, so the range the
     player is flying along goes on behind them."""
     import pygame
-    c = pygame.Surface((CW, CH), pygame.SRCALPHA)
+    if plan is not None:
+        from .features import Plane
+        c: Any = Plane(CW, CH)
+    else:
+        c = pygame.Surface((CW, CH), pygame.SRCALPHA)
     for name in FAR_PAIR[theme]:
         t = pygame.transform.smoothscale(k.patch(name), (280, 280))
         for _ in range(3 if plan is not None else 4):
@@ -433,6 +446,7 @@ def _far_for(theme: str, k: TileKit, rng: random.Random,
             _blit_wrap(c, t, rng.uniform(0, CW), rng.uniform(0, CH))
     if plan is not None:
         paint_far(c, k, plan, rng)
+        return c.surface()
     return c
 
 

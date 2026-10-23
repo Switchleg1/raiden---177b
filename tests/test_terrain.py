@@ -84,6 +84,51 @@ def test_baked_matches_procedural(level):
 
 # --- phase schedule ------------------------------------------------------
 
+def test_plane_masks_stay_inside_the_canvas():
+    """The painter fills only the box a mask covers. If a box is wrong, the bug
+    is invisible as an artefact and visible as a black region - so check the
+    bookkeeping directly."""
+    from terrain import features
+    from terrain.siteplan import plan_site
+    from terrain.tilekit import CH, CW
+
+    p = plan_site("countryside", 1)
+    for path in [w.path for w in p.water] + [r.path for r in p.roads]:
+        m = features._path_mask(path, 24.0)
+        x0, y0, x1, y1 = m.box
+        assert 0 <= x0 <= x1 <= CW and 0 <= y0 <= y1 <= CH
+        # pygame's arrays are (x, y): the box is (width, height)
+        assert m.arr.shape == (x1 - x0, y1 - y0)
+    for f in p.fields:
+        m = features._poly_mask(f.poly)
+        x0, y0, x1, y1 = m.box
+        assert m.arr.shape == (x1 - x0, y1 - y0)
+        assert m.arr.max() <= 1.0 and m.arr.min() >= 0.0
+
+
+def test_planned_ground_covers_the_layer():
+    """A painted layer must be opaque ground across the whole field: box math
+    that skips a region reads as a black band while the map scrolls."""
+    import random
+
+    from terrain import features
+    from terrain.compose import kit_available
+    from terrain.siteplan import plan_site
+    from terrain.tilekit import CH, CW, kit
+
+    if not kit_available():
+        pytest.skip("no generated tileset")
+    pl = features.Plane(CW, CH)
+    pl.stamp.fill((30, 30, 30, 255))       # base ground stands in for the grid
+    pl.sync()
+    features.paint_site(pl, kit(), plan_site("canyon", 2), random.Random(5))
+    surf = pl.surface()
+    a = pygame.surfarray.array_alpha(surf)
+    assert (a > 200).mean() > 0.99, f"{(a > 200).mean():.2f} of the layer painted"
+    rgb = pygame.surfarray.array3d(surf).astype(int).sum(axis=2)
+    assert (rgb < 12).mean() < 0.005, "unpainted black region in the layer"
+
+
 def test_levels_schedule_phases():
     for lv in C.LEVELS:
         assert lv.phases, f"{lv.name} has no terrain phases"
