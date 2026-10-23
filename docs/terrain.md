@@ -4,7 +4,7 @@ Procedurally painted, vertically scrolling backdrop per sector — homage to
 Raiden's stage progression. The campaign runs **nine sectors over thirteen
 themes** (countryside, farmland, swamp, city, ruins, glacier, volcanic,
 ocean, airbase, industrial, wasteland, canyon, forest); every sector
-dissolves through **two terrain phases** (e.g. Sector 1: countryside →
+switches between **two terrain phases** (e.g. Sector 1: countryside →
 farmland, Sector 4: glacier → ocean), matching Raiden's mid-level
 environment changes. View layer only: terrain never affects gameplay and
 the model never imports it — adding a theme costs paint code and baked art,
@@ -24,13 +24,23 @@ never spawn/enemy logic.
   freezes the
   schedule; the track is recreated in `_enter_ready()`, so sectors always
   replay identically.
-- At each zone boundary the new map **dissolves in over the old one** for
-  `PHASE_FADE = 1.8 s`: old zone drawn plain, new zone drawn into a
-  full-logical-size `SRCALPHA` scratch surface and blitted with a rising
-  global alpha. The scratch's HUD band stays transparent, so the HUD is
-  never touched.
+- At each zone boundary the incoming zone is **revealed by a boundary that
+  travels down the field**: `PHASE_SWEEP = TILE_H / NEAR_SPEED` (one
+  field-height of ground travel), the outgoing zone drawn plain and the
+  incoming zone painted over it through a 0/255 mask. There is no alpha
+  ramp anywhere — an alpha ramp is the ground going translucent, and that is
+  what read as "a fade shift in the middle of the level". Only the ~60 px band
+  the boundary can reach is masked, so the whole operation costs ~0.8 ms and
+  only during the handover.
+- The boundary is a curve (`seam_y`: one broad swing plus a tighter fold, keyed
+  to world position so the shape scrolls with the ground), not a straight clip:
+  a perfectly straight cut "slices through scenery" and reads as a rendering
+  glitch. Along it the ground gets a lit crest (2 px) and a cast foot (16 px),
+  in colours sampled from the pixels already on the canvas — ground-appropriate
+  by construction, and no props are stamped along the line (that reads as a
+  boulder fence).
 - All zones scroll every frame (offset arithmetic only — negligible cost),
-  so a zone is always at a natural scroll position when it fades in.
+  so a zone is always at a natural scroll position when its boundary arrives.
 - Sector schedules: 1 countryside→farmland, 2 city→ruins, 3 ocean→airbase,
   4 ruins→canyon, 5 wasteland→canyon.
 - Every (theme, seed) pair any sector schedules must have baked art; the
@@ -332,7 +342,8 @@ on the render thread, and the frame dropped. `SectorHandoff` makes the change
 something the player watches instead: the incoming sector is exposed by an edge
 that travels down the play field, so both sectors are on screen (and scrolling)
 during the sweep. The boundary is a hard clip plus a thin scanline that fades as
-the sweep completes — the same visual grammar the mid-sector zone dissolve uses.
+the sweep completes — the sector change is an event, so it is allowed a line the
+mid-sector boundary deliberately does not have.
 
 The sweep lasts `HANDOFF_SECONDS` (2.4 s), longer than the SECTOR CLEAR banner,
 so the reveal is never over before the banner leaves. Because a handoff is not a

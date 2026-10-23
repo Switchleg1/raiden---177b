@@ -104,8 +104,8 @@ All artwork is painted by code and baked to PNG once — gameplay only loads
 files (~15 ms/map), and what it needs next is loaded on a worker thread ahead of
 the frame that asks for it (`prefetch.py`). Sector terrain ships in
 `data/textures/terrain/`; each sector scrolls through two *terrain phases* (e.g.
-Sector 1 dissolves from countryside into farmland mid-level, Raiden-style)
-scheduled over that sector's own wave length, and the sector change itself is a
+Sector 1 changes from countryside to farmland mid-level, Raiden-style) scheduled
+over that sector's own wave length, and the sector change itself is a
 2.4 s reveal drawn from two live sectors (`terrain/handoff.py`) rather than a
 swap. So all 18 theme/level pairs the nine sectors schedule are baked. Sprite sheets (the raw-keyed hero
 craft, ten enemy kinds, nine per-sector bosses, bullets, whip beads, flame
@@ -199,7 +199,8 @@ directory is empty.
   themes (countryside, farmland, swamp, city, ruins, glacier, volcanic,
   ocean, airbase, industrial, wasteland, canyon, forest).
   `TerrainTrack` schedules each sector's *phase zones* over the sector's wave
-  length and dissolves between them as the sector scrolls (weights live on
+  length and changes zone as the sector scrolls, along a boundary that travels
+  with the ground rather than a fade (weights live on
   `LevelSpec.phases`); `SectorHandoff` reveals the *next* sector with a
   downward sweep while both sectors keep scrolling, and `ensure_terrain` keeps
   that ground in place when the craft is re-served after a death (the camera

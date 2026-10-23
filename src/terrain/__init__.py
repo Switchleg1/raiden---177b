@@ -13,7 +13,19 @@ from .handoff import HANDOFF_SECONDS, SectorHandoff
 from .layer import Layer
 from .procedural import build_procedural
 from .terrain_map import Terrain, bake, baked_paths
-from .track import PHASE_FADE, PHASE_PLAN, TerrainTrack, plan_span, sector_key, sector_phases
+from .track import (
+                    PHASE_PLAN,
+                    PHASE_SWEEP,
+                    SEAM_LIP,
+                    SEAM_SHADOW,
+                    SEAM_STEP,
+                    SEAM_WAVE,
+                    TerrainTrack,
+                    plan_span,
+                    seam_y,
+                    sector_key,
+                    sector_phases,
+)
 
 __all__ = [
     "FAR_SPEED",
@@ -21,7 +33,11 @@ __all__ = [
     "Layer",
     "SectorHandoff",
     "NEAR_SPEED",
-    "PHASE_FADE",
+    "PHASE_SWEEP",
+    "SEAM_LIP",
+    "SEAM_SHADOW",
+    "SEAM_STEP",
+    "SEAM_WAVE",
     "PHASE_PLAN",
     "SS",
     "TILE_H",
@@ -30,6 +46,7 @@ __all__ = [
     "bake",
     "baked_paths",
     "plan_span",
+    "seam_y",
     "sector_key",
     "sector_phases",
     "build_procedural",

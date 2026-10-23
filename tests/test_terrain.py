@@ -104,25 +104,85 @@ def test_track_boundaries_follow_weights():
     assert track._idx(terrain.PHASE_PLAN * 10) == len(track.segs) - 1
 
 
-def test_track_dissolve_changes_art_then_settles():
-    lv = C.LEVELS[3]                       # ruins -> canyon
+def test_zone_handover_is_a_seam_and_never_a_fade():
+    """Mid-sector the environment changes, but the ground must never go
+    translucent: every pixel of a mid-handover frame is one zone's pixels or
+    the other's, byte for byte. A blended pixel means a fade."""
+    import numpy as np
 
-    def shot(seconds: float) -> bytes:
-        tr = terrain.TerrainTrack(lv.phases, 4)
-        steps = int(seconds / 0.05)
-        for _ in range(steps):
+    lv = C.LEVELS[3]                       # ruins -> canyon
+    a, b = lv.phases
+
+    def shot(seconds: float, phases: tuple):
+        tr = terrain.TerrainTrack(phases, 4)
+        for _ in range(int(seconds / 0.05)):
             tr.update(0.05, 1.0)
         canvas = pygame.Surface((C.LOGICAL_W, C.LOGICAL_H))
         tr.draw(canvas)
-        return pygame.surfarray.array3d(canvas).tobytes()
+        return pygame.surfarray.array3d(canvas)
 
-    b = terrain.PHASE_PLAN * lv.phases[0].weight
-    start = shot(0.0)
-    during = shot(b + 0.5 * terrain.PHASE_FADE)
-    after = shot(b + terrain.PHASE_FADE + 2.0)
-    assert start != during                 # zone B dissolving in
-    assert during != after                 # ramp mid vs end
-    assert shot(0.0) == start              # deterministic
+    t0 = terrain.PHASE_PLAN * a.weight
+    mid = t0 + 0.5 * terrain.PHASE_SWEEP
+    solo_a = shot(mid, (a,))
+    solo_b = shot(mid, (b,))
+    during = shot(mid, lv.phases)
+
+    x0, x1 = 0, C.LOGICAL_W
+    y0, y1 = C.HUD_H, terrain.TILE_H + C.HUD_H
+    box = (slice(x0, x1), slice(y0, y1), slice(None))
+    D, A, B = during[box], solo_a[box], solo_b[box]
+    is_a = np.all(D == A, axis=2)
+    is_b = np.all(D == B, axis=2)
+    assert is_a.sum() > 500 and is_b.sum() > 500, "only one zone is visible"
+
+    # where the boundary (and its crest/foot shading) can actually reach
+    edge = C.HUD_H + int(terrain.TILE_H * 0.5)
+    cols = np.arange(x0, x1)
+    line = np.array([terrain.seam_y(float(c), edge) for c in cols])[:, None]
+    rows = np.arange(y0, y1)[None, :]
+    near = np.abs(rows - line) <= terrain.SEAM_SHADOW + 2
+
+    def scaled(p, q):
+        """Is p q under one lighting factor? The boundary lights its crest and
+        shades its foot in the colours of the ground it stands on, which is not
+        a mixture of the two zones - and a mixture is the thing that must never
+        appear. Fitted over a grid of factors, loose enough for near-black
+        pixels where rounding is a large share of the value."""
+        q = q.astype(np.float64)
+        p = p.astype(np.float64)
+        best = np.full(p.shape[:2], 1e9)
+        for k in np.arange(0.35, 1.45, 0.05):
+            r = np.abs(p - np.clip(k * q, 0.0, 255.0)).max(axis=2)
+            best = np.minimum(best, r)
+        return best < 8.0
+
+    allowed = is_a | is_b | scaled(D, A) | scaled(D, B)
+    blended = ~(allowed | ~near)
+    assert blended.sum() == 0, \
+        f"{blended.sum()} pixels mix the two zones: the ground is dissolving"
+    # away from the boundary every pixel is one zone's ground, exactly: a fade
+    # would show up as a whole field of in-between pixels, not 40 rows of them
+    far = ~near
+    assert np.all((is_a | is_b)[far]), "ground blended outside the boundary band"
+    assert (scaled(D, A) | scaled(D, B))[near].sum() > 200, \
+        "no edge dressing: the scarp has no crest or foot"
+    # the boundary has a SHAPE: a perfectly straight cut reads as a rendering
+    # glitch, so the seam must land at several different heights across the field
+    heights = set()
+    for col in range(x0, x1, terrain.SEAM_STEP):
+        ys = np.flatnonzero(is_b[col - x0, :])
+        if len(ys):
+            heights.add(int(ys.max()))
+    assert len(heights) >= 8, f"seam is nearly straight: {sorted(heights)}"
+    # the seam travels with the scroll: later means more of the incoming zone
+    late = t0 + 0.9 * terrain.PHASE_SWEEP
+    late_box = (slice(x0, x1), slice(y0, y1), slice(None))
+    n_b = np.all(shot(late, lv.phases)[late_box]
+                 == shot(late, (b,))[late_box], axis=2).sum()
+    assert n_b > is_b.sum()
+    # and it settles: past the sweep the sector is plain incoming ground
+    end = t0 + terrain.PHASE_SWEEP + 1.0
+    assert np.array_equal(shot(end, lv.phases), shot(end, (b,)))
 
 
 def test_track_update_advances_all_segments():

@@ -8,8 +8,8 @@ both maps keep scrolling at their own parallax rates. The player never leaves
 the field, and no sector boundary is ever a black frame.
 
 The reveal edge is drawn as a bright scanline that thins out as it reaches the
-bottom of the field - the same visual language as the zone dissolves inside a
-sector (:mod:`terrain.track`), just spatial instead of temporal.
+bottom of the field - the same visual language as the zone handover inside a
+sector (:mod:`terrain.track`), just across sectors instead of mid-sector.
 """
 from __future__ import annotations
 
