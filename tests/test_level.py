@@ -148,7 +148,13 @@ def test_the_frontier_is_contiguous(plan):
     for i in range(min(3, st.count)):
         st.paint(i)
     assert st.frontier() == min(3, st.count)
-    assert st.missing_at(0) == (3 if st.count > 3 else -1)
+    # Asked at a row whose visible window is the slices just past the frontier:
+    # `missing_at` covers exactly the range `draw` blits (`window_at`), so this is
+    # the first slice of ground the camera would find unpainted. Asking about a
+    # wider range than is drawn - which this used to do at the top of the window -
+    # delays a launch for ground that is off screen.
+    y = 3 * st.slice_h + 1
+    assert st.missing_at(y) == (3 if st.count > 3 else -1)
 
 
 def test_painting_outruns_the_scroll(long_plan):

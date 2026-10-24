@@ -422,6 +422,12 @@ class _WaitingGround:
         def frontier(self) -> int:
             return self.level.painted
 
+        def window_at(self, y):
+            return 0, self.count
+
+        def surface(self, i):
+            return object() if i < self.level.painted else None
+
     def __init__(self, painted: int = 0, ready: bool = False) -> None:
         self.painted = painted
         self.ready = ready
@@ -456,8 +462,17 @@ def test_skipping_ready_cannot_launch_onto_missing_ground(app):
     assert app._msg == "LOADING", f"the wait was never named: {app._msg!r}"
     assert app._load_fraction() == 0.0
 
+    # the bar moves as the tiles arrive, and only reaches full when every slice
+    # the camera will draw exists - the same range the launch gate asks about
+    mid = app._load_fraction()
+    app.level.painted = 1
+    assert app._load_fraction() > mid, "the bar did not move when ground arrived"
+    app.level.built = lambda: False
+    assert app._load_status() == (0.0, "Designing the sector")
+    app.level.built = lambda: True
     app.level.painted = app.level.strips["near"].count      # bar reaches the end
     assert app._load_fraction() == 1.0
+    assert app._load_status()[1] == "Painting the ground"
     app.level.ready = True
     app._on_confirm()
     assert app.sm.state == State.PLAYING, "a refused launch never recovered"
@@ -493,3 +508,47 @@ def test_the_hold_gives_up_on_ground_that_arrived_and_then_stopped(app):
         "progress was mistaken for a stall"
     app._ready_wait = READY_HOLD_CEIL
     assert app._ground_ready_to_launch() is True, "the hard ceiling never let go"
+
+
+def test_readiness_asks_about_every_slice_the_camera_draws():
+    """The second of black *under the ship* was two functions disagreeing.
+
+    `TerrainStrip.draw` blits the slice range [lo, hi); `missing_at` - what the
+    launch gate asks - computed its own range and started one slice lower, so the
+    strip across the bottom of the screen was drawn from a slice nothing had asked
+    about. A sector could be, and was, called ready with that band empty.
+
+    Both now read `window_at`, and this pins the whole window down: hide each slice
+    of the range in turn and readiness has to name it. Any slice it fails to
+    mention is a band of black somebody has just made legal again.
+    """
+    import pygame
+
+    import config as C
+    from level.strip import TerrainStrip
+    from terrain.common import TILE2
+    from terrain.siteplan import CELL, Geom, plan_site
+
+    plan = plan_site("countryside", 3, Geom(h=TILE2 * 2, cell=CELL, cyclic=False))
+    st = TerrainStrip(plan, "near")
+    for i in range(st.count):
+        st.paint(i)
+    assert all(st.surface(i) is not None for i in range(st.count))
+
+    pygame.Rect(C.FIELD_LEFT, C.FIELD_TOP,
+                       C.FIELD_RIGHT - C.FIELD_LEFT,
+                       C.FIELD_BOTTOM - C.FIELD_TOP)
+    for y in (float(st.view), 1.4 * st.view, 2.0 * st.view):
+        lo, hi = st.window_at(y)
+        assert lo < hi, f"the camera at {y} was given an empty slice window"
+        for j in range(lo, hi):
+            saved = st._surf[j]
+            st._surf[j] = None
+            try:
+                got = st.missing_at(y)
+                assert got == j, (
+                    f"camera at row {y}: slice {j} is drawn but readiness said "
+                    f"{got} - a bare band at the bottom of the screen")
+            finally:
+                st._surf[j] = saved
+        assert st.missing_at(y) == -1

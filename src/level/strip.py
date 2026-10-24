@@ -68,6 +68,9 @@ class TerrainStrip:
         self.margin = int(margin)
         self.downscale = downscale
         self.height = int(plan.geom.h)
+        # The bake rows a camera can see at one time: one field-height of ground,
+        # and the definition `window_at` measures a slice range against.
+        self.view = int(TILE2)
         self.count = max(1, math.ceil(self.height / self.slice_h))
         # Painting happens in the worker process unless the caller says otherwise
         # (see `paint`). Set by `Level`, which knows how long the sector is.
@@ -192,17 +195,33 @@ class TerrainStrip:
         self.paint(i)
         return True
 
+    def window_at(self, y: float) -> tuple[int, int]:
+        """The slice range the camera at row `y` draws: **one** definition.
+
+        This used to be computed twice - once to blit, once to ask whether the
+        ground was ready - and the two disagreed by a slice. The strip below the
+        craft is drawn from the lowest slice of the range, which was the one the
+        readiness check never asked about, so a sector could be called ready with a
+        bare band across the bottom of the screen: exactly the second of black
+        under the ship that survived every other fix. Draw and readiness now read
+        from here, so they cannot drift apart again.
+
+        `y` is bake space and is the strip row standing at the **top** edge of the
+        field, so what the camera sees is [y - view, y].
+        """
+        lo = max(0, int((y - self.view) // self.slice_h) - 1)
+        hi = min(self.count, int(y // self.slice_h) + 1)
+        return lo, max(lo, hi)
+
     def missing_at(self, y: float) -> int:
         """Index of the first unfinished slice the camera at `y` can see.
 
-        `y` is bake-space, and it is the strip row at the **top** edge of the
-        field: what the camera can see is the screen of ground behind that row,
-        [y - TILE2, y]. Asking only at and past `y` would call a sector ready
-        whose visible ground is not painted yet.
+        Asking about a narrower range than `draw` uses is how a sector gets called
+        ready while part of the screen is still black; see `window_at`.
         """
-        top = max(0, int(y - TILE2) // self.slice_h)
+        lo, hi = self.window_at(y)
         with self._lock:
-            for i in range(top, min(self.count, top + 4)):
+            for i in range(lo, hi):
                 if self._surf[i] is None:
                     return i
         return -1
@@ -223,9 +242,7 @@ class TerrainStrip:
         """
         if not self.downscale:
             raise RuntimeError("a strip drawn unscaled would cover the field 4x")
-        # rows behind the top edge are the ones in view: [y - view, y]
-        lo = int((y - band.height * SS) // self.slice_h) - 1
-        hi = int(y // self.slice_h) + 1
+        lo, hi = self.window_at(y)
         drawn = 0
         for i in range(max(0, lo), min(self.count, hi)):
             surf = self.surface(i)

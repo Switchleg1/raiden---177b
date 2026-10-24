@@ -839,26 +839,34 @@ class App:
         self._msg_sub = "Preparing the sector"
         return False
 
-    def _load_fraction(self) -> float:
-        """How much of the ground the sector opens on is painted, 0.0 to 1.0.
+    def _load_status(self) -> tuple[float, str]:
+        """How much of the opening ground exists, and what is being made.
 
-        The design pass is all-or-nothing and takes most of the wait, so it is
-        shown as nothing: a bar that sits at zero and then crawls would be honest
-        but useless if it lied about the first half. What the player is actually
-        waiting for is the opening band, and that is what this measures.
+        The two together are the honest version of a progress bar. The design pass
+        is all-or-nothing and takes most of the wait, so it is named and shown as
+        nothing rather than invented. The painting phase is real work in real
+        slices, and its bar measures the **window the camera will draw** - the same
+        range `TerrainStrip.window_at` hands the blitter - so it moves as the tiles
+        the player is about to fly over arrive, and reaches full exactly when the
+        launch gate is willing to open.
         """
         lvl = self.level
         if lvl is None:
-            return 1.0                       # a baked sector: nothing pending
+            return 1.0, ""                    # a baked sector: nothing pending
         if not lvl.built():
-            return 0.0                       # still designing
+            return 0.0, "Designing the sector"
         strips = getattr(lvl, "strips", None) or {}
         near = strips.get("near")
         if near is None:
-            return 1.0
-        from terrain.common import TILE2
-        need = max(1, min(int(near.count), int(TILE2 / near.slice_h) + 1))
-        return min(1.0, near.frontier() / need)
+            return 1.0, ""
+        lo, hi = near.window_at(lvl.near_y)
+        need = max(1, hi - lo)
+        done = sum(1 for i in range(lo, hi) if near.surface(i) is not None)
+        return min(1.0, done / need), "Painting the ground"
+
+    def _load_fraction(self) -> float:
+        """The bar on its own, for a caller that only wants the number."""
+        return self._load_status()[0]
 
     def _pause(self) -> None:
         if self.sm.state in (State.PLAYING, State.READY):
@@ -1388,7 +1396,8 @@ class App:
             if st == State.READY and self._msg == "LOADING":
                 # The wait is the feature; being able to see it is what makes it
                 # a load rather than a freeze.
-                r.draw_progress(self._load_fraction())
+                frac, label = self._load_status()
+                r.draw_progress(frac, label)
             if self._transition_timer > 0 or (st == State.READY and self._msg):
                 r.draw_message(self._msg, self._msg_sub)
         elif st == State.PAUSED:
