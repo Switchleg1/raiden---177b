@@ -319,29 +319,37 @@ The child caches the plan per sector and designs it single-flight, so two worker
 never think up the same ground twice.
 
 Measured after that change (same harness, sector 1, 20 s flown): painters sit
-about three slices ahead of the camera, and **settled field coverage is 84.2% -
-exactly what a strip painted entirely in this interpreter covers**. The coverage
-*ceiling* is 84.2% rather than 100% because of the art, not streaming: local and
-streamed agree to the pixel, and both leave the same pixels below the threshold.
-The mean over the whole run is far lower (29%) because the run includes the
-seconds before the first slice existed.
+about three slices ahead of the camera.
 
-So what is left visible is a **start-up ramp**, not a throughput failure: a
-sector entered cold shows ground filling in for a few seconds. In play this is
-paid once, on sector 1, because the next sector has been painting since halfway
-through this one. The fix is small and specific: paint the opening slices during
-READY - `Level.ensure` already exists for exactly this, and now that painting
-happens in another interpreter it costs the frame thread a future to wait on
-rather than a second of its own CPU. That is the next change.
+**And then a bug I had written off as art turned out to be mine.** For several
+measurements running, field coverage settled at **84.2%**, and I reported that
+number as a ceiling imposed by the art - "local and streamed agree to the pixel,
+so the missing 16% is the painter's business". The agreement was real and the
+conclusion was wrong: both measurements went through the *same* `draw`, and that
+`draw` passed the band rect as the blit's **area** argument. An area's left and
+top are offsets *into the source surface*, so every slice lost FIELD_TOP rows off
+its top and FIELD_LEFT columns off its left - 44 of every 280 logical rows,
+236/280 = 84.3%, which is the number I called the art's fault. Play it: a bare
+strip exactly the height of the toolbar at every slice boundary. Fixed, and the
+same measurement now reads **100.0% opaque, 0 bare rows**. The lesson is not
+"check the sign", it is that an agreement between two measurements that share a
+bug is the most convincing kind of wrong.
+
+So what is left visible is a **start-up ramp** - a sector entered cold spends its
+first seconds inventing its own ground - and nothing else. In play this is paid
+once, on sector 1, because the next sector has been painting since halfway
+through this one.
 
 **What is now known to be *not* wrong**, because each was suspected and then
 measured: the surfaces that cross the boundary blit identically to local ones
-(100% coverage either way); `Level.draw` and `TerrainStrip.draw` agree in-app
-(84.2% both); and the camera convention, once fixed, holds across both paths.
+(100% coverage either way); `Level.draw` and `TerrainStrip.draw` agree in-app;
+and the camera convention, once fixed, holds across both paths.
 Two of my own probes were invalidated by the spawn contract - a child re-runs an
 unguarded entry script - so the rule here is that any measurement harness must be
 imported-clean: module-level work under `if __name__ == "__main__"`, or the
-child quietly runs the experiment too and the numbers mean nothing.
+child quietly runs the experiment too and the numbers mean nothing. A third was
+invalidated by the crop above: it compared streamed drawing against local drawing
+and concluded the ground was fine, when both were missing the same 44 rows.
 
 **The blocker that mattered: threads are not enough, measured.** Flying a real
 sector headless (`scripts/playtest_streamed.py`, sector 1,

@@ -72,9 +72,12 @@ def main(argv: list[str]) -> int:
             alpha = pygame.surfarray.array_alpha(scratch)[
                 band.left:band.right, band.top:band.bottom]
             # only while the craft is actually flying: the seconds before launch
-            # are the sector preparing itself, and counting them made a healthy
-            # 84% read as 11% - an artefact of *when* this measures, not of the
-            # ground. The pre-launch samples are reported separately.
+            # are the sector preparing itself. Counting them is what made a
+            # healthy number read as 11%: an artefact of *when* this measures.
+            # (The "healthy 84%" itself was also an artefact - a cropped blit -
+            # and the real figure is 100%; see docs/terrain.md before quoting
+            # either number at anyone.) The pre-launch samples are reported here
+            # separately rather than mixed into the flown figure.
             value = float((alpha > 200).mean())
             if app.sm.state == State.PLAYING:
                 cover.append(value)

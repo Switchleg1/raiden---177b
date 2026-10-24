@@ -233,6 +233,14 @@ class TerrainStrip:
                 continue
             # the slice's *far* row is the one nearest the top edge
             top = band.top + (y - (i + 1) * self.slice_h) / SS
-            canvas.blit(surf, (band.left, int(round(top))), band)
+            # The clip is a rect *in the slice*, not the band it lands on. An
+            # area's left/top are read as offsets into the source surface, so
+            # handing it `band` cropped FIELD_TOP rows off the top of every slice
+            # and FIELD_LEFT columns off its left - which is a bare gap the height
+            # of the HUD at every slice boundary, and looked exactly like the
+            # toolbar had been stamped between the tiles.
+            canvas.blit(surf, (band.left, int(round(top))),
+                        (0, 0, min(surf.get_width(), band.width),
+                         surf.get_height()))
             drawn += 1
         return drawn

@@ -14,6 +14,7 @@ single medium plan.
 """
 from __future__ import annotations
 
+import itertools
 import threading
 import time
 
@@ -311,3 +312,50 @@ def test_a_window_never_walks_the_whole_plan(long_plan):
     # a wrapping plan is not culled: its features cross the seam
     one = plan_site("countryside", 1)
     assert one.band("woods", 0, 10) == list(range(len(one.woods)))
+
+
+def test_slices_meet_exactly_without_a_gap_or_a_crop(plan):
+    """No bare band-height strip at a slice boundary, and no cropped slice.
+
+    This was a real defect, and it read as the HUD being stamped between the
+    tiles: the blit's third argument is a rect *inside the source surface*, so
+    passing the band cropped FIELD_TOP rows off the top of every slice and
+    FIELD_LEFT columns off its left. Each slice then left a bare strip of exactly
+    the toolbar's height beneath it, and the ground sat too high in both layers.
+
+    A pixel test would not have caught it: the crop shifts every slice by the
+    same amount, so "the ground flows down the screen" still held. The
+    relationships between the blits are what broke, so the relationships are what
+    is asserted here - nothing cropped, destinations that tile, band spanned.
+    """
+    st = _strip(1, plan)
+    for i in range(6):
+        st.paint(i)
+
+    class Ledger:
+        def __init__(self) -> None:
+            self.calls: list = []
+
+        def blit(self, surf, dest, area=None) -> None:
+            self.calls.append((surf, dest, area))
+
+    band = pygame.Rect(C.FIELD_LEFT, C.FIELD_TOP,
+                       C.FIELD_RIGHT - C.FIELD_LEFT,
+                       C.FIELD_BOTTOM - C.FIELD_TOP)
+    ledger = Ledger()
+    assert st.draw(ledger, band, 4 * STRIP_SLICE) >= 2, "one slice is not a test"
+
+    tops = []
+    for surf, dest, area in ledger.calls:
+        if area is not None:
+            assert int(area[0]) == 0 and int(area[1]) == 0, (
+                f"a slice was cropped from ({area[0]}, {area[1]}): the top and "
+                "left of the source are not the top and left of the band")
+        tops.append((int(dest[1]), surf.get_height()))
+    tops.sort()
+    for (top0, h0), (top1, _) in itertools.pairwise(tops):
+        assert top1 == top0 + h0, (
+            f"slices meet at {top1}, not at {top0 + h0}: "
+            f"{top1 - (top0 + h0)} px of band left bare between them")
+    assert tops[0][0] <= band.top, "the band's top edge is not covered"
+    assert tops[-1][0] + tops[-1][1] >= band.bottom, "the band's bottom row is bare"
