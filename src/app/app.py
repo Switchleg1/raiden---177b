@@ -519,6 +519,12 @@ class App:
         # keeps the ground because the camera never moved.
         if self.renderer is not None:
             self.renderer.clear_terrain()
+        # Putting a sector's ground down is the owner's job, and `clear_terrain`
+        # deliberately no longer does it: the view lets go, App stops the design
+        # and paint threads. A view that stopped them was destroying a flown
+        # sector every time it was told to forget its baked map.
+        if self.level is not None:
+            self.level.stop()
             self.level = None
         self._set_music(self.game.level_index)
         # The first sector has no lead-in of its own - nothing has been painting
@@ -711,6 +717,12 @@ class App:
         # slice its painters had finished. The baked path has the same guard in
         # `ensure_terrain`; this is that guard for the streamed one.
         if self.level is not None and self.level.seed == idx + 1:
+            # The sector being flown is kept - and the view is told again, because
+            # the respawn path clears baked ground first, and clearing lets go of
+            # the Level rather than killing it. Without this the sector would fly
+            # with no ground drawn at all: kept, painting, and invisible.
+            if self.renderer is not None:
+                self.renderer.set_level(self.level)
             return
         if self.next_level is not None and self.next_level.seed == idx + 1:
             lvl = self.next_level
@@ -718,6 +730,12 @@ class App:
             if self.next_level is not None:
                 self.next_level.stop()
             lvl = Level(C.LEVELS[idx], seed=idx + 1)
+        # Reaching another sector leaves this one's ground behind, and the owner
+        # shuts it down - the view only detaches. The guard above already returned
+        # for the sector being flown, so this is never the same Level being
+        # stopped and then flown again.
+        if self.level is not None and self.level is not lvl:
+            self.level.stop()
         self.level, self.next_level = lvl, None
         # A new sector's ground has its own fights planned on it. Everything at
         # or behind the camera is skipped: on a respawn mid-sector the craft is
@@ -924,6 +942,11 @@ class App:
         self._run_active = False
         if self.renderer is not None:
             self.renderer.clear_terrain()
+        # Leaving the run ends the sector, and ending it belongs to the owner of
+        # the sector's ground - see the same hand-off in _start_game.
+        if self.level is not None:
+            self.level.stop()
+            self.level = None
             self.level = None   # title shows the starfield again
         self.game = Game(rng=random.Random(), high_score=self.stats.high_score,
                          enable_items=self.settings.powerups)

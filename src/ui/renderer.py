@@ -92,11 +92,14 @@ class Renderer:
         The Level's own threads do the painting, so switching is a pointer swap -
         and the sector being prepared was already halfway painted before this one
         started. Passing None goes back to the baked track.
+
+        This view only *detaches* the Level it was showing: it never stops one.
+        App owns a sector's ground - it makes it, replaces it and shuts it down -
+        and a view that killed what it was drawing destroyed a whole sector's worth
+        of painting on the respawn path, which called this with the Level to keep.
         """
         if self._level is level_obj:
             return
-        if self._level is not None:
-            self._level.stop()
         self._level = level_obj
         if level_obj is not None:
             level_obj.start()
@@ -186,9 +189,16 @@ class Renderer:
                               plan=terrain.plan_span(level))
 
     def clear_terrain(self) -> None:
-        if self._level is not None:
-            self._level.stop()
-            self._level = None
+        """Forget the baked ground, and detach - but do not stop - a Level.
+
+        This is called on respawn to make sure no baked map is left under a
+        streamed sector, and it used to `stop()` the Level too: a view tearing
+        down the thing it was showing. The cost was the sector's entire design and
+        every painted slice becoming unreachable the moment the craft died, and a
+        multi-second wait while the respawn restarted the painters from nothing.
+        The owner of a sector's ground is App; the view lets go of it.
+        """
+        self._level = None
         self._terrain = None
         self._terrain_key = None
         self._handoff = None

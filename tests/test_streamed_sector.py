@@ -552,3 +552,51 @@ def test_readiness_asks_about_every_slice_the_camera_draws():
             finally:
                 st._surf[j] = saved
         assert st.missing_at(y) == -1
+
+
+def _painters_alive(lvl) -> bool:
+    return any(t.is_alive() for t in getattr(lvl, "_threads", ()))
+
+
+def test_the_view_letting_go_of_the_ground_does_not_kill_it(app):
+    """A view does not own a sector's ground, and used to kill it anyway.
+
+    `Renderer.clear_terrain()` stopped the Level it was showing - and that call is
+    how a respawn clears baked maps - so dying stopped the design and every painter
+    of the sector being flown, threw away the slices already painted as far as the
+    view was concerned, and left the game waiting seconds for a restarted crew to
+    catch up with a camera that had not moved. Measured at 6.1 s of respawn wait.
+
+    Ownership, stated once: App makes a Level, replaces it, and stops it - in
+    `_start_game`, on a sector change, and in `shutdown`. The renderer detaches.
+    """
+
+    app._start_game()
+    lvl = app.level
+    assert lvl is not None, "starting a run did not start a streamed sector"
+    assert _painters_alive(lvl), "the sector's painters were never running"
+
+    app.renderer.clear_terrain()
+    assert app.level is lvl, "App's ground vanished with the view's copy of it"
+    assert app.renderer._level is None
+    assert _painters_alive(lvl), "clearing baked ground stopped a flown sector"
+
+    lvl.stop()
+    assert not _painters_alive(lvl), "the owner's stop does not stop either"
+
+
+def test_a_respawn_keeps_the_ground_and_every_painter_on_it(app, tiny_sectors):
+    """Die mid-sector and the world you were flying over stays: same Level object,
+    same camera row, painters still working, and the view takes the ground back
+    rather than watching it being rebuilt."""
+    app._start_game()
+    lvl = app.level
+    row = lvl.near_y
+    app.renderer.clear_terrain()          # what the respawn path does first
+
+    app._enter_ready()                     # ...then the sector is re-entered
+
+    assert app.level is lvl, "a respawn built new ground under a still craft"
+    assert lvl.near_y == row, "the camera was moved by dying"
+    assert app.renderer._level is lvl, "the view never took the ground back"
+    assert _painters_alive(lvl), "the respawn killed the painters of sector 1"
