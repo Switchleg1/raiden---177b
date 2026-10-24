@@ -820,11 +820,13 @@ class App:
             return True
         if not lvl.built():
             return False
-        # One screen of lead, not just what is on screen at the instant of launch.
-        # A craft that starts moving into ground nobody promised shows black for a
-        # second and then never stops looking broken, however well the loading went.
+        # Ask, and paint. Waiting to see whether the painters have got there is what
+        # showed the field's backdrop for a second after the bar went away: the gate
+        # was a question, and a question cannot put ground down. One slice per READY
+        # frame keeps the screen alive and the bar moving; the pause is spent making
+        # the page rather than watching for it.
         from terrain.common import TILE2
-        return lvl.ready_ahead(lvl.near_y, TILE2)
+        return lvl.ensure_page(TILE2)
 
     def _release_encounters(self) -> None:
         """Hand the sector's ground-planned fights to the model as they arrive.
@@ -918,11 +920,10 @@ class App:
 
         # Second half: counted. Slices that exist over slices the camera will draw.
         painted = 1.0
+        from terrain.common import TILE2
         if near is not None:
-            lo, hi = near.window_at(lvl.near_y)
-            need = max(1, hi - lo)
-            painted = sum(1 for i in range(lo, hi)
-                          if near.surface(i) is not None) / need
+            missing, total = lvl.page_slices(TILE2)
+            painted = (total - missing) / total
 
         if not lvl.built():
             # First half: an estimate, and labelled as one by never reaching the

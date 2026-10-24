@@ -448,6 +448,16 @@ class _WaitingGround:
     def design_elapsed(self) -> float:
         return self.elapsed
 
+    def page_slices(self, lead: float = 0.0):
+        total = self.strips["near"].count * 2
+        have = min(total, self.painted * 2)
+        return total - have, total
+
+    def ensure_page(self, lead: float = 0.0) -> bool:
+        # The fake cannot paint: `ready` says whether the page is there, and this
+        # reports it without inventing slices.
+        return self.ready
+
     def design_estimate(self) -> float:
         return 10.0
 
@@ -821,4 +831,49 @@ def test_the_launch_wants_ground_the_craft_has_not_reached_yet(app,
         for i in range(strip.count):
             strip._surf[i] = object()
     assert lvl.ready_ahead(lvl.near_y, TILE2)
+    assert app._opening_painted() is True
+
+
+def test_the_launch_paints_the_page_it_promised(app, tiny_sectors):
+    """The ground must be there when play starts, not "on its way".
+
+    Every previous version of this gate was a question - *is* the ground ready? -
+    and each time the sector opened with the field's backdrop showing for a second,
+    because a question cannot put ground down. So the launch asks for the page and
+    paints it: one slice per READY frame, which keeps the loading screen alive and
+    the bar moving, and means the pause is spent making the ground rather than
+    watching for it.
+
+    The page includes a screen of lead, and the bar counts exactly that range, so
+    bar and gate measure one thing rather than two that happen to agree.
+    """
+    import time
+
+    app._start_game()
+    lvl = app.level
+    deadline = time.time() + 30.0
+    while time.time() < deadline and not (lvl.built() and lvl.strips):
+        time.sleep(0.05)
+    assert lvl.strips, "the sector never got its strips"
+
+    for strip in lvl.strips.values():
+        for i in range(strip.count):
+            strip._surf[i] = None           # nothing exists; the launch must make it
+
+    lead = 1112.0                            # one screen, as the gate uses it
+    missing, total = lvl.page_slices(lead)
+    assert missing > 0, "this test needs an unpainted page"
+    # The page is wider than the visible window: ground the craft flies *into*.
+    window = lvl.strips["near"].count
+    assert total > 2, f"the page should include lead, not just the window ({total})"
+    assert window >= 0
+
+    progressed = []
+    for _ in range(400):
+        if lvl.ensure_page(lead):
+            break
+        progressed.append(lvl.page_slices(lead)[0])
+    assert progressed, "the launch painted nothing at all"
+    assert progressed[0] >= progressed[-1], "painting the page made it less painted"
+    assert progressed[-1] == 0, f"the page never completed: {progressed[-1]} missing"
     assert app._opening_painted() is True

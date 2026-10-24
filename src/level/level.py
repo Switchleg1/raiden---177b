@@ -282,6 +282,55 @@ class Level:
                    and strip.missing_at(y_bake) < 0
                    for strip in self.strips.values())
 
+    def page_slices(self, lead: float = 0.0) -> tuple[int, int]:
+        """(missing, total) slices the page at the camera needs, lead included.
+
+        "The page" is everything the field will show *and* what the craft flies
+        into in the first moments of play - the same lead the launch gate insists
+        on, counted over the same range, so the loading bar and the gate are
+        measuring one thing rather than two that happen to agree.
+        """
+        if not self.strips:
+            return 1, 1
+        missing = total = 0
+        for strip in self.strips.values():
+            y = self.far_y if strip.layer == "far" else self.near_y
+            lo, _hi = strip.window_at(y)
+            hi = min(strip.count, int((y + lead) // strip.slice_h) + 1)
+            hi = max(hi, lo + 1)
+            for i in range(lo, hi):
+                total += 1
+                if strip.surface(i) is None:
+                    missing += 1
+        return missing, max(1, total)
+
+    def ensure_page(self, lead: float = 0.0) -> bool:
+        """Paint **one** missing slice of the page. True when the page is done.
+
+        One slice per call, from the frame thread, on purpose. The alternative -
+        paint the whole page in one go before launching - stalls the loading screen
+        for seconds and the bar sits frozen doing its job badly. Called once per
+        READY frame, this paints the page in the time the pause takes, keeps the bar
+        moving per slice, and guarantees the claim the whole arrangement is judged
+        on: when play starts, the ground is already there.
+
+        This is the launch path, not a fallback. Asking whether the painters have
+        got there yet and hoping is what showed a field backdrop for a second after
+        the bar went away.
+        """
+        if not self.strips:
+            self.build()
+            return False
+        for strip in self.strips.values():
+            y = self.far_y if strip.layer == "far" else self.near_y
+            lo, _hi = strip.window_at(y)
+            hi = min(strip.count, int((y + lead) // strip.slice_h) + 1)
+            for i in range(lo, max(hi, lo + 1)):
+                if strip.surface(i) is None:
+                    strip.paint(i, self._stop)
+                    return False
+        return True
+
     def ensure(self, y_logical: float) -> int:
         """Paint synchronously whatever the camera at `y` can still see.
 
