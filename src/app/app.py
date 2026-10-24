@@ -344,6 +344,17 @@ class App:
             if ev.type == pygame.QUIT:
                 self.running = False
                 continue
+            if ev.type == pygame.KEYDOWN and ev.key == pygame.K_F11:
+                # Screenshots show a band of ground about one slice tall, about
+                # 8/255 darker than the ground above and below, with hard tone steps
+                # at both edges. Every headless measurement of the same sector says
+                # the ground is complete and bit-identical slice to slice - so the
+                # machine being measured and the screen being looked at disagree,
+                # and the only honest way forward is to measure the screen. Press
+                # this when you see it: `seam_debug.json` records the camera row,
+                # which slices exist, which were blitted where, and the composed
+                # field's tone per row.
+                self._seam_dump = True
             if ev.type == pygame.WINDOWFOCUSLOST and self.sm.state == State.PLAYING:
                 self._pause()
             self.input.handle_event(ev, self.viewport)
@@ -1359,6 +1370,61 @@ class App:
         self.audio.play(_audio_mod.MENU_NAV if nav else _audio_mod.MENU_ACTIVATE)
 
     # ------------------------------------------------------------- main loop
+    def _write_seam_debug(self) -> None:
+        """What the renderer actually did this frame, as numbers. See F11 above."""
+        import json
+        from pathlib import Path
+
+        import pygame
+
+        info: dict = {
+            "state": str(self.sm.state),
+            "level": self.game.level_index,
+            "streamed": self.settings.streamed_terrain,
+            "strips": {},
+        }
+        lvl = self.level
+        if lvl is not None:
+            info["near_y"] = round(lvl.near_y, 1)
+            info["far_y"] = round(lvl.far_y, 1)
+            for name, strip in lvl.strips.items():
+                y = lvl.near_y if name == "near" else lvl.far_y
+                lo, hi = strip.window_at(y)
+                painted = [i for i in range(strip.count)
+                           if strip.surface(i) is not None]
+                sizes = sorted({tuple(strip.surface(i).get_size())
+                                for i in painted}, key=str)
+                # Tone of each painted band on its own: a slice that comes back
+                # darker than its neighbours shows up here, and only here - the
+                # composed screen averages it away against the ground around it.
+                tones = {}
+                for i in painted:
+                    a = pygame.surfarray.array3d(strip.surface(i))
+                    tones[i] = round(float(a.mean()), 1)
+                info["strips"][name] = {
+                    "slice_h": strip.slice_h, "margin": strip.margin,
+                    "count": strip.count, "camera_window": [lo, hi],
+                    "painted": painted,
+                    "missing_at_camera": strip.missing_at(y),
+                    "band_sizes": sizes,
+                    "band_tone_first12": {str(k): v for k, v in
+                                          sorted(tones.items())[:12]},
+                }
+        r = self.renderer
+        if r is not None:
+            g = pygame.surfarray.array3d(r.canvas).astype("float32").mean(axis=2)
+            rows = g.mean(axis=0)                       # mean tone per screen row
+            field = rows[C.FIELD_TOP:C.FIELD_BOTTOM]
+            info["field_tone_steps"] = [
+                [C.FIELD_TOP + k + 1, round(float(field[k + 1] - field[k]), 2)]
+                for k in range(len(field) - 1)
+                if abs(float(field[k + 1] - field[k])) > 2.5][:40]
+            info["field_tone_profile_20"] = [
+                round(float(field[k * len(field) // 20]), 1) for k in range(20)]
+        path = Path("seam_debug.json")
+        path.write_text(json.dumps(info, indent=1), encoding="utf-8")
+        print(f"seam debug written to {path.resolve()}")
+
     def run(self, max_frames: int | None = None) -> int:
         self.start()
         import pygame
@@ -1371,6 +1437,9 @@ class App:
             self._last = now
             self._update(frame_dt)
             self._render()
+            if getattr(self, "_seam_dump", False):
+                self._seam_dump = False
+                self._write_seam_debug()
             fps = self.settings.fps_limit
             clock.tick(fps if fps and fps > 0 else 0)
             frames += 1

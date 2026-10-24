@@ -190,3 +190,4 @@ screenshots/
 #  listening material, not build material.
 assets/music/cues/
 pi_run.bat
+seam_debug.json
