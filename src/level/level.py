@@ -150,12 +150,19 @@ class Level:
             # a contiguous-from-zero count sits at nought while the screen is fully
             # covered, and a throttle reading it would paint the whole sector before
             # the craft had moved.
-            y = self.far_y if strip.layer == "far" else self.near_y
-            while (not self._stop.is_set()
-                   and strip.missing_at(y + LOOKAHEAD * strip.slice_h) < 0):
+            #
+            # The camera's row is read *inside* the wait, every poll. Reading it
+            # once, as this did, parks the worker for the rest of the sector: the
+            # slices that were ahead when the wait began are the very slices it is
+            # waiting for, so the condition can never become false, and ground stops
+            # arriving about a quarter of the way into the sector while the craft
+            # flies on past the last painted slice.
+            while not self._stop.is_set():
+                row = self.far_y if strip.layer == "far" else self.near_y
+                if strip.missing_at(row + LOOKAHEAD * strip.slice_h) >= 0:
+                    break
+                strip.focus(row)          # keep the painter aimed where it is now
                 self._stop.wait(0.05)
-                strip.focus(self.far_y if strip.layer == "far"
-                            else self.near_y)
 
     def stop(self, timeout: float = 3.0) -> None:
         """Stop painting and wait for the workers to actually stop.

@@ -103,9 +103,16 @@ def main(argv: list[str]) -> int:
               f"settled {statistics.mean(cover[-10:]) * 100:5.1f}%")
     print(f"             ({len(waiting)} samples before launch ignored; "
           f"mean ground then {statistics.mean(waiting) * 100:.1f}%)")
-    print(f"  frontier : near {lvl.strips['near'].frontier()}/"
-          f"{lvl.strips['near'].count} slices, far "
-          f"{lvl.strips['far'].frontier()}/{lvl.strips['far'].count}")
+    near = lvl.strips["near"]
+    # What the camera needs against what exists. Painting once froze at slice 11
+    # while the craft was at slice 16 and this line still read "11/66" as if it
+    # were merely slow - the gap is the number that matters, so print it.
+    need = near.window_at(lvl.near_y)[0]
+    short = need - near.frontier() + 1
+    gap = (f"  camera at slice {need}" + (
+        f"  ** {short} SLICE(S) MISSING AHEAD **" if short > 0 else "  covered"))
+    print(f"  frontier : near {near.frontier()}/{near.count} slices, far "
+          f"{lvl.strips['far'].frontier()}/{lvl.strips['far'].count}{gap}")
     print(f"  fights   : {len(encs)} planned, "
           f"{app._enc_i} released, {len(app.game.enemies)} on the field, "
           f"clock {'off' if app.game.ground_spawns else 'ON'}")

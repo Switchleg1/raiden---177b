@@ -472,6 +472,13 @@ def test_app_queues_the_next_sector_as_soon_as_this_one_starts(app):
 def test_seamless_ready_reveals_the_next_sector(app):
     app._start_game()
     original = app.renderer._terrain
+    # The sector has to actually have changed. `seamless` alone is not what asks
+    # for a handoff: entering the sector whose ground is already installed does
+    # nothing at all now, which is the rule that keeps a death from touching the
+    # world - and `_finish_transition` advances the level before it enters READY
+    # seamlessly, so this follows the caller rather than the old unconditional
+    # behaviour.
+    app.game.advance_level()
     app._enter_ready(seamless=True)
     assert app.renderer.terrain_handoff_active()
     assert app.renderer._terrain is None
