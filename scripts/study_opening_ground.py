@@ -30,7 +30,6 @@ pygame.display.set_mode((64, 64))
 
 import config as C  # noqa: E402
 from state import State  # noqa: E402
-from terrain.common import TILE2  # noqa: E402
 
 
 def main(frames: int) -> int:
