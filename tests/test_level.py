@@ -335,6 +335,10 @@ def test_slices_meet_exactly_without_a_gap_or_a_crop(plan):
     class Ledger:
         def __init__(self) -> None:
             self.calls: list = []
+            self.clips: list = []
+
+        def set_clip(self, rect) -> None:
+            self.clips.append(rect)
 
         def blit(self, surf, dest, area=None) -> None:
             self.calls.append((surf, dest, area))
@@ -359,3 +363,8 @@ def test_slices_meet_exactly_without_a_gap_or_a_crop(plan):
             f"{top1 - (top0 + h0)} px of band left bare between them")
     assert tops[0][0] <= band.top, "the band's top edge is not covered"
     assert tops[-1][0] + tops[-1][1] >= band.bottom, "the band's bottom row is bare"
+    # ground stays inside the field: the drawing is clipped to the band, so a
+    # slice that reaches past its edge is cut by the clip and not by cropping the
+    # picture itself (that is what left the HUD-height gaps at every boundary)
+    assert any(r == band for r in ledger.clips if r is not None), \
+        "the strip is not drawn clipped to the band"

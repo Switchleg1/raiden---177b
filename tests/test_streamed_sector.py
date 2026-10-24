@@ -260,3 +260,75 @@ def test_the_first_sector_starts_preparing_when_the_run_starts(app,
     assert seen["seed"] == 1
     assert app.level is not None and app.level.seed == 1
     assert app.next_level is None, "the prepared sector was not taken over"
+
+
+def test_the_hud_panel_is_opaque_and_stops_at_the_field(app):
+    """Score, lives and bombs are read at a glance while dodging; ground moving
+    behind them - which streamed slices allow, since the far range is not cut to
+    the field's top edge - turns the readout into a texture.
+
+    The panel is its own call rather than a line inside `draw_hud`: it can be
+    tested with no glyphs in the way, and it names the pixels the HUD owns. The
+    row at FIELD_TOP belongs to the field, so asserting it is *not* the panel
+    colour is what stops a one-row-off fill from eating the top of the ground.
+    """
+    canvas = app.renderer.canvas
+    want = app.renderer.palette.hud_bg
+    assert want != app.renderer.palette.field_bg, "needs the two to differ"
+    app.renderer.draw_hud_panel()
+    for x in range(0, C.LOGICAL_W, 37):
+        for y in range(0, C.FIELD_TOP, 7):
+            got = tuple(canvas.get_at((x, y))[:3])
+            assert got == want, f"the HUD strip at ({x}, {y}) is {got}, not {want}"
+    below = tuple(canvas.get_at((C.LOGICAL_W // 2, C.FIELD_TOP))[:3])
+    assert below != want, "the panel spilled into the field's first row"
+
+
+def test_the_readouts_are_drawn_on_the_panel(app):
+    """The fill comes first and the readouts land on top of it - that order is the
+    whole feature, and it is observable: a panel that hid them would leave the
+    strip a single flat colour."""
+    canvas = app.renderer.canvas
+    want = app.renderer.palette.hud_bg
+    app.game.score = 12345
+    app.renderer.draw_hud(app.game, 0.0)
+    differing = sum(1 for x in range(0, C.LOGICAL_W, 7)
+                    for y in range(0, C.FIELD_TOP, 3)
+                    if tuple(canvas.get_at((x, y))[:3]) != want)
+    assert differing > 20, "the readouts are not drawn on top of the panel"
+
+
+def test_a_sector_change_never_touches_the_baked_tiles(app, tiny_sectors,
+                                                       monkeypatch):
+    """The handover process, removed rather than worked around.
+
+    A streamed sector's ground already exists by the time the pointer moves, so
+    there is nothing to load, nothing to reveal over the old ground, and nothing
+    to snap to afterwards. Baking the next sector is skipped too, so the tiles
+    that used to appear mid-handoff are never produced at all. Asserted by
+    forbidding the calls, because "it also looked right" is how a fallback that
+    still fires gets mistaken for a fix.
+    """
+    import config as C
+    from level import Level
+
+    app._start_game()
+    lvl = Level(C.LEVELS[1], seed=2)
+    lvl.start()
+    app.next_level = lvl
+
+    calls = []
+    monkeypatch.setattr(app.renderer, "handoff_terrain",
+                        lambda *a, **k: calls.append("handoff") or False)
+    monkeypatch.setattr(app.renderer, "ensure_terrain",
+                        lambda *a, **k: calls.append("ensure"))
+
+    app.game.advance_level()
+    app._enter_ready(seamless=True)
+
+    assert calls == [], f"the baked path was used for the change: {calls}"
+    assert app.level is lvl, "the prepared sector's ground was not flown"
+    assert getattr(app.renderer, "_terrain", 0) is None, \
+        "baked ground is still installed under the streamed sector"
+    assert app.renderer.terrain_handoff_active() is False
+    lvl.stop()

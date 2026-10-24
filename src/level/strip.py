@@ -239,8 +239,10 @@ class TerrainStrip:
             # and FIELD_LEFT columns off its left - which is a bare gap the height
             # of the HUD at every slice boundary, and looked exactly like the
             # toolbar had been stamped between the tiles.
+            canvas.set_clip(band)
             canvas.blit(surf, (band.left, int(round(top))),
                         (0, 0, min(surf.get_width(), band.width),
                          surf.get_height()))
+            canvas.set_clip(None)
             drawn += 1
         return drawn

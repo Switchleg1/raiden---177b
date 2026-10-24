@@ -16,6 +16,11 @@ class Palette:
     player_bullet: tuple[int, int, int]
     enemy_bullet: tuple[int, int, int]
     hud_text: tuple[int, int, int]
+    # The HUD strip is a panel the readouts sit on, so it needs a solid
+    # background of its own: streamed ground can reach up behind it, and score,
+    # lives and bombs over moving terrain are unreadable where the player looks
+    # hardest. Themes keep it darker than their field, not black on black.
+    hud_bg: tuple[int, int, int]
     ui_text: tuple[int, int, int]
     ui_focus: tuple[int, int, int]
     ui_selected: tuple[int, int, int]
@@ -29,6 +34,7 @@ PALETTE = Palette(
     player_bullet=(150, 255, 210),
     enemy_bullet=(255, 120, 150),
     hud_text=(200, 214, 238),
+    hud_bg=(6, 7, 13),
     ui_text=(222, 228, 240),
     ui_focus=(255, 214, 92),
     ui_selected=(120, 200, 255),
@@ -43,6 +49,7 @@ PALETTE_HC = Palette(
     player_bullet=(0, 255, 0),
     enemy_bullet=(255, 255, 0),
     hud_text=(255, 255, 255),
+    hud_bg=(0, 0, 0),
     ui_text=(255, 255, 255),
     ui_focus=(255, 255, 0),
     ui_selected=(0, 255, 255),

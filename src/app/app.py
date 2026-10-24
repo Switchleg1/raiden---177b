@@ -562,8 +562,18 @@ class App:
             # every sector scrolls its own phase-scheduled terrain
             level = C.LEVELS[self.game.level_index]
             seed = self.game.level_index + 1
-            if not (seamless and
-                    self.renderer.handoff_terrain(level, seed)):
+            if self.streaming():
+                # A streamed sector has nothing to hand over and nothing to
+                # dissolve. Its ground was designed and painted before the
+                # pointer moved, the renderer draws the Level instead of a baked
+                # map, and the camera keeps scrolling through the change. The
+                # baked handoff used to load the *previous* generation of tiles,
+                # reveal them, and then snap to the new ones - which is the whole
+                # process the strip exists to replace, so it is skipped here
+                # rather than worked around.
+                self.renderer.clear_terrain()
+            elif not (seamless and
+                      self.renderer.handoff_terrain(level, seed)):
                 # A respawn is the sector the craft already flew over; asking
                 # for it must not rebuild the ground under the player.
                 self.renderer.ensure_terrain(level, seed)
@@ -588,7 +598,13 @@ class App:
         if idx >= C.FINAL_LEVEL_INDEX:
             return
         nxt = idx + 1
-        self.prefetch.request_sector(C.LEVELS[nxt], nxt + 1)
+        if not self.streaming():
+            # Baking the next sector is how the *baked* path readies its ground.
+            # A streamed sector designs and paints instead, and does it through
+            # the Level, so asking for a bake too is seconds of work for tiles
+            # that will never be drawn - and worse, tiles that would show up if a
+            # handover ever found them ready.
+            self.prefetch.request_sector(C.LEVELS[nxt], nxt + 1)
         self.prefetch.request_art(self.game.boss_sheet(nxt))
 
     def _watch_load_ahead(self) -> None:

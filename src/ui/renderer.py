@@ -976,9 +976,25 @@ class Renderer:
                                  (x + 5, y + 14), (x + 12, y + 6),
                                  (x + 8, y + 6)])
 
+    def draw_hud_panel(self) -> None:
+        """Fill the strip above the field with its opaque panel colour.
+
+        The HUD is a panel the readouts sit on, not a decal over the world.
+        Streamed ground in particular can reach up behind the readouts - the far
+        range is drawn from slices that are not cut to the field's top edge - and
+        score, lives and bombs over moving terrain are unreadable exactly where
+        the player glances most. The fill stops at FIELD_TOP: the field belongs to
+        the ground below it.
+        """
+        import pygame
+
+        pygame.draw.rect(self.canvas, self.palette.hud_bg,
+                         (0, 0, C.LOGICAL_W, C.FIELD_TOP))
+
     def draw_hud(self, game: Any, elapsed: float) -> None:
         import pygame
         p = self.palette
+        self.draw_hud_panel()
         f = get_font(22)
         left = f.render(f"SCORE {game.score}", True, p.hud_text)
         self.canvas.blit(left, (C.FIELD_LEFT + 4, 10))
