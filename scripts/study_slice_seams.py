@@ -47,9 +47,14 @@ def paint_window(plan, kit, y0: int, h: int) -> numpy.ndarray:
 
     from terrain.compose import NEAR_MATS, _grid
     _grid(plane.stamp, kit, list(NEAR_MATS[plan.theme]),
-          Random(plan.seed * 7717 + (y0 // STRIP_SLICE)))
+          Random(plan.seed * 7717), origin=(0, y0))
     plane.sync()
-    rng = random.Random(plan.seed * 8191 + (y0 // STRIP_SLICE) * 131 + 3)
+    # SEED_MODE=world gives both windows the SAME pass-level stream, which separates
+    # "the ground disagrees with itself" from "the paint call disagrees with the
+    # paint call": whatever survives the swap is coming from a stream that belongs
+    # to the window rather than to the world.
+    key = 1 if os.environ.get("SEED_MODE") == "world" else (y0 // STRIP_SLICE)
+    rng = random.Random(plan.seed * 8191 + key * 131 + 3)
     paint_site(plane, kit, plan, rng)
     arr = pygame.surfarray.array3d(plane.surface())
     return numpy.asarray(arr).transpose(1, 0, 2)     # (rows, cols, rgb)
@@ -60,40 +65,42 @@ def main() -> int:
     height = STRIP_SLICE * 4
     plan = plan_site("countryside", 1, Geom(h=height, cell=CELL, cyclic=False))
 
-    # The kept band of slice i and the same rows seen from its neighbour's window:
-    # both windows contain these rows, so every pixel must agree bit for bit.
-    worst = 0
-    for i in (1, 2):
-        y_keep = i * STRIP_SLICE
-        rows = STRIP_SLICE
-        a = paint_window(plan, kit, y_keep - STRIP_MARGIN,
-                         rows + 2 * STRIP_MARGIN)
-        b = paint_window(plan, kit, y_keep, rows)      # anchored differently
-        # align: b row r == world row y_keep + r; a row r == y_keep - MARGIN + r
-        shift = STRIP_MARGIN
-        common = min(b.shape[0], a.shape[0] - shift)
-        ca = a[shift:shift + common]
-        cb = b[:common]
-        diff = (ca.astype(int) - cb.astype(int))
-        bad = (numpy.abs(diff).max(axis=2) > 0)
-        per_row = bad.mean(axis=1)
-        rows_bad = numpy.nonzero(per_row > 0.001)[0]
+    # THE real seam test, matching how a strip actually paints: every window is the
+    # same height (slice + 2 x margin), consecutive windows start one slice apart,
+    # and the band where they both cover the same world rows is the 2 x margin
+    # overlap. Comparing windows of *different* heights - which an earlier version of
+    # this script did - measures the feather's neighbourhood changing shape, which is
+    # a real purity bug but not the seam the player crosses, so it flattered or
+    # damned the painter for the wrong reason. Bit-for-bit, over the overlap, or the
+    # ground has a line in it.
+    H = STRIP_SLICE + 2 * STRIP_MARGIN
+    worst = 0.0
+    for i in (1, 2, 3):
+        y_a = i * STRIP_SLICE - STRIP_MARGIN
+        y_b = y_a + STRIP_SLICE
+        a = paint_window(plan, kit, y_a, H)
+        b = paint_window(plan, kit, y_b, H)
+        # Rows [S, S+2M) of A are the same world rows as rows [0, 2M) of B.
+        s = STRIP_SLICE
+        ca = a[s:s + 2 * STRIP_MARGIN]
+        cb = b[:2 * STRIP_MARGIN]
+        common = min(ca.shape[0], cb.shape[0])
+        diff = ca[:common].astype(int) - cb[:common].astype(int)
+        bad = numpy.abs(diff).max(axis=2) > 0
         pct = float(bad.mean()) * 100.0
         worst = max(worst, pct)
-        print(f"slice {i}: {pct:5.2f}% of pixels disagree over {common} rows")
-        if len(rows_bad):
-            head = rows_bad[:4]
-            tail = rows_bad[-4:]
-            print(f"          first bad rows {list(head)} "
-                  f"last bad rows {list(tail)} of {common}"
-                  f"  (worst row {per_row.max() * 100:.1f}% at "
-                  f"{int(per_row.argmax())})")
-            print(f"          bad rows are "
-                  f"{'at the window edges' if rows_bad.max() > common - 3 * STRIP_MARGIN and rows_bad.min() < STRIP_MARGIN else 'in the middle'}")
+        per_col = bad.mean(axis=0)
+        print(f"boundary {i}: {pct:6.3f}% of the {common}-row overlap disagrees"
+              f"  (worst row {bad.mean(axis=1).max() * 100:5.1f}%"
+              f" at overlap row {int(bad.mean(axis=1).argmax())}"
+              f", worst column {per_col.max() * 100:5.1f}%"
+              f" at col {int(per_col.argmax())})")
+        if pct:
             print(f"          mean magnitude where different: "
-                  f"{numpy.abs(diff[bad]).mean():.1f} of 255")
-    print(f"\nworst disagreement: {worst:.2f}% - seams are "
-          f"{'REAL' if worst > 0.5 else 'small but visible in flat ground'}")
+                  f"{numpy.abs(diff[bad]).mean():.1f} of 255"
+                  f", max {numpy.abs(diff[bad]).max()}")
+    print(f"\nworst overlap disagreement: {worst:.3f}% - "
+          f"{'SEAMS ARE REAL' if worst > 0.02 else 'the overlap agrees: no seam'}")
     return 0
 
 

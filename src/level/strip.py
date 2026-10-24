@@ -154,8 +154,11 @@ class TerrainStrip:
             from random import Random
 
             from terrain.compose import NEAR_MATS, _grid
+            # Seeded by world position inside `_grid`, so a slice's base materials
+            # do not depend on which slice it is: `i` used to be in the seed here,
+            # which re-rolled the whole material grid at every boundary.
             _grid(plane.stamp, kit, list(NEAR_MATS[self.plan.theme]),
-                  Random(self.plan.seed * 7717 + i))
+                  Random(self.plan.seed * 7717), origin=(0, y0))
             plane.sync()
         # The pass-level stream only picks things the plan did not already pin
         # down; per-feature jitter comes from the plan itself, which is why

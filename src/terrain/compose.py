@@ -45,7 +45,7 @@ def _blit_wrap(c: Any, img: Any, x: float, y: float) -> None:
 
 
 def _grid(canvas: Any, k: TileKit, mats: list[tuple[str, float]],
-          rng: random.Random) -> None:
+          rng: random.Random, origin: tuple[int, int] = (0, 0)) -> None:
     """Base material + soft masked patches.  The dominant material fills
     every cell; alternates are radially feathered so cell boundaries read
     as natural patches, and the canvas stays wrap-continuous."""
@@ -55,9 +55,15 @@ def _grid(canvas: Any, k: TileKit, mats: list[tuple[str, float]],
         for gx in range(GRID_C):
             # NO flips/rotations: seam matching only holds unflipped
             canvas.blit(k.material(base), (gx * TILE, gy * TILE))
+    # Per cell, from where that cell **is** - not from a stream belonging to the
+    # window being painted. Seeded per canvas, this made every strip slice a fresh
+    # roll of the material dice, so the base ground disagreed with itself along
+    # every boundary: the single largest seam there was.
+    from .features import _at
     for gy in range(GRID_R):
         for gx in range(GRID_C):
-            name = rng.choices(names, weights=wts)[0]
+            name = _at("grid", origin[0] + gx * TILE, origin[1] + gy
+                       * TILE).choices(names, weights=wts)[0]
             if name != base:
                 # faded to a third: the mix keeps its grain, but at full
                 # strength every cell carries a soft stain, and the reviewers

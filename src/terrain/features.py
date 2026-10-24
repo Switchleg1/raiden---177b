@@ -488,7 +488,13 @@ def _tint_lines(canvas: Any, pts: list[tuple[float, float]], col: Any,
 def _splat(kit: TileKit, canvas: Any, name: str, x: float, y: float,
            s: float, rng: random.Random) -> None:
     import pygame
-    p = pygame.transform.rotozoom(kit.splats[name], rng.randint(0, 359), s)
+    # `rng` is a window's stream and this stamp must not depend on which window
+    # asked for it: the same splat, at the same world position, arrives at the same
+    # angle in every window that shows it.
+    _ = rng
+    p = pygame.transform.rotozoom(kit.splats[name],
+                                  _at("splat", name, round(x), round(y))
+                                  .randint(0, 359), s)
     _blit_wrap(canvas, p, x - p.get_width() / 2, y - p.get_height() / 2)
 
 
@@ -498,10 +504,14 @@ def _prop(kit: TileKit, canvas: Any, name: str, x: float, y: float,
     import pygame
     if name not in kit.props:
         return
+    # See `_splat`: variant, angle and flip come from the ground this prop stands
+    # on, never from the window that happens to be painting it.
+    _ = rng
+    here = _at("prop", name, round(x), round(y))
     p = kit.props[name]
-    ang = rng.choice((0, 90, 180, 270)) if rot4 else 0
+    ang = here.choice((0, 90, 180, 270)) if rot4 else 0
     p = pygame.transform.rotozoom(p, ang, s)
-    if rng.random() < 0.5:
+    if here.random() < 0.5:
         p = pygame.transform.flip(p, True, False)
     if shadow > 0:
         _shadow_on(canvas, x + shadow * 0.5, y + shadow * 0.7,
@@ -579,6 +589,38 @@ def _band(canvas: Any, plan: SitePlan, kind: str) -> list[int]:
     y0 = getattr(canvas, "y0", 0.0)
     h = getattr(canvas, "h", 0) or getattr(canvas, "get_height", lambda: 0)()
     return plan.band(kind, y0, y0 + h)
+
+
+def _bytes(v: int) -> bytes:
+    """Eight bytes of an integer, order-stable across runs (never `hash()`)."""
+    if -(2 ** 63) <= v < 2 ** 63:
+        return v.to_bytes(8, "little", signed=True)
+    return str(v).encode()
+
+
+def _at(*key: object) -> random.Random:
+    """A stream belonging to one **place**, not to one paint call or one slice.
+
+    The painter must be a pure function of world position, because that is the only
+    way a strip painted in overlapping pieces can come out seamless: if the choice
+    depends on which window asked, then the same tree is a different tree in each
+    piece, and the seam is not a line to hide but a genuine disagreement that no
+    margin or blend can fix. Everything a stamp needs - variant, rotation, flip -
+    is therefore derived from where it stands, and `rng` arguments are no longer
+    consulted for it.
+
+    FNV-1a over the quantised coordinates, so a 1 px difference in the anchor gives
+    a different stream (that is the point) while the same anchor gives the same one
+    in every window, on every machine, in any interpreter.
+    """
+    mask = 0xFFFFFFFFFFFFFFFF
+    h = 1469598103934665603 & mask
+    for v in key:
+        parts = (v.encode("utf-8", "ignore") if isinstance(v, str)
+                 else _bytes(int(v)))
+        for b in parts:
+            h = ((h ^ b) * 1099511628211) & mask
+    return random.Random(h)
 
 
 def _frand(plan: SitePlan, index: int, salt: int) -> random.Random:
@@ -1088,12 +1130,26 @@ def paint_far(canvas: Any, kit: TileKit, plan: SitePlan,
     import pygame
 
     from .theme_table import FAR_PAIR
-    for namei, name in enumerate(FAR_PAIR[plan.theme]):
-        frng = _frand(plan, namei, 43)
-        t = pygame.transform.smoothscale(kit.patch(name), (280, 280))
-        for _ in range(3):
-            t.set_alpha(frng.randint(22, 40))
-            _blit_wrap(canvas, t, frng.uniform(0, CW), frng.uniform(0, CH))
+    SPAN = 280
+    # Placed on a lattice in **world** rows and columns, one decision per cell,
+    # rather than three positions drawn from a stream belonging to this window -
+    # which is what made the far layer disagree with itself across a slice
+    # boundary: same patch name, different places, a seam of tone.
+    y0 = int(getattr(canvas, "y0", 0))
+    tall = int(getattr(canvas, "h", 0) or canvas.get_height())
+    y_from = y0 // SPAN * SPAN - SPAN
+    y_to = y0 + tall + SPAN
+    for name in FAR_PAIR[plan.theme]:
+        t = pygame.transform.smoothscale(kit.patch(name), (SPAN, SPAN))
+        for wy in range(y_from, y_to, SPAN):
+            for wx in range(0, CW, SPAN):
+                here = _at("farpatch", plan.seed, name, wx, wy)
+                if here.random() >= 0.62:
+                    continue
+                t.set_alpha(here.randint(22, 40))
+                _blit_wrap(canvas, t,
+                           wx + here.uniform(-SPAN * 0.4, SPAN * 0.4),
+                           wy + here.uniform(-SPAN * 0.4, SPAN * 0.4))
     paint_relief(canvas, kit, plan, rng, far=True)
 
 

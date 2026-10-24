@@ -1,0 +1,21 @@
+pygame-ce 2.5.8 (SDL 2.32.10, Python 3.14.8)
+baking 18 sector maps into C:\Users\switchleg\Documents\GitHub\raiden---177b\data\textures\terrain
+  1_countryside_*.png (1760 KB) [2544 ms]
+  1_farmland_*.png (1767 KB) [3016 ms]
+  2_swamp_*.png (1644 KB) [3054 ms]
+  2_farmland_*.png (1720 KB) [2316 ms]
+  3_city_*.png (1594 KB) [2949 ms]
+  3_ruins_*.png (1686 KB) [2093 ms]
+  4_glacier_*.png (1682 KB) [2094 ms]
+  4_ocean_*.png (1395 KB) [604 ms]
+  5_ruins_*.png (1712 KB) [2146 ms]
+  5_canyon_*.png (1540 KB) [2201 ms]
+  6_volcanic_*.png (1729 KB) [1710 ms]
+  6_canyon_*.png (1509 KB) [1938 ms]
+  7_ocean_*.png (1376 KB) [598 ms]
+  7_airbase_*.png (1211 KB) [554 ms]
+  8_industrial_*.png (1391 KB) [1549 ms]
+  8_airbase_*.png (1265 KB) [563 ms]
+  9_wasteland_*.png (1552 KB) [2281 ms]
+  9_canyon_*.png (1518 KB) [1976 ms]
+done in 34.19 s
