@@ -50,6 +50,7 @@ def main(argv: list[str]) -> int:
     scratch = pygame.Surface((C.LOGICAL_W, C.LOGICAL_H), pygame.SRCALPHA)
     drawn: list[int] = []
     cover: list[float] = []
+    waiting: list[float] = []
     holes = 0
     # Throttle like the real loop (`clock.tick(FPS)`) and sample lightly. An
     # unthrottled loop holds the GIL solid and the painting threads never get a
@@ -67,9 +68,17 @@ def main(argv: list[str]) -> int:
             # not ground and never will be
             alpha = pygame.surfarray.array_alpha(scratch)[
                 band.left:band.right, band.top:band.bottom]
-            cover.append(float((alpha > 200).mean()))
-            if cover[-1] < 0.9:
-                holes += 1
+            # only while the craft is actually flying: the seconds before launch
+            # are the sector preparing itself, and counting them made a healthy
+            # 84% read as 11% - an artefact of *when* this measures, not of the
+            # ground. The pre-launch samples are reported separately.
+            value = float((alpha > 200).mean())
+            if app.sm.state == State.PLAYING:
+                cover.append(value)
+                if value < 0.9:
+                    holes += 1
+            else:
+                waiting.append(value)
         left = frame - (time.perf_counter() - t0) / (i + 1)
         time.sleep(max(0.0, min(frame, left)))
     wall = time.perf_counter() - t0
@@ -81,11 +90,13 @@ def main(argv: list[str]) -> int:
           f"  ({lvl.progress() * 100:4.1f}%)")
     print(f"  slices   : min {min(drawn)} mean {statistics.mean(drawn):.2f} "
           f"max {max(drawn)}  sampled frames under-covered: {holes}/{len(drawn)}")
-    print(f"  coverage : mean {statistics.mean(cover) * 100:5.1f}%  "
-          f"min {min(cover) * 100:5.1f}%  last half "
-          f"{statistics.mean(cover[len(cover) // 2:]) * 100:5.1f}%  "
-          f"settled {statistics.mean(cover[-10:]) * 100:5.1f}% (last 10 samples)")
-    print("             the mean includes the seconds before the first slice")
+    if cover:
+        print(f"  coverage : flown frames - mean {statistics.mean(cover) * 100:5.1f}%  "
+              f"min {min(cover) * 100:5.1f}%  first 10 samples "
+              f"{statistics.mean(cover[:10]) * 100:5.1f}%  "
+              f"settled {statistics.mean(cover[-10:]) * 100:5.1f}%")
+    print(f"             ({len(waiting)} samples before launch ignored; "
+          f"mean ground then {statistics.mean(waiting) * 100:.1f}%)")
     print(f"  frontier : near {lvl.strips['near'].frontier()}/"
           f"{lvl.strips['near'].count} slices, far "
           f"{lvl.strips['far'].frontier()}/{lvl.strips['far'].count}")

@@ -505,6 +505,10 @@ class App:
             self.renderer.clear_terrain()
             self.level = None
         self._set_music(self.game.level_index)
+        # The first sector has no lead-in of its own - nothing has been painting
+        # it - so start it here, where the title and READY seconds are otherwise
+        # idle, instead of asking for its ground the moment it is needed.
+        self._warm_current_level(self.game.level_index)
         self._enter_ready()
 
     def _set_music(self, level_index: int = 0) -> None:
@@ -624,6 +628,22 @@ class App:
         streaming directly, at a size it can afford.
         """
         return bool(getattr(self.settings, "streamed_terrain", False))
+
+    def _warm_current_level(self, idx: int) -> None:
+        """Begin preparing the sector the run is about to enter, now.
+
+        Every sector but the first already has a head start: the next one has
+        been painting since halfway through this one. Sector 1 has nothing until
+        the run starts, which is why it opens with ground filling in. Starting it
+        here spends the READY countdown - a pause the player is already sitting
+        through - on the work that has to happen anyway.
+        """
+        if not self.streaming() or self.next_level is not None:
+            return
+        from level import Level
+
+        self.next_level = Level(C.LEVELS[idx], seed=idx + 1)
+        self.next_level.start()
 
     def _warm_level_ahead(self, idx: int) -> None:
         """Start preparing the sector after this one. Off the frame thread."""

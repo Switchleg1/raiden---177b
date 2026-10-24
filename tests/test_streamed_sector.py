@@ -233,3 +233,30 @@ def test_a_baked_sector_is_never_held_by_a_streamed_guards(app, tiny_sectors):
     for _ in range(int(READY_TIME * 60) + 2):
         app._update(1.0 / 60.0)
     assert app.sm.state == State.PLAYING
+
+
+def test_the_first_sector_starts_preparing_when_the_run_starts(app,
+                                                               tiny_sectors,
+                                                               monkeypatch):
+    """Sector 1 is the one with no lead-in: no earlier sector was painting it
+    while the player flew. So the run starts it, and 'starts' means the design
+    and the first slices are already underway by the time READY is shown - the
+    title and READY seconds were idle, and this spends them on work that has to
+    happen before the craft takes off either way."""
+    seen = {}
+    real = app._enter_ready
+
+    def spy(seamless: bool = False):
+        lvl = app.next_level
+        seen["warmed"] = lvl is not None
+        seen["started"] = bool(getattr(lvl, "_threads", ()))
+        seen["seed"] = getattr(lvl, "seed", None)
+        return real(seamless)
+
+    monkeypatch.setattr(app, "_enter_ready", spy)
+    app._start_game()
+    assert seen["warmed"], "the run entered READY before its sector began"
+    assert seen["started"], "the sector was made but nothing was painting it"
+    assert seen["seed"] == 1
+    assert app.level is not None and app.level.seed == 1
+    assert app.next_level is None, "the prepared sector was not taken over"
