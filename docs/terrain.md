@@ -266,15 +266,35 @@ the picture must move down by that much and must not stand still.
 
 **Half of the throughput fix is in: the design pass runs in a process.**
 `level/design.py` asks for a sector's plan in another interpreter, which has its
-own GIL and gets its own core. That is cheap rather than heroic for two reasons:
-a site plan is pure data (no pygame, no numpy - six screens pickle to 336 KB,
-negligible next to the 0.75 s a slice costs to paint), and it pickles
-*identically* - the planner keys its randomness on arithmetic and never iterates
-a set, so a plan designed in a child process is the plan designed here, which
+own GIL and gets its own core. The plan pickles *identically* across
+interpreters - the planner keys its randomness on arithmetic and never iterates a
+set - so a plan designed in a child is the plan designed here, which
 `tests/test_level_design.py` asserts by comparing a plan's whole signature across
-interpreters. A one-screen baked map stays in-process (the spawn costs more than
-the design), and a refused or dead worker falls back to designing here, loudly.
+processes. A one-screen baked map stays in-process (the spawn costs more than the
+design), and a refused or dead worker falls back to designing here, loudly.
 `App.shutdown` dismisses the worker before the runtime comes down.
+
+I wrote here that a site plan "is pure data - no numpy", and that was wrong in a
+way that costs seconds: `SitePlan` carries four grid-wide arrays (`_w` plus the
+ridge, water and built masks) which exist only while planning and are dead weight
+afterwards. For a sector strip that is hundreds of megabytes going down a pipe on
+every sector. Dropping them from `__getstate__` is the cheapest large win left,
+and it is the reason the plan of ten screens measured 336 KB while a whole sector's
+measured seconds.
+
+**The streamed path is the default now, and the honest reason it still ramps.**
+Measured, sector 1: **~8 s to design in the child** plus **~3 s to pickle it
+back**, against a READY-plus-hold window of about 5 s. So the craft takes off
+while its ground is still being invented, at 330 bake px/s, against a painter that
+wants 0.75 s per 56 px slice - and spends the opening seconds outrunning both.
+The first ten samples of a playtest read **0% ground**; the fights still arrive
+from the ground (4 released in 10 s, model clock off), so everything is wired - it
+is the schedule that is wrong. Sector 1 is the only sector like this: every later
+one had the whole of the previous sector to prepare in. Three consequences, in the
+order they are worth fixing: stop sending the scratch arrays over the pipe, start
+the design at the title screen rather than at the run, and hold the launch on a
+budget measured in *world distance travelled* rather than in wall seconds, so a
+slow machine starts later rather than starting into an empty field.
 
 **A number that misled me, and why.** With the design in a process but painting
 still on threads, a run reported "1 slice of 66 in 8 s", which read as painting
