@@ -282,6 +282,47 @@ Adding a cue = adding one literal dict to the right table. The engine needs no
 edit, the playlist builders pick it up, and `test_drum_kit.py` (rhythm tags) and
 `test_music_arrangement.py` (motif, bass and voicing tags) validate it.
 
+## The energy rule, and why the first track used to be the same one
+
+Played rather than read: sectors 0 and 3 were leaning on cues that *described* their
+ground and did not push it - a triangle stating a ballad at 224, a flute over a bed
+with no backbeat - and the flying felt like waiting. So the roster has a rule, not a
+preference (`test_the_flying_roster_is_fast`): every sector's pool has **median bpm
+>= 230**, and at most one cue under 200. Sector medians landed at 242-265.
+
+Nine slow cues were **deleted** rather than parked (`Overture of Field`, `Daydream
+Vector`, `Sunset Circuit`, `Empyrean Dread`, `Peak of Regret`, `Crater Wastes`,
+`Crypt March`, `Retro Cascade`, plus the mountain ballads). A cue in no pool is a cue
+nobody can hear, and `test_no_cue_is_unreachable` is right to complain about a
+graveyard. One drumless cue stays, in the last sector, because the fortress has an
+empty middle - and it comes from the menu table, which is what
+`test_a_pool_really_does_reach_across_tables` keeps true.
+
+A new **electronic block** (six cues) covers the three things asked for by name, and
+`test_the_new_electronic_cues_cover_trance_electro_and_dub` requires all three to
+exist *and* to be flown by some sector:
+
+| side | cues | what makes it that |
+|---|---|---|
+| trance | `Afterburner` 268, `Solar Flux` 272, `Open Circuit` 262 | chord pads (`pad_chord`), supersaws, `drive16`/`offbeat` |
+| electro | `Acid Cathedral` 260, `Fulcrum` 256, `Static Bloom` 244 | syncopated beds, stutter riffs, a 303 under a nave |
+| dub | `Dubplate` 244 | dorian, `chug` bass, **two bars per chord** so it moves by weights not changes, arp `stock` under a 0.5 pump: the kick owns the low end and the space is the effect |
+
+**The same first track every launch** - and the bug was not in the chooser.
+`pick_level_cue` already picked at random, but it can only choose among cues that have
+finished rendering, and the render plan scheduled every pool from its first entry while
+deliberately building "the identity cue of the starting sector" first. At the first
+moment music could start there was exactly **one** ready cue, so the randomness had
+nothing to choose between. The plan now shuffles each pool before scheduling
+(`test_which_cue_a_run_opens_with_is_not_fixed`), and the round-robin shape - one cue
+per sector before any sector gets a second - is asserted separately, so the fix cannot
+buy randomness by breaking startup latency. Music is presentation, not simulation: no
+replay depends on which tune played.
+
+Cuts to this table get checked afterwards, not trusted: `Gearwork Cathedral` had to be
+re-added after a script deleted its *neighbour* and took it with it, while two sector
+pools went on naming a cue that no longer existed.
+
 ## Per-sector cue pools
 
 One cue per sector, chosen once, is why a long run starts to feel like the same

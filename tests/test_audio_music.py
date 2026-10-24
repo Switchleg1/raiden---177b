@@ -99,7 +99,14 @@ def test_plan_gives_every_sector_its_own_cue_early(mgr):
     import music
     pools = music.LEVEL_CUES
     names = _level_names(mgr._music_build_plan(music))[:len(pools)]
-    assert set(names) == {pools[i][0] for i in pools}
+    # The plan shuffles each sector's pool before scheduling, so WHICH cue a sector
+    # gets first varies per launch - that is the fix for "the first track of level 1
+    # is always the same one". What must not vary is the shape: one cue per sector,
+    # every sector, before any sector gets a second.
+    assert len(names) == len(pools)
+    assert len(set(names)) == len(pools), "one sector got two cues before another got one"
+    inside = all(any(n in pool for pool in pools.values()) for n in names)
+    assert inside, "a cue from outside every pool got scheduled early"
 
 
 def test_plan_survives_a_cue_name_that_does_not_resolve(mgr, monkeypatch):
@@ -305,3 +312,25 @@ def test_the_pcm_describes_itself_the_way_it_was_made():
     assert bits == 16
     assert sample_rate == MIXER_RATE
     assert byte_rate == MIXER_RATE * 2          # one 16-bit frame per sample
+
+
+def test_which_cue_a_run_opens_with_is_not_fixed(mgr):
+    """The first cue of sector 1 used to be the same cue on every launch.
+
+    Not by design - by readiness. `pick_level_cue` can only choose among cues that
+    have finished rendering, the render plan started every pool at its first entry,
+    and so the first entry of sector 1's pool was the only thing ready when the
+    music first started. One tune, forever, and it was the slow one.
+
+    The plan shuffles each pool before scheduling it, so which cue is ready first
+    varies per process. Music is presentation: no replay depends on it, and a
+    player booting the game for the hundredth time should not hear the same bar.
+    """
+    import music
+
+    firsts = set()
+    for _ in range(12):
+        firsts.add(_level_names(mgr._music_build_plan(music))[0])
+    assert len(firsts) > 1, (
+        f"12 launches all opened on {firsts.pop()!r}: the plan is not shuffling, "
+        "so readiness is deciding the playlist again")

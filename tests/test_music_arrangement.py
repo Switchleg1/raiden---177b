@@ -217,7 +217,11 @@ def test_untagged_cues_still_make_up_the_bulk_of_the_roster():
     an arrangement choice."""
     stock = [t for t in THEMES if "motifs" not in t and "bass" not in t]
     assert len(stock) >= len(THEMES) // 2
-    assert len(stock) >= 25
+    # 20, not 25: the flying roster gave up nine slow cues to the energy brief, and
+    # most of what went had no arrangement tags on it. The rule this guards - the
+    # hooks stay opt-in and the plain synth bulk stays the majority - is unchanged,
+    # and the majority check above is what actually holds it.
+    assert len(stock) >= 20
 
 
 @pytest.mark.parametrize("tag", sorted({*MOTIF_SETS, *BASS_LINES}))
@@ -293,7 +297,15 @@ def test_a_slow_cue_lives_in_one_sector_not_scattered_down_the_run():
                 homes[name] = homes.get(name, 0) + 1
     scattered = {n: c for n, c in homes.items() if c > 1}
     assert not scattered, f"slow cues in more than one sector: {scattered}"
-    assert len(homes) >= 5, "the roster lost its slow cues rather than placing"
+    # The roster used to be required to KEEP five slow cues, which is how "make it
+    # faster" turned into a fight with a test. What the test is for is placement: a
+    # cue that describes slow ground belongs to one sector, not strewn down the run.
+    # The energy rule is the one below, and it is stated as a number.
+    for level, pool in LEVEL_CUES.items():
+        slow = [n for n in pool if float(_by_name(n)["bpm"]) < SLOW_BPM]
+        assert len(slow) <= 1, (
+            f"sector {level} has {len(slow)} slow cues: {slow} - one may be the "
+            "sector's own landscape, two is a sector the player waits through")
 
 
 def test_every_sector_keeps_a_dance_floor_under_it():
@@ -331,7 +343,10 @@ def test_no_two_sectors_share_the_same_identity_cue():
 
 def test_landmark_cues_stay_where_the_ground_says_they_belong():
     """The pools are curated to the terrain, not shuffled."""
-    assert "Overture of Field" in music.level_cues(0)      # the approach
+    # "Overture of Field" used to be the valley's landmark, and it is why the first
+    # cue of every run was the same triangle ballad; the valley's landmark is now
+    # Starfall Vale, the same tune with a kick under it.
+    assert "Starfall Vale" in music.level_cues(0)          # the approach
     assert "Knight of the Marsh" in music.level_cues(1)    # the bayou
     assert "Final Wave" in music.level_cues(len(C.LEVELS) - 1)   # the last one
 
@@ -372,8 +387,8 @@ def test_pick_uses_only_what_has_rendered():
 
     rng = random.Random(3)
     for _ in range(30):
-        got = music.pick_level_cue(0, ["Sunset Circuit"], None, rng)
-        assert got == "Sunset Circuit"
+        got = music.pick_level_cue(0, ["Starfall Vale"], None, rng)
+        assert got == "Starfall Vale"
 
 
 def test_pick_falls_back_to_the_identity_cue_when_that_is_all_there_is():
@@ -480,3 +495,48 @@ def test_a_voiced_cue_sounds_different_from_itself_unvoiced():
     whole = [("A", 2)]
     assert _render(cue, whole) != _render(
         {k: v for k, v in cue.items() if k != "instruments"}, whole)
+
+
+FAST_BPM = 230.0
+
+
+def test_the_flying_roster_is_fast():
+    """The brief from playing the game: the sectors felt slow, so the roster is
+    now required to be fast rather than allowed to be.
+
+    Not "every cue above N" - a sector keeps one cue that describes its own
+    ground, and the cathedral's is 186. The rule is on the middle of each pool:
+    the tune a player is most likely to hear in a sector is a fast one, and no
+    sector is allowed to be mostly waiting.
+    """
+    import statistics
+
+    for level, pool in LEVEL_CUES.items():
+        bpms = [float(_by_name(n)["bpm"]) for n in pool]
+        med = statistics.median(bpms)
+        assert med >= FAST_BPM, (
+            f"sector {level} has median {med:.0f} bpm across {pool}: the middle of "
+            "a sector's playlist is what a player actually hears twice")
+        slow = [b for b in bpms if b < 200.0]
+        assert len(slow) <= 1, f"sector {level} is {slow}: at most one slow cue"
+
+
+def test_the_new_electronic_cues_cover_trance_electro_and_dub():
+    """Three flavours were asked for by name, so the roster has to contain all
+    three rather than three varieties of the same thing."""
+    by_name = {t["name"]: t for t in THEMES}
+    flavours = {
+        "trance": [n for n, t in by_name.items()
+                   if t.get("kit") == "trance" and t.get("pad_chord")],
+        "electro": [n for n, t in by_name.items()
+                    if t.get("kit") == "electro" and t.get("groove") == "electro"],
+        "dub": [n for n, t in by_name.items()
+                if t.get("scale") == "dorian" and t.get("bass") == "chug"
+                and float(t.get("pump", 0)) >= 0.45],
+    }
+    for flavour, names in flavours.items():
+        assert names, f"nothing in the roster is playing the {flavour} side"
+    pooled = {n for pool in LEVEL_CUES.values() for n in pool}
+    for flavour, names in flavours.items():
+        assert set(names) & pooled, f"the {flavour} cues (" + ", ".join(names) + \
+            ") are written but no sector flies under one"

@@ -247,6 +247,17 @@ class AudioManager:
             i: tuple(getattr(_music_mod, "LEVEL_CUES", {}).get(i, ()))
             for i in range(len(C.LEVELS))
         }
+        # Shuffle each sector's pool, once, before anything is scheduled. The
+        # render plan's order *is* the playlist's freedom: `pick_level_cue` can only
+        # choose among cues that have finished rendering, so scheduling every pool
+        # from its first entry meant the first cue of sector 1 was the same slow
+        # tune on every launch forever - there was nothing else ready yet to choose.
+        # Music is presentation, not simulation, so an unseeded shuffle is honest
+        # here: no replay depends on which tune played, and a player should not hear
+        # the same opening bar every time they boot the game.
+        shuffle = random.Random()
+        pools = {i: tuple(shuffle.sample(pool, len(pool))) if pool else pool
+                 for i, pool in pools.items()}
         steps: list[tuple[str, str, dict]] = []
         done: set[str] = set()
 

@@ -628,21 +628,8 @@ THEMES: tuple[dict, ...] = (
     {"name": "Final Wave",  "root": 58, "bpm": 232, "lead": "pulse",
      "prog": (0, 6, 5, 4, 3, 6, 5, 4),
      "instruments": {"pad": "strings"}, },
-    # Extra level cues: the level playlist picks a random track per level (never
-    # the same one back-to-back), so the pool is deliberately larger than the
-    # number of levels. New original progressions in classic synthwave archetypes
-    # (Retro Cascade i-VI-VII-VI, driving i-VII-VI-VII, daydream i-VI-III-VII,
-    # minor 4-chord cycles) written in natural-minor scale degrees.
-    {"name": "Retro Cascade", "root": 53, "bpm": 212, "lead": "square",
-     "prog": (0, 5, 6, 5, 3, 5, 6, 4)},
     {"name": "Midnight Run", "root": 57, "bpm": 252, "lead": "saw",
      "prog": (0, 6, 5, 0, 6, 4, 5, 6)},
-    {"name": "Daydream Vector", "root": 62, "bpm": 172, "groove": "straight", "lead": "pulse",
-     "prog": (0, 5, 2, 4, 5, 3, 2, 6), "kit": "soft",
-     "instruments": {"arp": "bell"}, },
-    {"name": "Sunset Circuit", "root": 55, "bpm": 178, "lead": "triangle",
-     "prog": (0, 3, 6, 5, 3, 0, 4, 6), "kit": "soft",
-     "instruments": {"lead": "flute"}, },
     {"name": "Hyper Grid", "root": 60, "bpm": 240, "lead": "square",
      "prog": (0, 4, 5, 6, 3, 4, 5, 0)},
     # Original cues channelled from classic NES/SNES action-score archetypes
@@ -660,10 +647,6 @@ THEMES: tuple[dict, ...] = (
      "kit": "metal",
      "prog": (0, 5, 6, 5, 0, 3, 6, 4),  # gothic heroic gallop
      "instruments": {"pad": "strings", "arp": "bell"}, },
-    {"name": "Crypt March", "root": 57, "bpm": 210, "lead": "pulse",
-     "scale": "phrygian", "groove": "march", "kit": "heavy",
-     "prog": (0, 6, 5, 0, 3, 6, 5, 4),  # brooding dungeon crawl
-     "instruments": {"bass": "pluck"}, },
     {"name": "Clockwork Tide", "root": 60, "bpm": 228, "lead": "pulse",
      "groove": "drive16",
      "prog": (0, 2, 5, 4, 0, 2, 6, 4)},          # hopeful mediant (III) lift
@@ -706,12 +689,6 @@ THEMES: tuple[dict, ...] = (
      "kit": "heavy",
      "prog": (0, 6, 0, 5, 6, 0, 4, 0),  # belt-scroll i-VII
      "instruments": {"lead": "violin"}, },
-    # Secret of Mana "Fear of the Heavens" homage: analyses give Am with a major
-    # V (D/E) and chromatic mediants -> A harmonic minor, i-VI-iv-V.
-    {"name": "Empyrean Dread", "root": 57, "bpm": 176, "lead": "saw",
-     "scale": "harmonic", "groove": "halftime", "kit": "heavy",
-     "prog": (0, 5, 3, 4, 0, 5, 3, 4),  # i-VI-iv-V (SoM)
-     "instruments": {"pad": "strings"}, },
     # ---- more classics -----------------------------------------------------------
     # Original degree progressions in the spirit of these scores (structure only;
     # no copied melodies, no trademarked names as track titles).
@@ -719,23 +696,8 @@ THEMES: tuple[dict, ...] = (
      "scale": "harmonic", "kit": "metal",
      "prog": (0, 3, 4, 0, 0, 5, 3, 4),  # noble i-iv-V
      "instruments": {"lead": "violin"}, },
-    {"name": "Peak of Regret", "root": 55, "bpm": 196, "lead": "saw",     # Soul Blazer
-     "groove": "halftime", "kit": "heavy",
-     "prog": (0, 6, 5, 4, 0, 6, 3, 4),  # epic descent
-     "instruments": {"lead": "flute", "lead_b": "violin", "pad": "strings"}, },
-    {"name": "Overture of Field", "root": 61, "bpm": 224, "lead": "triangle",  # ALttP
-     "scale": "major", "groove": "march",
-     "prog": (0, 3, 4, 0, 5, 3, 4, 0),  # bright heroic
-     "instruments": {"lead": "flute", "pad": "strings"}, },
     {"name": "Neon Freeway", "root": 62, "bpm": 256, "lead": "square",    # Mega Man X
      "prog": (0, 0, 3, 4, 0, 5, 3, 4),  # driving i-VII
-     "instruments": {"arp": "bell"}, },
-    {"name": "Crater Wastes", "root": 53, "bpm": 188, "lead": "saw",      # Metroid
-     "scale": "dorian", "groove": "halftime", "kit": "soft",
-     "prog": (0, 6, 5, 0, 3, 6, 5, 4)},                                   # eerie expanse
-    {"name": "Gearwork Cathedral", "root": 57, "bpm": 236, "lead": "pulse",   # Castlevania
-     "scale": "harmonic", "kit": "metal",
-     "prog": (0, 4, 5, 6, 0, 4, 3, 4),  # clockwork gothic
      "instruments": {"arp": "bell"}, },
     # ---- SNES action-score profiles, driving-bass arrangements --------------
     # Structural homages only: mode, meter, cadence shape and layer roles were
@@ -860,17 +822,6 @@ THEMES: tuple[dict, ...] = (
      "motifs": "stutter", "bass": "chug", "arp_mode": "off", "pump": 0.25,
      "prog": (0, 0, 4, 5, 0, 3, 4, 5),   # tonic hammered, then it climbs
      "instruments": {"bass": "reese", "arp": "stab"}, },
-    # Progressive trance with a ballad tune: the lyric set (lift by a third,
-    # settle over two bars) over a bed with no backbeat, with the running bass
-    # line from the menu cues keeping sixteenths of motion underneath. The
-    # menu cues proved driving is a bass-line decision; this one gets to say it
-    # with a kick in front of it.
-    {"name": "Vapor Line", "root": 59, "bpm": 250, "lead": "triangle",
-     "scale": "dorian", "groove": "hypnotic", "kit": "trance",
-     "motifs": "lyric", "bass": "run", "arp_mode": "stock", "pump": 0.3,
-     "prog": (0, 3, 4, 3, 0, 5, 4, 0),   # i-iv-V-iv-i-vi-V-i: it goes nowhere
-     #                                       on purpose
-     "instruments": {"lead": "flute", "pad": "supersaw"}, },
     # An electro bed with a trance arp: the stutter riff answers a bell running
     # sixteenth gates, and the future kit's clap carries the backbeat the riff
     # keeps stepping around.
@@ -898,6 +849,62 @@ THEMES: tuple[dict, ...] = (
      "motifs": "soar", "bass": "electro", "arp_mode": "off", "pump": 0.18,
      "prog": (0, 4, 5, 3, 0, 3, 4, 0),   # I-V-vi-IV around the tonic
      "instruments": {"lead": "pluck", "arp": "stab"}, },
+    # --- ELECTRONIC BLOCK -----------------------------------------------------
+    # The brief from playing the game rather than reading the tables: the sectors
+    # that were still leaning on slow cues - a triangle playing a ballad tune over
+    # a bed with no backbeat - are the ones where the flying felt like waiting.
+    # These are written for that gap: trance chords, electro stabs, and a dub
+    # cue, which is the one nobody had tried. The dub track is not "less"); it is
+    # the same 4/4 bed with the MATERIAL pushed to the back - long delay-tailed
+    # bass stabs, a chord arp that arrives late and swims, and the pump set hard
+    # so the kick owns the low end. Space is the effect.
+    # A trance bed under a folklore tune: the mountain sector's sound said in the
+    # new language. Retired once by a script that cut the slow ballads and took this
+    # with it - it is 250 over a four-on-the-floor bed and was never slow, which is
+    # why the dance roster is checked against the table rather than from memory.
+    {"name": "Vapor Line", "root": 59, "bpm": 250, "lead": "triangle",
+     "scale": "dorian", "groove": "hypnotic", "kit": "trance",
+     "motifs": "lyric", "bass": "run", "arp_mode": "stock", "pump": 0.3,
+     "prog": (0, 3, 4, 3, 0, 5, 4, 0),   # i-iv-V-iv-i-vi-V-i: it goes nowhere
+     #                                       on purpose
+     "instruments": {"lead": "flute", "pad": "supersaw"}, },
+    # The machine sector's own cue: a metal kit, a pulse lead, a clockwork figure.
+    # It was lost once already when a neighbouring cue was cut from this tuple by a
+    # script that did not check what else it removed, while two sector pools kept
+    # naming it - which is why `test_every_pooled_name_resolves` asks the table for
+    # every name a pool lists.
+    {"name": "Gearwork Cathedral", "root": 57, "bpm": 236, "lead": "pulse",
+     "kit": "metal", "prog": (0, 3, 4, 3, 5, 4, 3, 0)},
+    {"name": "Afterburner", "root": 60, "bpm": 268, "lead": "saw",
+     "scale": "natural", "groove": "drive16", "kit": "trance",
+     "motifs": "hero", "bass": "offbeat", "arp_mode": "run16", "pump": 0.46,
+     "pad_chord": True,
+     "prog": (0, 6, 5, 4, 0, 3, 4, 0),   # i-vii-VI-iv-i-iv-V-i: lifts home
+     "instruments": {"pad": "supersaw", "bass": "reese", "arp": "pluck"}, },
+    {"name": "Dubplate", "root": 55, "bpm": 244, "lead": "triangle",
+     "scale": "dorian", "groove": "hypnotic", "kit": "electro",
+     "motifs": "base", "bass": "chug", "arp_mode": "stock", "pump": 0.5,
+     "prog": (0, 0, 5, 5, 3, 3, 4, 4),   # two bars on each chord: dub moves by
+     #                                       weights, not by changes
+     "instruments": {"lead": "flute", "bass": "acid", "arp": "bell"}, },
+    {"name": "Acid Cathedral", "root": 57, "bpm": 260, "lead": "saw",
+     "scale": "harmonic", "groove": "electro", "kit": "electro",
+     "motifs": "stutter", "bass": "electro", "arp_mode": "run16", "pump": 0.44,
+     "prog": (0, 4, 0, 6, 3, 4, 5, 0),   # harmonic minor, so it still sounds
+     #                                       like a nave and not a club
+     "instruments": {"bass": "acid", "pad": "supersaw", "arp": "pluck"}, },
+    {"name": "Fulcrum", "root": 62, "bpm": 256, "lead": "square",
+     "scale": "phrygian", "groove": "break", "kit": "future",
+     "motifs": "soar", "bass": "run", "arp_mode": "stock", "pump": 0.4,
+     "prog": (0, 1, 0, 6, 0, 1, 4, 0),   # the flat II does the work
+     "instruments": {"arp": "stab", "pad": "strings", "bass": "reese"}, },
+    {"name": "Solar Flux", "root": 61, "bpm": 272, "lead": "saw",
+     "scale": "lydian", "groove": "drive16", "kit": "trance",
+     "motifs": "hero", "bass": "offbeat", "arp_mode": "run16",
+     "pad_chord": True, "pump": 0.48,
+     "prog": (0, 4, 1, 4, 0, 3, 1, 0),   # #IV is the colour; it never resolves
+     #                                       down, it just keeps climbing
+     "instruments": {"pad": "supersaw", "arp": "pluck"}, },
 )
 
 MENU_THEMES: tuple[dict, ...] = (
@@ -1046,32 +1053,44 @@ BOSS_THEMES: tuple[dict, ...] = (
 # interrupting the run. Sector 0 gets both of its dusk cues *and* the two fastest
 # cues in the roster: the same stretch of open ground can be sunset or redline.
 LEVEL_CUES: dict[int, tuple[str, ...]] = {
-    0: ("Overture of Field", "Daydream Vector", "Sunset Circuit",
-        "Starfall Vale", "Neon Ascension", "Turbo Prism"),
-    1: ("Knight of the Marsh", "Back Alley", "Crypt March", "Crater Wastes",
-        "Static Bloom", "Signal Rain"),
+    # The valley is the first thing a player flies, and it used to open on
+    # "Overture of Field": a triangle stating a ballad at 224 over a bed with no
+    # backbeat, built FIRST in the render plan, which is why the first cue of every
+    # single run was the same slow one. The valley is still the valley - it keeps
+    # its folk tune and its sunrise - but it says it over a kick.
+    0: ("Afterburner", "Neon Ascension", "Turbo Prism", "Solar Flux",
+        "Chrome Circuit", "Starfall Vale"),
+    1: ("Knight of the Marsh", "Static Bloom", "Signal Rain", "Acid Cathedral",
+        "Fulcrum", "Back Alley"),
     2: ("Neon Grid", "Midnight Run", "Neon Freeway", "Freeway Pulse",
         "Ion Drift", "Open Circuit"),
-    # The ascent: the two climbing cues, the two slow ones that belong to a
-    # mountain, and Vapor Line - a flute stating a ballad tune over a bed with no
-    # backbeat, which is the sector's folklore sound said in the new language.
-    3: ("Hyrule Ascent", "Kakariko Heights", "Peak of Regret",
-        "Empyrean Dread", "Vapor Line", "Turbo Prism"),
-    # All harmonic minor, so the gothic colour is the sector; Signal Rain is the
-    # second dance cue precisely because harmonic minor is how the old cues said
-    # "cathedral" and the new bed can say the same thing at 254.
-    4: ("Cathedral Run", "Gearwork Cathedral", "Candelabra Hall",
-        "Magus Gate", "Chrome Prayer", "Signal Rain"),
-    5: ("Oath of Flame", "Blood Moon Rite", "Battle Verge", "Steel Fist",
+    # The mountain keeps its two climbing cues and its folklore colour - including
+    # Vapor Line, which is 250 over a four-on-the-floor bed and was never one of the
+    # slow cues - plus two of the fastest cues in the roster for the top of the run.
+    # The two ballads that used to sit here are gone from the flying roster.
+    3: ("Hyrule Ascent", "Kakariko Heights", "Vapor Line", "Solar Flux",
+        "Afterburner", "Voltage Sky"),
+    # All harmonic minor, so the gothic colour is the sector; Acid Cathedral is
+    # what happens when the new bed says "nave" out loud - a 303 under a supersaw.
+    # The gothic colour is the sector (harmonic minor, and Cathedral Run is the
+    # ground itself at 186), but the middle of this pool is 245 bpm: Acid Cathedral
+    # is what happens when a 303 and a supersaw both claim a nave.
+    4: ("Cathedral Run", "Battle Verge", "Candelabra Hall", "Acid Cathedral",
+        "Chrome Prayer", "Signal Rain"),
+    5: ("Oath of Flame", "Blood Moon Rite", "Magus Gate", "Steel Fist",
         "Voltage Sky", "Night Reactor"),
     6: ("Laser Night", "Hyper Grid", "Chrome Run", "Chrome Circuit",
         "Rooftop Duel", "Static Sunrise"),
+    # The works: the dub cue belongs in a machine sector, where the room is metal
+    # and the delay can be heard as machinery rather than as an effect.
     7: ("Clockwork Tide", "Gearwork Cathedral", "Turbo Drift",
-        "Midnight Signal", "Ion Drift", "Retro Cascade"),
-    # The fortress at the end of the run, so the march returns - plus the one
-    # drumless cue from the valley, for the sector's empty middle.
-    8: ("Final Wave", "Knight's Resolve", "Neon Freeway", "Night Fortress",
-        "Vale of the Sleeping Star", "Open Circuit"),
+        "Midnight Signal", "Ion Drift", "Dubplate"),
+    # The fortress at the end of the run keeps its march, and gains the two fastest
+    # cues in the roster: this is the sector that should leave the player ringing.
+    8: ("Final Wave", "Knight's Resolve", "Night Fortress", "Fulcrum",
+        "Open Circuit", "Vale of the Sleeping Star"),   # the drumless cue is the
+    #     sector's empty middle, and it comes from the MENU table: a pool is allowed
+    #     to reach across tables when the ground asks for it.
 }
 
 __all__ = ["SCALE", "SCALES", "MOTIFS", "MOTIF_SETS", "CADENCE", "BASS",
