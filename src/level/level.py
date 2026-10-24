@@ -17,8 +17,9 @@ import threading
 from typing import Any
 
 from terrain.common import NEAR_SPEED, TILE2
-from terrain.siteplan import CELL, Geom, plan_site
+from terrain.siteplan import CELL, Geom
 
+from .design import plan_sector
 from .encounters import plan_encounters
 from .strip import STRIP_MARGIN, STRIP_SLICE, TerrainStrip
 
@@ -56,7 +57,8 @@ class Level:
                  layers: tuple[str, ...] = ("near", "far"),
                  slice_h: int = STRIP_SLICE,
                  margin: int = STRIP_MARGIN,
-                 tail: float | None = None) -> None:
+                 tail: float | None = None,
+                 process_design: bool | None = None) -> None:
         self.spec = spec
         self.seed = int(seed)
         self.theme = str(getattr(spec, "theme", "")).split(".")[-1].lower()
@@ -70,6 +72,10 @@ class Level:
                 raise ValueError(f"unknown strip layer {name!r}")
         self.geom: Any = None
         self.plan: Any = None
+        # None says "decide by size": a one-screen map is designed here, a
+        # sector is designed in another process so the frame thread cannot stall
+        # it. True/False says so.
+        self.process_design = process_design
         self.encounters: list[Any] = []
         self.strips: dict[str, TerrainStrip] = {}
         # The camera's row: the strip row standing at the top edge of the field.
@@ -94,7 +100,8 @@ class Level:
         if self.plan is not None:
             return
         self.geom = Geom(h=self.length, cell=CELL, cyclic=False)
-        self.plan = plan_site(self.theme, self.seed, self.geom)
+        self.plan = plan_sector(self.theme, self.seed, self.length,
+                                process=self.process_design)
         # The sector's fights are chosen from the ground, so they are planned on
         # the same thread, straight after the ground they stand on exists. Cheap
         # next to the design pass, and it must not run on the frame thread: a

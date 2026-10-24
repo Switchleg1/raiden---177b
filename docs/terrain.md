@@ -264,8 +264,30 @@ direction the baked detail layers move. Getting this sign wrong is invisible in
 a still and obvious in motion, so it is asserted: move the camera one slice,
 the picture must move down by that much and must not stand still.
 
-**A second blocker, also measured - and it is the harder one.** Threads are not
-enough. Flying a real sector headless (`scripts/playtest_streamed.py`, sector 1,
+**Half of the throughput fix is in: the design pass runs in a process.**
+`level/design.py` asks for a sector's plan in another interpreter, which has its
+own GIL and gets its own core. That is cheap rather than heroic for two reasons:
+a site plan is pure data (no pygame, no numpy - six screens pickle to 336 KB,
+negligible next to the 0.75 s a slice costs to paint), and it pickles
+*identically* - the planner keys its randomness on arithmetic and never iterates
+a set, so a plan designed in a child process is the plan designed here, which
+`tests/test_level_design.py` asserts by comparing a plan's whole signature across
+interpreters. A one-screen baked map stays in-process (the spawn costs more than
+the design), and a refused or dead worker falls back to designing here, loudly.
+`App.shutdown` dismisses the worker before the runtime comes down.
+
+**The other half is not in, and the measurement says it is required.** Flying
+sector 1 headless with the design in a process: the plan arrives on time now, and
+the painters still produced 1 slice of 66 in 8 s of flying. Painting is on
+threads, and painting is numpy *and* pygame surface work, so it still competes
+for this interpreter's GIL. The next step is the same move one level down: paint
+in the child (the worker already gets a dummy SDL, so pygame works there), hand
+the slice back as raw RGBA - about 4.8 MB at bake scale, tens of milliseconds to
+pickle - and wrap it in the parent with `pygame.image.fromstring`. Until that
+lands, streaming stays off by default.
+
+**The blocker that mattered: threads are not enough, measured.** Flying a real
+sector headless (`scripts/playtest_streamed.py`, sector 1,
 12 s of 60 fps loop): the design pass had not finished after 12 s of wall clock,
 and 1 slice of 66 was painted. Standalone the same design costs 2.7 s and a
 slice costs 0.75 s, and the camera needs one slice every 1.7 s - so painting

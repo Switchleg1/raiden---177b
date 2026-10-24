@@ -1338,6 +1338,14 @@ class App:
             if lvl is not None:
                 lvl.stop()
         self.level = self.next_level = None
+        # The design worker is a separate interpreter: it holds its own GIL and
+        # its own pygame, and it has to be gone before this one comes down.
+        try:
+            from level import shutdown_pool
+
+            shutdown_pool()
+        except Exception:                        # noqa: BLE001 - teardown path
+            pass
         if self.prefetch is not None:
             self.prefetch.shutdown()
         try:
