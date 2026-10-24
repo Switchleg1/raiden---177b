@@ -13,6 +13,7 @@ measures the picture the player is actually shown: opaque canvas, then the
 non-integer window upscale on top.
 
     python scripts/study_composed_lines.py [FRAMES] [--baked] [--window WX,WY]
+                                          [--inject]   # positive control
 """
 from __future__ import annotations
 
@@ -76,6 +77,7 @@ def main(argv: list[str]) -> int:
     dev_band = pygame.Rect(int(band.left * k), int(band.top * k),
                            int(band.width * k), int(band.height * k))
 
+    inject = "--inject" in argv
     ratios = []
     frame = 1.0 / 60.0
     t0 = time.perf_counter()
@@ -91,6 +93,23 @@ def main(argv: list[str]) -> int:
 
         canvas.fill(app.renderer.palette.field_bg)
         lvl.draw(canvas, band)
+        if inject:
+            # A POSITIVE CONTROL, stamped where the renderer puts a boundary. The
+            # probe's whole value is its "clean" answer, and a negative from an
+            # instrument that has never produced a positive is not evidence - it is
+            # an unknown instrument. `--inject` draws the very artifact the player
+            # reports and the probe must report ~10x for the clean runs to mean
+            # anything.
+            for name in ("near", "far"):
+                strip = lvl.strips.get(name)
+                if strip is None:
+                    continue
+                yy = lvl.far_y if name == "far" else lvl.near_y
+                for j in range(-1, 6):
+                    dest = band.top + (yy - j * strip.slice_h) / 2.0
+                    if band.top <= dest < band.bottom - 1:
+                        pygame.draw.line(canvas, (0, 0, 0), (band.left, int(dest)),
+                                         (band.right - 1, int(dest)))
         big = (pygame.transform.smoothscale(canvas, window)
                if k != round(k) else canvas)
         step = np.abs(np.diff(_field_rows(big, dev_band), axis=0)).mean(axis=1)
@@ -104,9 +123,14 @@ def main(argv: list[str]) -> int:
             if strip is None:
                 continue
             y = lvl.far_y if name == "far" else lvl.near_y
+            # Exactly `TerrainStrip.draw`'s placement, band.top included: the
+            # first version subtracted band.top here as well as inside the crop,
+            # so it measured rows ~86 device px away from every boundary and
+            # reported a spotless result about the wrong rows. A probe that
+            # misses its own target by a third of a slice is worse than none.
             for j in range(-1, 6):
-                top = (y - j * strip.slice_h) / 2.0
-                r = int(round((top - band.top) * k)) + 1
+                dest = band.top + (y - j * strip.slice_h) / 2.0
+                r = int(round(dest * k)) - dev_band.top + 1
                 if 2 <= r < len(step):
                     edges.add(r)
         med = float(np.median(step))

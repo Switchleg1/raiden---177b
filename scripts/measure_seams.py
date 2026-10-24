@@ -22,6 +22,14 @@ SCREEN_LOGICAL = 600 - 116 - 8  # the field's logical height
 LOGICAL_W = 800
 
 
+def _histogram(values, top=4):
+    """Count the values, most common first, so a spacing pattern reads at a glance."""
+    counts = {}
+    for v in values:
+        counts[int(v)] = counts.get(int(v), 0) + 1
+    return sorted(counts.items(), key=lambda kv: -kv[1])[:top]
+
+
 def analyse(path: str) -> None:
     img = Image.open(path).convert("RGB")
     a = np.asarray(img).astype(np.int16)
@@ -51,7 +59,7 @@ def analyse(path: str) -> None:
             print(f"   spacing: median {int(np.median(gaps))} px "
                   f"= {np.median(gaps) / sx / SLICE_LOGICAL:.2f} slices "
                   f"(counts of each: "
-                  f"{sorted({int(v): int((gaps == v).sum()) for v in gaps}.items(), key=lambda kv: -kv[1])[:4]})")
+                  f"{_histogram(gaps)})")
 
     # 2. tone steps: the mean tone jumps and then HOLDS. A lighting seam does
     #    this; terrain does not, because terrain keeps changing.
@@ -65,6 +73,26 @@ def analyse(path: str) -> None:
         if abs(after - before) > 3.0:
             holds.append((int(y + top + 1), round(float(after - before), 1)))
     print(f"tone steps that hold: {len(holds)} -> {holds[:10]}")
+
+    # The verdict a pile of numbers could not give. Baked ground has tone steps of
+    # the same size (-6.5, +5.1, -10.4 in one shot) - but they are terrain, so they
+    # land wherever the terrain puts them. A RENDER artifact lands on a schedule.
+    # So the number to look at is how evenly the steps are spaced, not how big they
+    # are, and the schedule to test against is the strip's own slice in device px.
+    ys = [y for y, _ in holds]
+    slice_px = sx * SLICE_LOGICAL
+    if len(ys) >= 3:
+        gaps = np.diff(ys)
+        spread = float(gaps.max() - gaps.min())
+        print(f"   spacing spread {spread:6.0f} px across {len(ys)} steps"
+              + ("  <- PERIODIC: a render artifact, not terrain"
+                 if spread < 0.25 * float(np.median(gaps))
+                 else "  <- irregular: terrain"))
+    elif len(ys) == 2:
+        gap = abs(ys[1] - ys[0])
+        print(f"   two steps, {gap:.0f} px apart = {gap / slice_px:.2f} slices"
+              + ("  <- ONE SLICE APART: a render artifact, not terrain"
+                 if abs(gap - slice_px) < 0.15 * slice_px else ""))
 
     # 3. repeated rows: the same row twice means a boundary was stitched by
     #    copying, which is what a duplicated slice edge looks like.
