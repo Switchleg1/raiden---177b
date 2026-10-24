@@ -1441,12 +1441,15 @@ def main(argv: list[str] | None = None) -> int:
         print("Raiden Shadow - vertical arcade shooter\n"
               "\n"
               "usage: python main.py [--self-test [FRAMES]] "
-              "[--streamed-terrain] [-h]\n"
+              "[--baked-terrain] [-h]\n"
               "\n"
               "  --self-test [N]      run N frames headless (dummy video/audio,"
               " default 90)\n"
-              "  --streamed-terrain   fly one designed sector strip, painted as"
-              " it scrolls\n"
+              "  --baked-terrain      fly the old repeated one-screen ground "
+              "instead\n"
+              "                       (ground designed as one strip and painted "
+              "as it\n"
+              "                       scrolls is the default)\n"
               "  -h, --help           show this help and exit\n"
               "\n"
               "Controls: WASD/arrows or mouse to move, SPACE / left click to\n"
@@ -1465,12 +1468,17 @@ def main(argv: list[str] | None = None) -> int:
         selftest = n
 
     app = App(headless=selftest is not None)
-    if "--streamed-terrain" in argv:
-        # One sector designed as a strip and painted on worker threads instead
-        # of one screen of baked ground repeated. Live, and worth flying with
-        # your own eyes before it becomes the default.
-        import dataclasses
+    import dataclasses
 
+    if "--baked-terrain" in argv:
+        # The old path: one screen of baked ground, repeated for the length of
+        # the wave, with a zone change to dissolve through. Kept switchable so the
+        # two can be compared in the same afternoon, and so a problem reported
+        # against one can be checked against the other.
+        app.settings = dataclasses.replace(app.settings, streamed_terrain=False)
+    elif "--streamed-terrain" in argv:
+        # Still accepted: streaming is the default now, and muscle memory is a
+        # real interface. Asking for it explicitly does no harm.
         app.settings = dataclasses.replace(app.settings, streamed_terrain=True)
     try:
         if selftest is not None:

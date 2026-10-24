@@ -25,12 +25,12 @@ class Settings:
     reduced_flashing: bool = False
     high_contrast: bool = False
     powerups: bool = True               # falling power-ups & hazards
-    streamed_terrain: bool = False
-    # A sector designed as one strip and painted on worker threads, instead of
-    # one screen of baked ground repeated for the length of the wave. Live and
-    # tested (``tests/test_level.py``), not yet the default: it needs a playtest
-    # at 60 fps before it replaces the baked path for everyone, and the automated
-    # run must not start a sector designer per test.
+    streamed_terrain: bool = True
+    # A sector designed as one strip and painted in another process, instead of
+    # one screen of baked ground repeated for the length of the wave. Default on
+    # while it is being playtested at 60 fps: ``--baked-terrain`` puts the old
+    # path back for comparison, and the automated suites that test the baked path
+    # say so explicitly rather than leaning on this default.
 
 
 DEFAULT_SETTINGS = Settings()

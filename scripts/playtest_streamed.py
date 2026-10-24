@@ -5,7 +5,7 @@ cannot: while the craft is flying, does the painted ground keep up with the
 camera, how much of the field is covered on a normal frame, and are the
 sector's planned fights arriving with the ground they were placed on?
 
-    python scripts/playtest_streamed.py [FRAMES] [--sector N]
+    python scripts/playtest_streamed.py [FRAMES] [--sector N] [--baked]
 """
 from __future__ import annotations
 
@@ -33,7 +33,10 @@ def main(argv: list[str]) -> int:
     sector = _opt(argv, "--sector", 0)
 
     app = App(headless=True)
-    app.settings = dataclasses.replace(app.settings, streamed_terrain=True)
+    # the shipped default is streaming; --baked puts the old path back so the two
+    # can be compared with the same harness and the same numbers
+    if "--baked" in argv:
+        app.settings = dataclasses.replace(app.settings, streamed_terrain=False)
     C.LEVELS = tuple(                                    # start at the sector
         C.LEVELS[sector:] + C.LEVELS[:sector])
     app.init_display()
@@ -41,8 +44,8 @@ def main(argv: list[str]) -> int:
     app._start_game()
     lvl = app.level
     if lvl is None:
-        print("no Level: streaming is not wired into the sector start")
-        return 1
+        print("ground: BAKED (one screen, repeated) - no Level for this sector")
+        return 0 if "--baked" in argv else 1
 
     band = pygame.Rect(C.FIELD_LEFT, C.FIELD_TOP,
                        C.FIELD_RIGHT - C.FIELD_LEFT,
@@ -84,7 +87,7 @@ def main(argv: list[str]) -> int:
     wall = time.perf_counter() - t0
 
     encs = lvl.encounters
-    print(f"sector {C.LEVELS[0].name}  seed {lvl.seed}  "
+    print(f"ground: STREAMED  sector {C.LEVELS[0].name}  seed {lvl.seed}  "
           f"{frames} frames ({frames / 60:.1f} s of sector) in {wall:.1f} s wall")
     print(f"  ground   : camera at row {lvl.near_y:7.0f} of {lvl.length} bake px"
           f"  ({lvl.progress() * 100:4.1f}%)")

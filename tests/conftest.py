@@ -28,3 +28,31 @@ def pygame_display():
     except pygame.error:
         pass                      # no video driver: display-free tests still run
     yield
+
+
+@pytest.fixture(autouse=True)
+def baked_terrain_for_suites(monkeypatch):
+    """Keep the suites on the baked ground unless a test asks for the streamed kind.
+
+    Streaming is the shipped default now - one designed strip per sector, painted
+    in another process - and it is what a player gets. But most app tests are
+    about menus, scores, state and the *baked* sector handoff, and none of that
+    should be paying for a sector designer (seconds of design in a child process)
+    or silently changing what "the terrain" means under them.
+
+    A test that wants the streamed path says so by replacing the setting after
+    building its App, which is what ``tests/test_streamed_sector.py`` does; that
+    runs after this, so the request wins.
+    """
+    import dataclasses
+
+    import app.app as app_mod
+
+    real_init = app_mod.App.__init__
+
+    def init(self, *args, **kwargs):
+        real_init(self, *args, **kwargs)
+        self.settings = dataclasses.replace(self.settings, streamed_terrain=False)
+
+    monkeypatch.setattr(app_mod.App, "__init__", init)
+    yield
