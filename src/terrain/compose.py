@@ -60,16 +60,31 @@ def _grid(canvas: Any, k: TileKit, mats: list[tuple[str, float]],
     # roll of the material dice, so the base ground disagreed with itself along
     # every boundary: the single largest seam there was.
     from .features import _at
-    for gy in range(GRID_R):
-        for gx in range(GRID_C):
-            name = _at("grid", origin[0] + gx * TILE, origin[1] + gy
+    base_tile = k.material(base)
+    # The lattice is anchored to the WORLD, not to the canvas: a window starting at
+    # row 560-96 is not a whole number of tiles into the ground, and blitting cell
+    # (gx, gy) at the canvas offset (gx*TILE, gy*TILE) shifted the entire material
+    # patchwork by that remainder for every window. That single misregistration made
+    # every pass above it disagree - the base grid is under everything, so a seam
+    # there is a seam everywhere at once.
+    gx0 = origin[0] // TILE
+    gy0 = origin[1] // TILE
+    off_x = origin[0] - gx0 * TILE
+    off_y = origin[1] - gy0 * TILE
+    for j in range(GRID_R + 1):
+        for i in range(GRID_C + 1):
+            canvas.blit(base_tile, (i * TILE - off_x, j * TILE - off_y))
+    for j in range(GRID_R + 1):
+        for i in range(GRID_C + 1):
+            name = _at("grid", (gx0 + i) * TILE, (gy0 + j)
                        * TILE).choices(names, weights=wts)[0]
             if name != base:
                 # faded to a third: the mix keeps its grain, but at full
                 # strength every cell carries a soft stain, and the reviewers
                 # kept calling those stains "ambiguous patches" that compete
                 # with the actual landforms
-                canvas.blit(_fade(k.patch(name), 0.34), (gx * TILE, gy * TILE))
+                canvas.blit(_fade(k.patch(name), 0.34),
+                            (i * TILE - off_x, j * TILE - off_y))
 
 
 def _fade(src: Any, f: float) -> Any:
