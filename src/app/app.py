@@ -797,12 +797,68 @@ class App:
             self.game.ground_spawns = True
             self.game.release(e.kind, e.x / SS, e.count, e.form)
 
-    def _launch_craft(self) -> None:
-        if self.sm.state == State.READY:
-            self._msg = ""
-            self._ready_timer = 0.0
-            self.sm.to(State.PLAYING)
-            self.input.clear_all()
+    def _launch_craft(self) -> bool:
+        """Send the craft away, if the world is there to fly over.
+
+        Returning whether the launch happened matters: this is called both when
+        the countdown ends *and* when the player presses fire to skip it, and a
+        gate that only covers the timer is a gate the player walks straight past -
+        which is exactly how the sector opened onto a black field after the hold
+        was added. The one place both paths meet is here.
+        """
+        if self.sm.state != State.READY:
+            return False
+        if not self._ground_ready_to_launch():
+            return False
+        self._msg = ""
+        self._msg_sub = ""
+        self._ready_timer = 0.0
+        self.sm.to(State.PLAYING)
+        self.input.clear_all()
+        return True
+
+    def _ground_ready_to_launch(self) -> bool:
+        """Is the ground ready, or has waiting stopped being worth it?
+
+        Three answers, in order: yes when the opening band exists; no while ground
+        is arriving (the wait is a countdown the player is already sitting
+        through, and a bar now says what it is for); and yes once progress has
+        stopped or the hard ceiling passed, because a player must never be held in
+        READY by painters that died. Until then the message names the wait - an
+        unexplained pause reads as a hang, and a named one does not.
+        """
+        if self._opening_painted():
+            self._msg = "READY"
+            self._msg_sub = "Get ready!"
+            return True
+        if self._ready_wait >= READY_HOLD_CEIL:
+            return True
+        if self._ready_wait >= READY_HOLD_MAX and not self._ground_improving():
+            return True
+        self._msg = "LOADING"
+        self._msg_sub = "Preparing the sector"
+        return False
+
+    def _load_fraction(self) -> float:
+        """How much of the ground the sector opens on is painted, 0.0 to 1.0.
+
+        The design pass is all-or-nothing and takes most of the wait, so it is
+        shown as nothing: a bar that sits at zero and then crawls would be honest
+        but useless if it lied about the first half. What the player is actually
+        waiting for is the opening band, and that is what this measures.
+        """
+        lvl = self.level
+        if lvl is None:
+            return 1.0                       # a baked sector: nothing pending
+        if not lvl.built():
+            return 0.0                       # still designing
+        strips = getattr(lvl, "strips", None) or {}
+        near = strips.get("near")
+        if near is None:
+            return 1.0
+        from terrain.common import TILE2
+        need = max(1, min(int(near.count), int(TILE2 / near.slice_h) + 1))
+        return min(1.0, near.frontier() / need)
 
     def _pause(self) -> None:
         if self.sm.state in (State.PLAYING, State.READY):
@@ -1269,18 +1325,10 @@ class App:
             # countdown ends (the craft is already served by the model).
             self._ready_timer = max(0.0, self._ready_timer - dt)
             if self._ready_timer == 0.0:
-                if self._opening_painted():
-                    self._launch_craft()
-                elif self._ready_wait < READY_HOLD_CEIL and (
-                        self._ready_wait < READY_HOLD_MAX
-                        or self._ground_improving()):
-                    # still in READY: the ground is on its way. Past the short
-                    # grace period this hold only continues while it keeps
-                    # arriving, so dead painters cost a late start rather than a
-                    # hung one.
+                if not self._launch_craft():
+                    # still in READY: the count of waited seconds is what decides
+                    # whether waiting is still earning its keep
                     self._ready_wait += dt
-                else:
-                    self._launch_craft()
         elif st == State.PLAYING:
             self._play_time += dt
             self._watch_load_ahead()
@@ -1337,6 +1385,10 @@ class App:
             r.draw_field(self.game)
             r.draw_particles(self.effects)
             r.draw_hud(self.game, self._play_time)
+            if st == State.READY and self._msg == "LOADING":
+                # The wait is the feature; being able to see it is what makes it
+                # a load rather than a freeze.
+                r.draw_progress(self._load_fraction())
             if self._transition_timer > 0 or (st == State.READY and self._msg):
                 r.draw_message(self._msg, self._msg_sub)
         elif st == State.PAUSED:

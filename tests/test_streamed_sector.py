@@ -23,7 +23,7 @@ import pytest
 
 import config as C
 from app import App
-from app.app import READY_HOLD_MAX, READY_TIME
+from app.app import READY_HOLD_CEIL, READY_HOLD_MAX, READY_TIME
 from level import Level
 from state import State
 from terrain.common import TILE2
@@ -404,3 +404,92 @@ def test_the_launch_hold_continues_while_ground_arrives_and_stops_when_it_doesnt
     assert app._ground_improving() is False, "the same ground is not progress"
     fake.n = 4
     assert app._ground_improving() is True
+
+
+class _WaitingGround:
+    """A sector whose ground arrives on someone else's schedule."""
+
+    seed = 1
+    near_y = 1120.0        # the sector's opening row, as `Level` reports it
+
+    class _Strip:
+        count = 40
+        slice_h = 560
+
+        def __init__(self, level) -> None:
+            self.level = level
+
+        def frontier(self) -> int:
+            return self.level.painted
+
+    def __init__(self, painted: int = 0, ready: bool = False) -> None:
+        self.painted = painted
+        self.ready = ready
+        self.strips = {"near": self._Strip(self)}
+
+    def built(self) -> bool:
+        return True
+
+    def ready_at(self, y: float) -> bool:
+        return self.ready
+
+    def stop(self, timeout: float | None = None) -> None:
+        pass
+
+
+def test_skipping_ready_cannot_launch_onto_missing_ground(app):
+    """The hold existed and the player still got a black field - because pressing
+    fire to skip the countdown called `_launch_craft` directly, and the gate was
+    only on the timer path. So the gate moved to where both paths meet, and the
+    message says what is happening while it waits.
+    """
+    import dataclasses
+
+    app.settings = dataclasses.replace(app.settings, streamed_terrain=True)
+    app.level = _WaitingGround(painted=0, ready=False)
+    app.sm.to(State.READY)
+    app._ready_timer = 0.0
+    app._ready_wait = 0.0
+
+    app._on_confirm()                      # the skip
+    assert app.sm.state == State.READY, "the skip walked past the ground check"
+    assert app._msg == "LOADING", f"the wait was never named: {app._msg!r}"
+    assert app._load_fraction() == 0.0
+
+    app.level.painted = app.level.strips["near"].count      # bar reaches the end
+    assert app._load_fraction() == 1.0
+    app.level.ready = True
+    app._on_confirm()
+    assert app.sm.state == State.PLAYING, "a refused launch never recovered"
+
+
+def test_the_hold_gives_up_on_ground_that_arrived_and_then_stopped(app):
+    """Dead painters must cost a late start, never a hung game.
+
+    Two ceilings, and the difference between them is movement: while the frontier
+    grows, the wait is worth having; once it stops growing - or the hard ceiling
+    passes - the craft goes onto whatever ground exists, because a player stuck in
+    READY forever is worse than one watching ground arrive.
+    """
+    import dataclasses
+
+    app.settings = dataclasses.replace(app.settings, streamed_terrain=True)
+    app.level = _WaitingGround(painted=1, ready=False)
+    app._ready_seen = 0
+    app._ready_wait = 0.0
+    assert app._ground_ready_to_launch() is False     # grace period: wait
+
+    # the first sight of ground counts as progress, so a stall only becomes a
+    # stall once progress has been seen and then failed to repeat
+    app._ready_wait = 5.0
+    app._ready_seen = 0
+    assert app._ground_ready_to_launch() is False
+    assert app._ground_ready_to_launch() is True, \
+        "a stall held the player in READY forever"
+
+    app.level = _WaitingGround(painted=2, ready=False)
+    app._ready_seen = 1            # ...and now it has
+    assert app._ground_ready_to_launch() is False, \
+        "progress was mistaken for a stall"
+    app._ready_wait = READY_HOLD_CEIL
+    assert app._ground_ready_to_launch() is True, "the hard ceiling never let go"

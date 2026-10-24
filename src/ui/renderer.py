@@ -1043,6 +1043,29 @@ class Renderer:
             self.canvas.blit(ss, ss.get_rect(center=(C.LOGICAL_W // 2,
                             C.LOGICAL_H // 2 + 34)))
 
+    def draw_progress(self, fraction: float, label: str = "") -> None:
+        """A bar under the message: this pause is a load, and says so.
+
+        A black field with no explanation reads as a hang, and a player who
+        thinks the game has hung stops waiting for it. The bar is deliberately
+        modest - under the message, in the field's own colours - because it is
+        shown for a second or two over ground that is about to be worth looking
+        at.
+        """
+        import pygame
+        p = self.palette
+        frac = max(0.0, min(1.0, float(fraction)))
+        w, h = 320, 12
+        x = (C.LOGICAL_W - w) // 2
+        y = C.LOGICAL_H // 2 + 58
+        pygame.draw.rect(self.canvas, p.wall, (x - 2, y - 2, w + 4, h + 4), 1)
+        if frac > 0.0:
+            pygame.draw.rect(self.canvas, p.ui_selected,
+                             (x, y, max(1, int(w * frac)), h))
+        if label:
+            t = get_font(14).render(label, True, p.ui_text)
+            self.canvas.blit(t, t.get_rect(center=(C.LOGICAL_W // 2, y + h + 12)))
+
     # ---- menus ------------------------------------------------------------
     def draw_menu(self, menu: Menu | None, title: str = "",
                   subtitle: str = "") -> None:
