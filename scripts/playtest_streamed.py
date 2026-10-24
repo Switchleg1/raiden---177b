@@ -83,7 +83,9 @@ def main(argv: list[str]) -> int:
           f"max {max(drawn)}  sampled frames under-covered: {holes}/{len(drawn)}")
     print(f"  coverage : mean {statistics.mean(cover) * 100:5.1f}%  "
           f"min {min(cover) * 100:5.1f}%  last half "
-          f"{statistics.mean(cover[len(cover) // 2:]) * 100:5.1f}%")
+          f"{statistics.mean(cover[len(cover) // 2:]) * 100:5.1f}%  "
+          f"settled {statistics.mean(cover[-10:]) * 100:5.1f}% (last 10 samples)")
+    print("             the mean includes the seconds before the first slice")
     print(f"  frontier : near {lvl.strips['near'].frontier()}/"
           f"{lvl.strips['near'].count} slices, far "
           f"{lvl.strips['far'].frontier()}/{lvl.strips['far'].count}")

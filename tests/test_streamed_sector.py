@@ -23,6 +23,7 @@ import pytest
 
 import config as C
 from app import App
+from app.app import READY_HOLD_MAX, READY_TIME
 from level import Level
 from state import State
 from terrain.common import TILE2
@@ -58,6 +59,22 @@ def _enter(app: App) -> None:
     if app.sm.state != State.TITLE:
         app.sm.to(State.TITLE)
     app._enter_ready()
+
+
+def _advance(app: App, seconds: float) -> None:
+    """Fly the app's own loop for a while (its clock is driven by _update)."""
+    for _ in range(int(seconds * 60)):
+        app._update(1.0 / 60.0)
+
+
+def _launch(app: App, limit: float = READY_TIME + READY_HOLD_MAX + 2.0) -> bool:
+    """Frames until the craft is away, or the hold's own cap says enough."""
+    deadline = time.time() + limit
+    while time.time() < deadline:
+        app._update(1.0 / 60.0)
+        if app.sm.state == State.PLAYING:
+            return True
+    return app.sm.state == State.PLAYING
 
 
 def _wait_for(fn, timeout: float = 90.0) -> bool:
@@ -137,9 +154,8 @@ def test_the_fights_arrive_with_the_ground(app, tiny_sectors):
     assert _wait_for(lambda: lvl.encounters, timeout=120.0), \
         "the sector designed ground but never planned its fights"
     planned = len(lvl.encounters)
-    assert app.game.ground_spawns is False
-    for _ in range(240):                # four seconds of the app's own update
-        app._update(1.0 / 60.0)
+    assert _launch(app), "the sector never started"
+    _advance(app, 4.0)                  # four seconds of flown sector
     assert app._enc_i > 0, "no encounter was released over four seconds of ground"
     assert app.game.ground_spawns is True, "the model is still spawning on its clock"
     assert app._enc_i <= planned
@@ -190,3 +206,30 @@ def test_a_respawn_keeps_the_ground_the_craft_flew_over(app, tiny_sectors):
     assert app.level is lvl, "the respawn replaced the sector's ground"
     assert app.level.near_y == pytest.approx(near_y), "the camera was moved"
     assert app.level.strips["near"].frontier() >= before
+
+
+def test_a_cold_sector_waits_for_its_ground_before_launching(app, tiny_sectors):
+    """READY is a pause the player is already sitting through; ground appearing
+    from nothing under a flying craft is not. So the launch waits for the opening
+    band - and waits only up to a cap, because a sector whose painters died still
+    has to start."""
+    app._start_game()
+    lvl = app.level
+    for _ in range(int(READY_TIME * 60) + 1):
+        app._update(1.0 / 60.0)
+    if not lvl.ready_at(lvl.near_y / 2.0):
+        assert app.sm.state == State.READY, \
+            "launched onto ground that was not there yet"
+    assert _launch(app), "the hold never let go"
+    assert app.level is lvl
+
+
+def test_a_baked_sector_is_never_held_by_a_streamed_guards(app, tiny_sectors):
+    """The hold belongs to streaming. A baked sector has no Level, so asking
+    whether its opening is painted has to answer yes immediately."""
+    app.settings = dataclasses.replace(app.settings, streamed_terrain=False)
+    app._start_game()
+    assert app._opening_painted() is True
+    for _ in range(int(READY_TIME * 60) + 2):
+        app._update(1.0 / 60.0)
+    assert app.sm.state == State.PLAYING

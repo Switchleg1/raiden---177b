@@ -43,6 +43,13 @@ log = logging.getLogger("raiden_shadow")
 
 READY_TIME = 1.1          # seconds of "READY" before auto-launch
 
+# How long a streamed sector may hold the launch while its opening band is
+# painted. READY is already a pause, so a fraction of a second more is free; the
+# alternative is ground filling in under a craft that is already flying, which the
+# eye does not forgive. Capped, because a sector whose painters died has to launch
+# eventually rather than wait forever on ground that is not coming.
+READY_HOLD_MAX = 4.0
+
 # Bake px of ground ahead of the top edge at which a planned encounter is handed
 # to the model. An encounter belongs to a piece of ground, so it is released as
 # that ground arrives: a little early, so the group is climbing in over the roof
@@ -106,6 +113,7 @@ class App:
         self.level: Any = None            # the sector being flown
         self.next_level: Any = None       # the one being painted right now
         self._enc_i = 0                   # next planned encounter to release
+        self._ready_wait = 0.0            # extra READY time waited for ground
         self.viewport = Viewport(0, 0, C.LOGICAL_W, C.LOGICAL_H)
         self._window_size = C.window_size(self.settings.window_scale)
         self._confirm_text = ""
@@ -544,6 +552,7 @@ class App:
         self._msg_sub = "Get ready!"
         self._transition_timer = 0.0
         self._ready_timer = READY_TIME
+        self._ready_wait = 0.0
         self._bomb_pending = False
         if self.renderer is not None:
             # every sector scrolls its own phase-scheduled terrain
@@ -668,6 +677,22 @@ class App:
                 self._enc_i += 1
         if self.renderer is not None:
             self.renderer.set_level(lvl)
+
+    def _opening_painted(self) -> bool:
+        """Is the ground the sector opens on there yet?
+
+        A streamed sector paints its strip as it goes, and the first slices take
+        a moment in the worker process. Asking before launching costs a fraction
+        of a second of READY - a pause the player is already sitting through; not
+        asking spends the opening seconds watching ground appear from nothing,
+        which is the tell this whole arrangement exists to remove.
+        """
+        lvl = self.level
+        if lvl is None:                      # a baked sector: nothing to wait for
+            return True
+        if not lvl.built():
+            return False
+        return lvl.ready_at(lvl.near_y / 2.0)
 
     def _release_encounters(self) -> None:
         """Hand the sector's ground-planned fights to the model as they arrive.
@@ -1166,7 +1191,14 @@ class App:
             # countdown ends (the craft is already served by the model).
             self._ready_timer = max(0.0, self._ready_timer - dt)
             if self._ready_timer == 0.0:
-                self._launch_craft()
+                if self._opening_painted():
+                    self._launch_craft()
+                elif self._ready_wait < READY_HOLD_MAX:
+                    # still in READY: the painters are on their way, and the
+                    # craft has nowhere to be for another few hundred ms
+                    self._ready_wait += dt
+                else:
+                    self._launch_craft()
         elif st == State.PLAYING:
             self._play_time += dt
             self._watch_load_ahead()

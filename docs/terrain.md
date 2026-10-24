@@ -276,15 +276,52 @@ interpreters. A one-screen baked map stays in-process (the spawn costs more than
 the design), and a refused or dead worker falls back to designing here, loudly.
 `App.shutdown` dismisses the worker before the runtime comes down.
 
-**The other half is not in, and the measurement says it is required.** Flying
-sector 1 headless with the design in a process: the plan arrives on time now, and
-the painters still produced 1 slice of 66 in 8 s of flying. Painting is on
-threads, and painting is numpy *and* pygame surface work, so it still competes
-for this interpreter's GIL. The next step is the same move one level down: paint
-in the child (the worker already gets a dummy SDL, so pygame works there), hand
-the slice back as raw RGBA - about 4.8 MB at bake scale, tens of milliseconds to
-pickle - and wrap it in the parent with `pygame.image.fromstring`. Until that
-lands, streaming stays off by default.
+**A number that misled me, and why.** With the design in a process but painting
+still on threads, a run reported "1 slice of 66 in 8 s", which read as painting
+starving. Partly true - but the bigger cause was that **a respawn was throwing
+the sector's ground away**: `_use_level` built a fresh `Level` on re-entering the
+sector, so the strip went back to row 0 under a craft standing halfway down it
+and every finished slice was discarded. The baked path already guarded against
+this (`ensure_terrain`); the streamed path had no equivalent. Fixed and asserted -
+the sector being flown is kept, camera row and painted frontier included - and it
+is worth stating plainly because a measurement that is *half* right sent me to
+look in the wrong place for a while.
+
+**The other half is in as well: slices are painted in the child too.** A slice is
+0.75 s of numpy *and* pygame surface work, so on threads it still competed for
+this interpreter's GIL; `level/paintsrv.py` asks the child to paint, and the
+finished slice crosses as RGBA (about 0.9 MB after the child downscales it) to be
+wrapped by the parent. The property this rests on is asserted before it is
+trusted: the same slice painted here and there is the same picture - every pixel,
+both layers, and the alpha channel, because an RGB-only comparison would pass a
+slice that arrived translucent, which is a hole in the field wearing a smile.
+The child caches the plan per sector and designs it single-flight, so two workers
+never think up the same ground twice.
+
+Measured after that change (same harness, sector 1, 20 s flown): painters sit
+about three slices ahead of the camera, and **settled field coverage is 84.2% -
+exactly what a strip painted entirely in this interpreter covers**. The coverage
+*ceiling* is 84.2% rather than 100% because of the art, not streaming: local and
+streamed agree to the pixel, and both leave the same pixels below the threshold.
+The mean over the whole run is far lower (29%) because the run includes the
+seconds before the first slice existed.
+
+So what is left visible is a **start-up ramp**, not a throughput failure: a
+sector entered cold shows ground filling in for a few seconds. In play this is
+paid once, on sector 1, because the next sector has been painting since halfway
+through this one. The fix is small and specific: paint the opening slices during
+READY - `Level.ensure` already exists for exactly this, and now that painting
+happens in another interpreter it costs the frame thread a future to wait on
+rather than a second of its own CPU. That is the next change.
+
+**What is now known to be *not* wrong**, because each was suspected and then
+measured: the surfaces that cross the boundary blit identically to local ones
+(100% coverage either way); `Level.draw` and `TerrainStrip.draw` agree in-app
+(84.2% both); and the camera convention, once fixed, holds across both paths.
+Two of my own probes were invalidated by the spawn contract - a child re-runs an
+unguarded entry script - so the rule here is that any measurement harness must be
+imported-clean: module-level work under `if __name__ == "__main__"`, or the
+child quietly runs the experiment too and the numbers mean nothing.
 
 **The blocker that mattered: threads are not enough, measured.** Flying a real
 sector headless (`scripts/playtest_streamed.py`, sector 1,
