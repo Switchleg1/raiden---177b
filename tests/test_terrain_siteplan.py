@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import itertools
 import math
+import time
 
 import pytest
 
@@ -342,3 +343,26 @@ def test_a_window_is_a_place_not_a_scale():
     assert Geom().shifts() == (0.0, -float(CH), float(CH))
     assert g.row(-20) == 0 and g.row(9 * CH) == g.rows - 1
     assert g.col(-5) == 0 and g.col(CW + 5) == g.cols - 1
+
+
+def test_planning_a_strip_scales_with_its_length():
+    """A sector is designed once, on a worker thread, before the first ground
+    can be painted - so the design pass is what decides whether a sector that
+    was not prepared in advance stalls before the player sees land.
+
+    The planner used to answer every "is this near the road / in the channel /
+    crossing this river" question by walking every segment of every path, which
+    made the cost grow with the *square* of the strip length. Thirty screens of
+    countryside cost 28 s that way. It now costs about two, and this guard is
+    about the shape, not the machine: double the strip, pay roughly double.
+    """
+    def timed(h: int) -> float:
+        t = time.perf_counter()
+        plan_site("countryside", 1, Geom(h=h, cell=CELL, cyclic=False))
+        return time.perf_counter() - t
+
+    short, long_ = timed(6 * CH), timed(24 * CH)      # 4x the length
+    assert long_ < 12.0, f"designing 24 screens took {long_:.1f} s"
+    assert long_ < 12.0 * short + 0.2, (
+        f"planning went superlinear: 4x length cost {long_ / short:.1f}x "
+        f"({short:.2f} s -> {long_:.2f} s)")

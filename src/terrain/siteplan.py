@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import math
 import random
+from bisect import bisect_right
 from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
 from typing import Any
@@ -269,11 +270,11 @@ class SitePlan:
         return self.built[self.geom.row(y)][self.geom.col(x)]
 
     def near_water(self, x: float, y: float, dist: float) -> bool:
-        return any(_dist_path(self.geom, x, y, w.path) < dist
+        return any(_near_path(self.geom, x, y, w.path, dist)
                    for w in self.water)
 
     def near_road(self, x: float, y: float, dist: float) -> bool:
-        return any(_dist_path(self.geom, x, y, r.path) < dist
+        return any(_near_path(self.geom, x, y, r.path, dist)
                    for r in self.roads)
 
 
@@ -331,17 +332,144 @@ def _seg_dist(px: float, py: float, a: Point, b: Point) -> float:
 
 
 def _dist_path(g: Geom, px: float, py: float, path: list[Point]) -> float:
-    """Distance to a polyline; on a wrapping map the seam copies are checked."""
+    """Distance to a polyline; on a wrapping map the seam copies are checked.
+
+    The segments are bucketed by the y-band they touch (see :func:`_seg_index`).
+    A query used to walk every segment of the path: on a twenty-screen strip a
+    road is a thousand segments, and the planner asks this question hundreds of
+    thousands of times - "is this house near the road", "is this parcel on the
+    river", "does this new channel stack on the last one". Bucketing is exact:
+    a segment cannot be nearer than its band is, so the sweep stops as soon as
+    the remaining bands could not improve on what has already been found.
+    """
     best = float("inf")
+    bands = _seg_index(path)
     for shift in g.shifts():
         yy = py - shift
-        for i in range(len(path) - 1):
-            d = _seg_dist(px, yy, path[i], path[i + 1])
-            if d < best:
-                best = d
-                if best < 1e-6:
-                    return 0.0
+        # start at the band the point falls in and work outward in both
+        # directions, tightening `best` as we go
+        lo_i = _band_before(bands, yy)
+        hi_i = lo_i + 1
+        i = lo_i
+        while i >= 0:
+            b_lo, b_hi, idxs = bands[i]
+            gap = yy - b_hi
+            if gap > best:
+                break
+            for j in idxs:
+                d = _seg_dist(px, yy, path[j], path[j + 1])
+                if d < best:
+                    best = d
+                    if best <= 1e-6:
+                        return 0.0
+            i -= 1
+        i = hi_i
+        while i < len(bands):
+            b_lo, b_hi, idxs = bands[i]
+            gap = b_lo - yy
+            if gap > best:
+                break
+            for j in idxs:
+                d = _seg_dist(px, yy, path[j], path[j + 1])
+                if d < best:
+                    best = d
+                    if best <= 1e-6:
+                        return 0.0
+            i += 1
     return best
+
+
+def _near_path(g: Geom, px: float, py: float, path: list[Point],
+               dist: float) -> bool:
+    """Is any part of `path` within `dist` of the point?
+
+    The question the planner actually asks - is this parcel off the road, is
+    this tree clear of the river, does this new channel stack on the last one -
+    and it is far cheaper than the exact distance: the band sweep is pruned by
+    the radius itself instead of by whatever distance happened to be found, and
+    it stops at the first segment that answers yes.
+    """
+    bands = _seg_index(path)
+    for shift in g.shifts():
+        yy = py - shift
+        i = _band_before(bands, yy)
+        while i >= 0:
+            b_lo, b_hi, idxs = bands[i]
+            if yy - b_hi > dist:
+                break
+            for j in idxs:
+                if _seg_dist(px, yy, path[j], path[j + 1]) <= dist:
+                    return True
+            i -= 1
+        i = _band_before(bands, yy) + 1
+        while i < len(bands):
+            b_lo, b_hi, idxs = bands[i]
+            if b_lo - yy > dist:
+                break
+            for j in idxs:
+                if _seg_dist(px, yy, path[j], path[j + 1]) <= dist:
+                    return True
+            i += 1
+    return False
+
+
+_SEG_BAND = 160.0            # bake px of y per segment band
+_SEG_INDEX: dict[int, tuple] = {}
+
+
+def _band_before(bands: list[tuple[float, float, list[int]]],
+                 yy: float) -> int:
+    """Index of the last band whose y starts at or above... at or below `yy`.
+
+    The sentinel second element is below every real band extent, so the tuple
+    compare never reaches the index list (which is not orderable against a
+    number).
+    """
+    return bisect_right(bands, (yy, float("-inf"))) - 1
+
+
+def _seg_index(path: list[Point]) -> list[tuple[float, float, list[int]]]:
+    """The path's segments as (y_lo, y_hi, indices), ordered by y_lo.
+
+    Cached per path object - the planner asks the same question about the same
+    road or channel over and over while it lays fields, houses and trees around
+    it. Keyed by identity and re-checked against the cached path, so a recycled
+    id can never answer with someone else's geometry.
+    """
+    return _seg_cache(path)[1]
+
+
+def _seg_buckets(path: list[Point]) -> dict[int, list[int]]:
+    """The path's segments keyed by the band index of y they touch.
+
+    A segment that spans several bands is filed in every one of them, which is
+    what makes band-keyed queries exact: two y-ranges that overlap share a band.
+    """
+    return _seg_cache(path)[2]
+
+
+def _seg_cache(path: list[Point]) -> tuple:
+    key = id(path)
+    ent = _SEG_INDEX.get(key)
+    if ent is not None and ent[0] is path:
+        return ent
+    buckets: dict[int, list[int]] = {}
+    for i in range(len(path) - 1):
+        y0, y1 = path[i][1], path[i + 1][1]
+        b0, b1 = int(y0 // _SEG_BAND), int(y1 // _SEG_BAND)
+        for b in range(b0, b1 + 1):
+            buckets.setdefault(b, []).append(i)
+    bands: list[tuple[float, float, list[int]]] = []
+    for _b, idxs in buckets.items():
+        lo = min(min(path[i][1], path[i + 1][1]) for i in idxs)
+        hi = max(max(path[i][1], path[i + 1][1]) for i in idxs)
+        bands.append((lo, hi, idxs))
+    bands.sort()
+    if len(_SEG_INDEX) > 400:          # a planning pass pins its paths; bound it
+        _SEG_INDEX.clear()
+    ent = (path, bands, buckets)
+    _SEG_INDEX[key] = ent
+    return ent
 
 
 def _along(path: list[Point], s: float) -> tuple[Point, float]:
@@ -363,21 +491,45 @@ def _along(path: list[Point], s: float) -> tuple[Point, float]:
 
 
 def _crossings(a: list[Point], b: list[Point]) -> list[Point]:
-    """Where two polylines cross (used for bridges)."""
+    """Where two polylines cross (used for bridges).
+
+    Only the segments that could touch are tested: each segment of `a` looks at
+    the bands of `b` its own y-range reaches, and rejects on bounding box
+    before any arithmetic. A road and a river down a twenty-screen strip are a
+    thousand and seven hundred points apiece, and the naive double loop paid
+    seven hundred thousand pair tests to find two bridges.
+    """
     hits: list[Point] = []
+    buckets = _seg_buckets(b)
     for i in range(len(a) - 1):
-        for j in range(len(b) - 1):
-            p, q, r, s = a[i], a[i + 1], b[j], b[j + 1]
-            d1x, d1y = q[0] - p[0], q[1] - p[1]
-            d2x, d2y = s[0] - r[0], s[1] - r[1]
-            den = d1x * d2y - d1y * d2x
-            if abs(den) < 1e-9:
-                continue
-            t = ((r[0] - p[0]) * d2y - (r[1] - p[1]) * d2x) / den
-            u = ((r[0] - p[0]) * d1y - (r[1] - p[1]) * d1x) / den
-            if 0.0 <= t <= 1.0 and 0.0 <= u <= 1.0:
-                hits.append((p[0] + t * d1x, p[1] + t * d1y))
-    return hits
+        p, q = a[i], a[i + 1]
+        ylo = p[1] if p[1] < q[1] else q[1]
+        yhi = q[1] if p[1] < q[1] else p[1]
+        ax0 = p[0] if p[0] < q[0] else q[0]
+        ax1 = q[0] if p[0] < q[0] else p[0]
+        for bi in range(int(ylo // _SEG_BAND), int(yhi // _SEG_BAND) + 1):
+            for j in buckets.get(bi, ()):  # a shared band is a possible overlap
+                r, s = b[j], b[j + 1]
+                if (max(r[0], s[0]) < ax0 or min(r[0], s[0]) > ax1
+                        or max(r[1], s[1]) < ylo or min(r[1], s[1]) > yhi):
+                    continue
+                d1x, d1y = q[0] - p[0], q[1] - p[1]
+                d2x, d2y = s[0] - r[0], s[1] - r[1]
+                den = d1x * d2y - d1y * d2x
+                if abs(den) < 1e-9:
+                    continue
+                t = ((r[0] - p[0]) * d2y - (r[1] - p[1]) * d2x) / den
+                u = ((r[0] - p[0]) * d1y - (r[1] - p[1]) * d1x) / den
+                if 0.0 <= t <= 1.0 and 0.0 <= u <= 1.0:
+                    hits.append((p[0] + t * d1x, p[1] + t * d1y))
+    # a segment that spans two bands is filed in both, so the same crossing can
+    # be found twice; decks are paired positionally downstream, and a doubled
+    # deck shifts every span after it
+    uniq: list[Point] = []
+    for h in hits:
+        if h not in uniq:
+            uniq.append(h)
+    return uniq
 
 
 # ---------------------------------------------------------------------------
@@ -846,13 +998,33 @@ def _span(lo: float, hi: float, count: int, cell: int) -> tuple[int, int]:
 def _decks(run: list[Point]) -> list[Point]:
     """Decks along a wet run: a short one is a crossing (one deck), a long one
     is a causeway - a road running along a flooded edge needs decks close enough
-    that no stretch of it stands over water unsupported."""
+    that no stretch of it stands over water unsupported.
+
+    The decks are placed at even *arc length* and interpolated between vertices,
+    not snapped to the nearest vertex: vertex spacing is around 30 px, and
+    snapping lets a gap grow past the span the painter has to cover, which is
+    how a causeway ends up with one wet stretch left unsupported.
+    """
     if not run:
         return []
-    arc = sum(math.hypot(run[i + 1][0] - run[i][0], run[i + 1][1] - run[i][1])
-              for i in range(len(run) - 1))
-    n = max(1, int(arc / 110.0) + 1)
-    return [run[int((k + 0.5) / n * len(run))] for k in range(n)]
+    cum = [0.0]
+    for i in range(1, len(run)):
+        cum.append(cum[-1] + math.hypot(run[i][0] - run[i - 1][0],
+                                        run[i][1] - run[i - 1][1]))
+    arc = cum[-1]
+    n = max(1, int(arc / 90.0) + 1)
+    out: list[Point] = []
+    seg = 0
+    for k in range(n):
+        want = arc * (k + 0.5) / n
+        while seg + 1 < len(run) and cum[seg + 1] < want:
+            seg += 1
+        span = cum[seg + 1] - cum[seg] if seg + 1 < len(run) else 0.0
+        t = 0.0 if span <= 0.0 else (want - cum[seg]) / span
+        out.append((run[seg][0] + t * (run[seg + 1][0] - run[seg][0]),
+                    run[seg][1] + t * (run[seg + 1][1] - run[seg][1]))
+                   if seg + 1 < len(run) else run[seg])
+    return out
 
 
 def _bridge_spans(g: Geom, path: list[Point],
@@ -870,7 +1042,7 @@ def _bridge_spans(g: Geom, path: list[Point],
     for w in water:
         run: list[Point] = []
         for pt in path:
-            if _dist_path(g, pt[0], pt[1], w.path) < w.half + 14.0:
+            if _near_path(g, pt[0], pt[1], w.path, w.half + 14.0):
                 run.append(pt)
             elif run:
                 out.extend(_decks(run))
@@ -879,9 +1051,25 @@ def _bridge_spans(g: Geom, path: list[Point],
     return out
 
 
+def _add_decks(road: Road, spans: list[Point]) -> None:
+    """Append bridge decks, ignoring only ones landing on top of a deck that is
+    already there.
+
+    A causeway is a *run* of decks, and they are deliberately close - close
+    enough that no stretch of road stands over water unsupported. Suppressing a
+    deck because another deck sits a channel-width away is how a causeway ends
+    up with a hole in it, so the only thing dropped here is a true duplicate.
+    """
+    for x, y in spans:
+        if any(math.hypot(x - bx, y - by) < 24.0
+               for bx, by in road.bridges):
+            continue
+        road.bridges.append((x, y))
+
+
 def _paths_close(g: Geom, a: list[Point], b: list[Point], dist: float) -> bool:
     for pt in a[::2]:
-        if _dist_path(g, pt[0], pt[1], b) < dist:
+        if _near_path(g, pt[0], pt[1], b, dist):
             return True
     return False
 
@@ -931,8 +1119,8 @@ def _circulation(g: Geom, spec: SiteSpec, relief: list[list[float]],
             # valley floor is where the river already lives. Measure the share
             # of the route that hugs the water and make that expensive.
             hug = sum(1 for (x, y) in path
-                      if any(math.hypot(x - wx, y - wy) < w.half + 80.0
-                             for (wx, wy) in w.path)) / max(1, len(path))
+                      if _near_path(g, x, y, w.path, w.half + 80.0)) \
+                / max(1, len(path))
             score += 13.0 * hug
         if score < best_score:
             best_score = score
@@ -943,13 +1131,11 @@ def _circulation(g: Geom, spec: SiteSpec, relief: list[list[float]],
                         width=rng.uniform(15.0, 21.0))
     if best is None:
         return []
+    decks: list[Point] = []
     for w in water:
-        for hit in _crossings(best.path, w.path):
-            best.bridges.append(hit)
-    for span in _bridge_spans(g, best.path, water):
-        if not any(math.hypot(span[0] - bx, span[1] - by) < w0.half + 40.0
-                   for w0 in water for bx, by in best.bridges):
-            best.bridges.append(span)
+        decks.extend(_crossings(best.path, w.path))
+    decks.extend(_bridge_spans(g, best.path, water))
+    _add_decks(best, decks)
     roads = [best]
     # a spur: it leaves the main road and goes somewhere - the bridge end, a
     # col through the ridge, or out to a farm. A road that goes nowhere is the
@@ -967,15 +1153,15 @@ def _circulation(g: Geom, spec: SiteSpec, relief: list[list[float]],
             # a spur that runs off along a bank is the "is that a road or the
             # river?" ambiguity again: it may reach the water, it may not follow
             # it, so the run stops at the near bank
-            if any(_dist_path(g, px, py, w.path) < w.half + 26.0
+            if any(_near_path(g, px, py, w.path, w.half + 26.0)
                        for w in water) \
                     and len(pts) > 2:
                 break
             pts.append((px, py))
         spur = Road(kind="spur", path=pts, width=rng.uniform(10.0, 13.0))
         for w in water:
-            spur.bridges.extend(_crossings(spur.path, w.path))
-        spur.bridges.extend(_bridge_spans(g, spur.path, water))
+            decks = [pt for w in water for pt in _crossings(spur.path, w.path)]
+        _add_decks(spur, decks + _bridge_spans(g, spur.path, water))
         roads.append(spur)
     return roads
 
@@ -1048,7 +1234,7 @@ def _city_grid(g: Geom, water: list[Water], rng: random.Random) -> list[Road]:
         for r in roads:
             for _ in range(6):
                 wet = sum(1 for x, y in r.path
-                          if any(_dist_path(g, x, y, w.path) < w.half + 26.0
+                          if any(_near_path(g, x, y, w.path, w.half + 26.0)
                                  for w in water))
                 if wet <= max(2, len(r.path) // 8):
                     break
@@ -1059,8 +1245,8 @@ def _city_grid(g: Geom, water: list[Water], rng: random.Random) -> list[Road]:
                     r.path = [(x + off, y) for x, y in r.path]
     for r in roads:
         for w in water:
-            r.bridges.extend(_crossings(r.path, w.path))
-        r.bridges.extend(_bridge_spans(g, r.path, water))
+            decks = [pt for w in water for pt in _crossings(r.path, w.path)]
+        _add_decks(r, decks + _bridge_spans(g, r.path, water))
     return roads
 
 
@@ -1515,7 +1701,7 @@ def _water_mark(plan: SitePlan) -> None:
         for j in range(lo_j, hi_j + 1):
             for i in range(lo_i, hi_i + 1):
                 cx, cy = i * CELL + CELL / 2, j * CELL + CELL / 2
-                if _dist_path(g, cx, cy, w.path) < w.half + 14.0:
+                if _near_path(g, cx, cy, w.path, w.half + 14.0):
                     plan.wet[j][i] = True
 
 
