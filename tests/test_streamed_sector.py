@@ -332,3 +332,75 @@ def test_a_sector_change_never_touches_the_baked_tiles(app, tiny_sectors,
         "baked ground is still installed under the streamed sector"
     assert app.renderer.terrain_handoff_active() is False
     lvl.stop()
+
+
+def test_the_title_screen_starts_sector_ones_ground(app, tiny_sectors,
+                                                    monkeypatch):
+    """Sector 1 has no lead-in, and its ground takes longer to invent than a READY
+    countdown, so the title screen is asked to start it: those seconds were doing
+    nothing, and the window already exists for any painter that falls back to this
+    interpreter.
+
+    Three things are checked, because each can regress alone: the title path asks
+    (a future "that warm is redundant" edit would put the empty-field launch
+    back); asking while streaming really does begin the work, threads and all;
+    asking twice does not invent the same world twice; and asking while *not*
+    streaming declines, so the baked path pays nothing for the arrangement.
+    """
+    import dataclasses
+
+    calls = []
+    monkeypatch.setattr(app, "_warm_current_level", lambda i: calls.append(i))
+    app.init_display()
+    assert calls == [0], "the title path never asked for sector 1's ground"
+
+    monkeypatch.undo()
+    assert app.streaming() is True
+    app.next_level = None
+    app._warm_current_level(0)
+    lvl = app.next_level
+    assert lvl is not None and lvl.seed == 1, "the warm designed nothing"
+    assert lvl._threads or lvl.built(), "the warm designed but never started"
+
+    app._warm_current_level(0)
+    assert app.next_level is lvl, "the sector was designed twice"
+
+    app.settings = dataclasses.replace(app.settings, streamed_terrain=False)
+    app.next_level = None
+    app._warm_current_level(0)
+    assert app.next_level is None, "the baked path warmed a Level it will not fly"
+
+
+def test_the_launch_hold_continues_while_ground_arrives_and_stops_when_it_doesnt(
+        app, monkeypatch):
+    """Progress, not a constant, is what decides the wait.
+
+    A fixed hold was the bug's other half: whatever number was chosen, a sector
+    that needed longer launched into an empty field at exactly that many seconds.
+    So the hold continues while the painted frontier grows - and stops when it
+    stops growing, because ground that has died must not be able to sit the player
+    in READY forever.
+    """
+    class Fake:
+        seed = 1
+
+        def __init__(self) -> None:
+            self.n = 0
+            self.strips = {"near": self}
+
+        def frontier(self) -> int:
+            return self.n
+
+        def stop(self, timeout: float | None = None) -> None:
+            pass
+
+    fake = Fake()
+    app.level = fake
+    monkeypatch.setattr(app, "_opening_painted", lambda: False)
+    app._ready_seen = 0
+    assert app._ground_improving() is False, "nothing arrived yet"
+    fake.n = 3
+    assert app._ground_improving() is True, "ground arrived and was ignored"
+    assert app._ground_improving() is False, "the same ground is not progress"
+    fake.n = 4
+    assert app._ground_improving() is True

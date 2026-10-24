@@ -50,6 +50,13 @@ READY_TIME = 1.1          # seconds of "READY" before auto-launch
 # eventually rather than wait forever on ground that is not coming.
 READY_HOLD_MAX = 4.0
 
+# A second, much larger ceiling for the same hold: as long as the ground is
+# actually arriving, waiting costs a countdown the player is already sitting
+# through, while launching into an empty field costs the illusion that the world
+# was there all along. The ceiling exists because ground that stopped arriving
+# must not be able to hang the run - see `_ground_improving`.
+READY_HOLD_CEIL = 30.0
+
 # Bake px of ground ahead of the top edge at which a planned encounter is handed
 # to the model. An encounter belongs to a piece of ground, so it is released as
 # that ground arrives: a little early, so the group is climbing in over the roof
@@ -114,6 +121,7 @@ class App:
         self.next_level: Any = None       # the one being painted right now
         self._enc_i = 0                   # next planned encounter to release
         self._ready_wait = 0.0            # extra READY time waited for ground
+        self._ready_seen = 0              # slices painted, as of the last sample
         self.viewport = Viewport(0, 0, C.LOGICAL_W, C.LOGICAL_H)
         self._window_size = C.window_size(self.settings.window_scale)
         self._confirm_text = ""
@@ -142,6 +150,14 @@ class App:
         from audio import AudioManager
         self.audio = AudioManager(self.settings)
         self.audio.init()
+        # Sector 1 is the only sector with no lead-in - no earlier wave was
+        # painting it while the player flew - and its ground takes longer to
+        # invent than any pause the player will sit through. So the work starts
+        # here, behind the title screen, where the seconds are free and the window
+        # already exists for the painters that fall back to this interpreter.
+        # Every later sector already has a whole sector of flying time to prepare
+        # in; this gives the first one the same courtesy.
+        self._warm_current_level(0)
         log.info("display %s vsync=%s fps=%s",
                  self.settings.display_mode, self.settings.vsync,
                  self.settings.fps_limit)
@@ -557,6 +573,7 @@ class App:
         self._transition_timer = 0.0
         self._ready_timer = READY_TIME
         self._ready_wait = 0.0
+        self._ready_seen = 0
         self._bomb_pending = False
         if self.renderer is not None:
             # every sector scrolls its own phase-scheduled terrain
@@ -713,6 +730,31 @@ class App:
                 self._enc_i += 1
         if self.renderer is not None:
             self.renderer.set_level(lvl)
+
+    def _ground_improving(self) -> bool:
+        """Did more ground appear since the last time this was asked?
+
+        The alternative - a fixed hold - is what let a craft launch onto an empty
+        field: sector 1's ground takes longer to invent than any constant seconds
+        chosen for a pause, so the constant just decided *when* the player watched
+        ground appear. Progress is the honest condition, because it distinguishes
+        a machine that is working from one that has stopped, and the caller still
+        stops asking after `READY_HOLD_CEIL` so a stalled painter cannot wait
+        forever for ground that is not coming.
+        """
+        lvl = self.level
+        if lvl is None:
+            return False
+        strips = getattr(lvl, "strips", None) or {}
+        if not strips:
+            return False
+        try:
+            done = sum(int(s.frontier()) for s in strips.values())
+        except (AttributeError, RuntimeError, ValueError):
+            return False
+        better = done > self._ready_seen
+        self._ready_seen = max(self._ready_seen, done)
+        return better
 
     def _opening_painted(self) -> bool:
         """Is the ground the sector opens on there yet?
@@ -1229,9 +1271,13 @@ class App:
             if self._ready_timer == 0.0:
                 if self._opening_painted():
                     self._launch_craft()
-                elif self._ready_wait < READY_HOLD_MAX:
-                    # still in READY: the painters are on their way, and the
-                    # craft has nowhere to be for another few hundred ms
+                elif self._ready_wait < READY_HOLD_CEIL and (
+                        self._ready_wait < READY_HOLD_MAX
+                        or self._ground_improving()):
+                    # still in READY: the ground is on its way. Past the short
+                    # grace period this hold only continues while it keeps
+                    # arriving, so dead painters cost a late start rather than a
+                    # hung one.
                     self._ready_wait += dt
                 else:
                     self._launch_craft()
