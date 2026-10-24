@@ -547,7 +547,10 @@ class App:
                 # A respawn is the sector the craft already flew over; asking
                 # for it must not rebuild the ground under the player.
                 self.renderer.ensure_terrain(level, seed)
-                self._use_level(self.game.level_index)
+        # The Level belongs to the game, not to the view: it owns the design of
+        # the sector and the threads painting it, so it is made whether or not
+        # anything is there to draw it yet.
+        self._use_level(self.game.level_index)
         self._warm_ahead()
 
     def _warm_ahead(self) -> None:
@@ -1287,6 +1290,12 @@ class App:
     # ------------------------------------------------------------- shutdown
     def shutdown(self) -> None:
         self.running = False
+        # A Level owns worker threads that paint; stop them before SDL goes away,
+        # the same reason the prefetch thread is joined rather than left alone.
+        for lvl in (self.level, self.next_level):
+            if lvl is not None:
+                lvl.stop()
+        self.level = self.next_level = None
         if self.prefetch is not None:
             self.prefetch.shutdown()
         try:

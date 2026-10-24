@@ -36,12 +36,14 @@ LOOKAHEAD = 4         # slices painted ahead of the camera
 # to use, not a hitch.
 
 
-def strip_length(spec: Any, tail: float = BOSS_TAIL) -> int:
+def strip_length(spec: Any, tail: float | None = None) -> int:
     """Bake-space length of a sector's ground: everything it can be flown.
 
     The sector's own wave length plus the boss tail, at the ground layer's
     scroll rate, at the 2x bake scale every painters in ``terrain/`` uses.
     """
+    if tail is None:
+        tail = float(getattr(spec, "boss_tail_seconds", BOSS_TAIL))
     seconds = float(getattr(spec, "wave_seconds", 0.0) or 0.0) + tail
     return int(round(seconds * NEAR_SPEED * 2))       # SS == 2
 
@@ -53,7 +55,7 @@ class Level:
                  layers: tuple[str, ...] = ("near", "far"),
                  slice_h: int = STRIP_SLICE,
                  margin: int = STRIP_MARGIN,
-                 tail: float = BOSS_TAIL) -> None:
+                 tail: float | None = None) -> None:
         self.spec = spec
         self.seed = int(seed)
         self.theme = str(getattr(spec, "theme", "")).split(".")[-1].lower()

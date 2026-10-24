@@ -19,3 +19,8 @@ class LevelSpec:
     theme: StageTheme = StageTheme.COUNTRYSIDE
     phases: tuple[ThemePhase, ...] = ()   # () -> single-theme sector
     boss: str = "e_boss1"                 # sprite sheet for this sector's boss
+    # Ground kept under the sector once its wave ends. The boss fight is flown,
+    # not paused, so the sector's ground has to outlast the wave by more than the
+    # fight might take - and a streamed sector's length is exactly this number
+    # plus the wave, which is why it belongs to the sector and not to a constant.
+    boss_tail_seconds: float = 60.0
