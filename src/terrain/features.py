@@ -60,11 +60,9 @@ class Plane:
         self.x0, self.y0 = int(x0), int(y0)
         # a plan that loops in y paints its seam copies; a strip does not
         self.wrap = float(wrap)
-        # Bake px per planning unit. The plan speaks planning units and a strip
-        # window speaks bake px; without this, culling compares the two directly
-        # and asks about the wrong stretch of ground - which is how a house ends up
-        # painted by one slice and not by its neighbour, i.e. half a house on the
-        # slice boundary.
+        # Pixels per planning unit. One, because the plan is designed in the same
+        # units the plane is painted in; nothing divides by this any more. Kept so a
+        # future supersampling change has one place to say it.
         self.scale = 1
         self.rgb = np.zeros((w, h, 3), dtype=np.float32)
         self.a = np.zeros((w, h), dtype=np.float32)     # 0..1
@@ -550,9 +548,16 @@ def _upsample(grid: Any, plane: Plane, gw: int, gh: int) -> Any:
     g = np.asarray(grid, dtype=np.float32)            # (y, x)
     w, h = plane.w, plane.h
 
-    def cr(n: int, m: int, lo: float = 0.0,
-           hi: float | None = None) -> tuple:
-        xs = np.linspace(lo, (n - 1) if hi is None else hi, m)
+    def cr(n: int, xs: Any) -> tuple:
+        # Catmull-Rom weights for EXPLICIT sample positions. Building the samples
+        # from two endpoints (linspace(lo, hi, m)) was the bug: when `hi` had to be
+        # clamped to the last grid row - which happens for every window that runs
+        # past the end of the plan - the whole interval was re-fitted into the same
+        # number of samples, so the relief got stretched across the window instead
+        # of reading flat ground beyond the end. Every interior row of that window
+        # then sampled a different world row than its neighbour did: 37% of a slice
+        # wrong, growing to the end, and invisible between two windows that were
+        # both clamped the same way. Clamp the sample, never the interval.
         i1 = np.clip(np.floor(xs), 0, n - 1).astype(np.int32)
         t = (xs - i1).astype(np.float32)
         i0 = np.clip(i1 - 1, 0, n - 1)
@@ -566,19 +571,19 @@ def _upsample(grid: Any, plane: Plane, gw: int, gh: int) -> Any:
                 0.5 * t3 - 0.5 * t2)
 
     rows, cols = g.shape
-    # grid coordinate of the window's first and last pixel row: identical to the
-    # full-canvas map when the window IS the whole map. Clamped: a chunk at the
-    # end of a strip asks for rows past the last one, and an unclipped index
-    # would wrap to the OTHER end of the grid and paint the far side of the map
-    # here.
-    r_lo = _clamp(plane.y0 / gh * (rows - 1), 0.0, rows - 1)
-    r_hi = _clamp((plane.y0 + plane.h - 1) / gh * (rows - 1), 0.0, rows - 1)
-    c_lo = _clamp(plane.x0 / gw * (cols - 1), 0.0, cols - 1)
-    c_hi = _clamp((plane.x0 + plane.w - 1) / gw * (cols - 1), 0.0, cols - 1)
-    a0, a1, a2, a3, q0, q1, q2, q3 = cr(rows, h, r_lo, r_hi)
+    # Grid coordinate of every pixel row and column, from the window's world
+    # position: identical to the full-canvas map when the window IS the whole map,
+    # and identical to the neighbour wherever two windows overlap. Clamping is per
+    # sample, so a window that reaches past the end of the plan reads the last grid
+    # row (flat ground, the honest answer) rather than rescaling its own relief.
+    rxs = np.clip((plane.y0 + np.arange(h, dtype=np.float64))
+                  * ((rows - 1) / max(1, gh)), 0.0, rows - 1)
+    cxs = np.clip((plane.x0 + np.arange(w, dtype=np.float64))
+                  * ((cols - 1) / max(1, gw)), 0.0, cols - 1)
+    a0, a1, a2, a3, q0, q1, q2, q3 = cr(rows, rxs)
     tmp = (g[a0] * q0[:, None] + g[a1] * q1[:, None]
            + g[a2] * q2[:, None] + g[a3] * q3[:, None])       # (h, cols)
-    b0, b1, b2, b3, r0, r1, r2, r3 = cr(cols, w, c_lo, c_hi)
+    b0, b1, b2, b3, r0, r1, r2, r3 = cr(cols, cxs)
     out = (tmp[:, b0] * r0[None, :] + tmp[:, b1] * r1[None, :]
            + tmp[:, b2] * r2[None, :] + tmp[:, b3] * r3[None, :])
     return np.ascontiguousarray(np.clip(out, 0.0, 1.2).T)      # (x, y)
@@ -594,13 +599,14 @@ def _band(canvas: Any, plan: SitePlan, kind: str) -> list[int]:
     """
     y0 = getattr(canvas, "y0", 0.0)
     h = getattr(canvas, "h", 0) or getattr(canvas, "get_height", lambda: 0)()
-    # Ask in the plan's own units. A strip window is measured in bake pixels and the
-    # features in planning units; comparing them directly queried a stretch of
-    # ground SS times too long and shifted differently for every slice, so whether a
-    # given house was in a window at all depended on which slice was asking. The
-    # player sees that as half a house on the boundary line.
-    scale = getattr(canvas, "scale", 1) or 1
-    return plan.band(kind, y0 / scale, (y0 + h) / scale)
+    # One unit, everywhere: the plan is designed in the same bake pixels the plane
+    # is built in (`plan_sector` sizes `Geom(h=...)` from TILE2, and the baked maps
+    # use the same plane size), so the window's y-range is already the right thing
+    # to ask about. Dividing by SS here - which an earlier commit in this line of
+    # work did, to fix a half-drawn house - halved every query instead, and was a
+    # unit error masquerading as a unit fix. If features go missing at a slice
+    # boundary, the reach is too small, not the units.
+    return plan.band(kind, y0, y0 + h)
 
 
 def _bytes(v: int) -> bytes:

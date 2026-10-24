@@ -230,6 +230,15 @@ class SitePlan:
     # 2700 wood stamps per slice, each rotated and blitted and thrown away. On a
     # thirty-screen strip that is the difference between painting a slice in a
     # second and in half a minute.
+    # How far past its own anchor a feature of this kind can paint, in bake px: a
+    # window that cannot see a feature's anchor must still paint the part of it that
+    # reaches into the kept band, or a house ends up cut in half along a boundary -
+    # and no overlap test can see that, because both neighbours dropped it happily.
+    # These values were raised once on a hunch (320/90/260/160) and measured: the
+    # slice-vs-one-window difference did not move at all (0.04% either way), so the
+    # clipped-feature explanation was wrong and the extra reach is only extra work.
+    # Lowered numbers are guarded by `scripts/study_slice_seams.py`; if a theme ever
+    # grows a sprite that paints past these, that measurement moves first.
     _REACH = {"ridges": 0.0, "water": 0.0, "roads": 0.0, "buildings": 130.0,
               "fields": 30.0, "woods": 150.0, "greens": 70.0}
 

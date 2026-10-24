@@ -145,7 +145,6 @@ class TerrainStrip:
         # materials land on the same tile grid and props land on the same ground
         # as they would in any other window. `wrap=0` - a strip does not loop.
         plane = Plane(W2, h, x0=0, y0=y0)
-        plane.scale = SS           # the plan speaks planning units; see `_band`
         if self.layer == "near":
             # The ground the craft flies over is opaque, and it is opaque
             # because the material grid is laid down *under* the plan - the same
@@ -170,8 +169,19 @@ class TerrainStrip:
         else:
             paint_site(plane, kit, self.plan, rng)
         surf = plane.surface()
-        top = y0 - i * self.slice_h          # where the kept band starts
-        keep = surf.subsurface((0, max(0, top), W2, min(h, self.slice_h)))
+        # Where the kept band starts **inside the window**. `window(i)` runs the
+        # plane `margin` past the band at both ends and clamps at the strip's ends,
+        # so the band's offset is `i * slice_h - y0` - positive, usually `margin`.
+        # The subtraction here used to be the other way round: `-margin`, which
+        # `max(0, ...)` turned into 0, so every slice kept its TOP MARGIN and was
+        # displaced by exactly that much ground. Slice 0 clamps to y0 = 0, so slice 0
+        # was accidentally correct and every boundary after it jumped by a margin -
+        # a line across the field with the period of a slice, which is what the
+        # "remove every second tile and it lines up" report described. Measured: with
+        # the sign wrong, a best-fit shift of exactly one margin removed 99.97% of the
+        # difference; slice 0 showed none at all.
+        top = i * self.slice_h - y0
+        keep = surf.subsurface((0, top, W2, min(h - top, self.slice_h)))
         keep = keep.copy()
         if self.downscale:
             keep = pygame.transform.smoothscale(

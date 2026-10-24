@@ -11,8 +11,6 @@ from .theme_table import FAR_PAIR, NEAR_MATS, NEAR_MEAN, THEME_MEAN
 from .tilekit import (
     CH,
     CW,
-    GRID_C,
-    GRID_R,
     TILE,
     TileKit,
     kit,
@@ -51,31 +49,38 @@ def _grid(canvas: Any, k: TileKit, mats: list[tuple[str, float]],
     as natural patches, and the canvas stays wrap-continuous."""
     names, wts = zip(*mats, strict=True)
     base = names[0]
-    for gy in range(GRID_R):
-        for gx in range(GRID_C):
-            # NO flips/rotations: seam matching only holds unflipped
-            canvas.blit(k.material(base), (gx * TILE, gy * TILE))
-    # Per cell, from where that cell **is** - not from a stream belonging to the
-    # window being painted. Seeded per canvas, this made every strip slice a fresh
-    # roll of the material dice, so the base ground disagreed with itself along
-    # every boundary: the single largest seam there was.
-    from .features import _at
     base_tile = k.material(base)
-    # The lattice is anchored to the WORLD, not to the canvas: a window starting at
-    # row 560-96 is not a whole number of tiles into the ground, and blitting cell
-    # (gx, gy) at the canvas offset (gx*TILE, gy*TILE) shifted the entire material
-    # patchwork by that remainder for every window. That single misregistration made
-    # every pass above it disagree - the base grid is under everything, so a seam
-    # there is a seam everywhere at once.
+    from .features import _at
+    # Two rules, both learned the hard way:
+    #
+    # 1. The lattice is anchored to the WORLD, not to the canvas. A window starting
+    #    at row 560-96 is not a whole number of tiles into the ground; blitting cell
+    #    (gx, gy) at the canvas offset (gx*TILE, gy*TILE) shifted the whole material
+    #    patchwork by that remainder for every window, and since the grid is under
+    #    everything, that misregistration was a seam everywhere at once.
+    # 2. The lattice covers the canvas IT IS DRAWN ON, counted from that canvas. It
+    #    used to run to GRID_C/GRID_R - extents computed for the one-screen baked
+    #    map - so a strip plane, which is taller than one screen and starts at an
+    #    arbitrary row, got its material grid painted for only part of itself and
+    #    left the rest as whatever the buffer held. Same world rows from two
+    #    different window origins differed on 14% to 100% of pixels depending on
+    #    where the window began, which is why this looked like a per-pass, per-slice
+    #    mystery long after the seeding was made position-pure.
+    #
+    # A cell is chosen by where it IS, so any window picks the same material for the
+    # same ground. NO flips/rotations: seam matching only holds unflipped.
     gx0 = origin[0] // TILE
     gy0 = origin[1] // TILE
     off_x = origin[0] - gx0 * TILE
     off_y = origin[1] - gy0 * TILE
-    for j in range(GRID_R + 1):
-        for i in range(GRID_C + 1):
+    w, h = canvas.get_size()
+    n_i = -(-(w + off_x) // TILE) + 1        # cells to reach the far edge, +1 for
+    n_j = -(-(h + off_y) // TILE) + 1        # the half cell the offset exposes
+    for j in range(n_j):
+        for i in range(n_i):
             canvas.blit(base_tile, (i * TILE - off_x, j * TILE - off_y))
-    for j in range(GRID_R + 1):
-        for i in range(GRID_C + 1):
+    for j in range(n_j):
+        for i in range(n_i):
             name = _at("grid", (gx0 + i) * TILE, (gy0 + j)
                        * TILE).choices(names, weights=wts)[0]
             if name != base:
