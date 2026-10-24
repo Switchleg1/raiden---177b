@@ -14,6 +14,7 @@ being a load and becomes a pointer swap.
 from __future__ import annotations
 
 import threading
+import time
 from typing import Any
 
 from terrain.common import NEAR_SPEED, TILE2
@@ -24,6 +25,11 @@ from .encounters import plan_encounters
 from .strip import STRIP_MARGIN, STRIP_SLICE, TerrainStrip
 
 __all__ = ["Level", "strip_length"]
+
+# Workers whose `stop()` ran out of budget. They are joined by the next stop rather
+# than dropped, because "timed out" is not the same as "finished" and a live worker
+# walking into SDL teardown is a crash, not an exception.
+_STRAGGLERS: list[threading.Thread] = []
 
 BOSS_TAIL = 60.0      # seconds of ground kept under a sector after its wave
 LOOKAHEAD = 4         # slices painted ahead of the camera
@@ -105,7 +111,13 @@ class Level:
             return
         self.geom = Geom(h=self.length, cell=CELL, cyclic=False)
         self.plan = plan_sector(self.theme, self.seed, self.length,
-                                process=self.process_design)
+                                process=self.process_design, stop=self._stop)
+        if self.plan is None:
+            # Taken down mid-design. `plan` stays None, so `built()` is false and
+            # every reader falls back the way it already does for a sector that has
+            # not been designed yet - which, from the game's point of view, it now
+            # is not.
+            return
         # The sector's fights are chosen from the ground, so they are planned on
         # the same thread, straight after the ground they stand on exists. Cheap
         # next to the design pass, and it must not run on the frame thread: a
@@ -142,7 +154,7 @@ class Level:
             return
         strip = self.strips[name]
         while not self._stop.is_set():
-            if not strip.advance():
+            if not strip.advance(self._stop):
                 return
             # Stay a few slices ahead of the camera and no further ahead. Asked as
             # "is the ground the camera will need there yet", not as a count from
@@ -170,11 +182,30 @@ class Level:
         Joining is the point, not the flag: a worker mid-slice is inside pygame
         building surfaces, and tearing SDL down underneath it is an access
         violation, not an exception.
+
+        `timeout` is a **total** budget, shared by every thread - it used to be per
+        thread, which meant a Level with two painters and a designer could take the
+        sum of them and the caller had no idea. A worker that outlives the budget is
+        not dropped: it is kept in `_STRAGGLERS` and joined by the next `stop()`, so
+        a Level can no longer lose a worker into SDL teardown by timing out on it.
         """
         self._stop.set()
+        global _STRAGGLERS
+        # Anything a previous stop ran out of patience for is given a chance first:
+        # it has already had the longest grace period by now.
+        still = [t for t in _STRAGGLERS if t.join(0.0) is None and t.is_alive()]
+        _STRAGGLERS = still
+        deadline = time.monotonic() + max(0.0, float(timeout))
         for t in self._threads:
+            if not t.is_alive():
+                continue
+            left = deadline - time.monotonic()
+            if left <= 0.0:
+                _STRAGGLERS.append(t)
+                continue
+            t.join(left)
             if t.is_alive():
-                t.join(timeout)
+                _STRAGGLERS.append(t)
         self._threads = []
 
     # ------------------------------------------------------------- progress
@@ -215,7 +246,7 @@ class Level:
                 i = strip.missing_at(y)
                 if i < 0 or self._stop.is_set():
                     break
-                strip.paint(i)
+                strip.paint(i, self._stop)
                 done += 1
         return done
 

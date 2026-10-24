@@ -23,9 +23,16 @@ import logging
 import os
 import threading
 from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeout
 from typing import Any
 
 __all__ = ["plan_sector", "shutdown_pool", "PROCESS_MIN_LENGTH"]
+
+log = logging.getLogger("raiden.level")
+
+# How long a design request waits on its child before noticing that the Level which
+# asked for it has moved on.
+_POLL = 0.1
 
 log = logging.getLogger("raiden.level")
 
@@ -84,7 +91,7 @@ def pool() -> Any:
 
 
 def plan_sector(theme: str, seed: int, length: int,
-                process: bool | None = None) -> Any:
+                process: bool | None = None, stop: Any = None) -> Any | None:
     """Design a sector's ground, in the other process when it is worth it.
 
     `process=None` decides by size; True/False says so. A worker that dies or a
@@ -97,7 +104,21 @@ def plan_sector(theme: str, seed: int, length: int,
     if p is None:
         return _plan_here(theme, seed, length)
     try:
-        return p.submit(_plan_here, str(theme), int(seed), int(length)).result()
+        fut = p.submit(_plan_here, str(theme), int(seed), int(length))
+        if stop is None:
+            return fut.result()
+        # Polled for the same reason painting is: a Level can be stopped while its
+        # sector is still being thought about, and a design nobody will draw is not
+        # worth a thread that outlives `Level.stop()`. Returning None tells the
+        # caller the sector was taken down mid-design; `Level.ensure` treats it as
+        # "not designed yet", which is exactly what it is.
+        while True:
+            try:
+                return fut.result(timeout=_POLL)
+            except FuturesTimeout:
+                if stop.is_set():
+                    fut.cancel()
+                    return None
     except Exception as exc:                      # noqa: BLE001 - any worker fault
         log.warning("design worker failed (%s); designing in-process", exc)
         return _plan_here(theme, seed, length)

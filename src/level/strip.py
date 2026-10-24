@@ -95,7 +95,7 @@ class TerrainStrip:
         hi = min(self.height, hi)
         return lo, hi - lo
 
-    def paint(self, i: int) -> Any:
+    def paint(self, i: int, stop: Any = None) -> Any:
         """Paint slice `i` and return its surface. Idempotent, thread-safe.
 
         With `via_process` set, the work is asked for in the design/paint worker
@@ -104,6 +104,11 @@ class TerrainStrip:
         that cannot do it costs a slower slice, not a hole: the local path is
         always there. The picture is the same either way, which is asserted in
         tests/test_level_paint.py rather than assumed.
+
+        `stop` is the owning Level's event, and it is handed to the child wait
+        rather than only checked before it. A paint that is queued but no longer
+        wanted is not worth waiting for, and waiting for it is why `Level.stop()`
+        timed out with a worker still inside `future.result()`.
         """
         with self._lock:
             if self._surf[i] is not None:
@@ -113,8 +118,13 @@ class TerrainStrip:
             from .paintsrv import paint_slice
 
             surf = paint_slice(self.plan, self.layer, i, self.slice_h,
-                               self.margin)
+                               self.margin, stop=stop)
+            if stop is not None and stop.is_set():
+                return None        # being taken down; nothing to keep
+
         if surf is None:
+            if stop is not None and stop.is_set():
+                return None
             surf = self._paint(i)
         with self._lock:
             # Another worker may have finished the same slice while this one
@@ -201,7 +211,7 @@ class TerrainStrip:
         with self._lock:
             return self._surf[i] if 0 <= i < self.count else None
 
-    def advance(self) -> bool:
+    def advance(self, stop: Any = None) -> bool:
         """Paint the next slice the camera will need. False when the strip is done.
 
         The worker's whole inner loop: one slice at a time, so a stop request costs
@@ -222,7 +232,7 @@ class TerrainStrip:
             if i < 0:
                 return False
             self._cursor = i
-        self.paint(i)
+        self.paint(i, stop)
         return True
 
     def window_at(self, y: float) -> tuple[int, int]:

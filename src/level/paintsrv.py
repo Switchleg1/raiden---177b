@@ -22,6 +22,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+from concurrent.futures import TimeoutError as FuturesTimeout
 from typing import Any
 
 from .design import pool
@@ -29,6 +30,10 @@ from .design import pool
 __all__ = ["paint_slice", "shutdown_pool"]
 
 log = logging.getLogger("raiden.level")
+
+# How long a paint request waits on its child before noticing that the Level which
+# asked for it has moved on.
+_POLL = 0.1
 
 _CACHE: dict[tuple, Any] = {}
 _CACHE_LOCK = threading.Lock()
@@ -89,7 +94,7 @@ def _paint_here(theme: str, seed: int, length: int, layer: str, index: int,
 
 
 def paint_slice(plan: Any, layer: str, index: int, slice_h: int,
-                margin: int) -> Any | None:
+                margin: int, stop: Any = None) -> Any | None:
     """Paint one slice in the worker and return a surface, or None on failure.
 
     None means "the child could not do it" - and the caller paints it here, which
@@ -104,7 +109,22 @@ def paint_slice(plan: Any, layer: str, index: int, slice_h: int,
     args = (str(plan.theme), int(plan.seed), int(plan.geom.h), str(layer),
             int(index), int(slice_h), int(margin))
     try:
-        w, h, raw = p.submit(_paint_here, *args).result()
+        fut = p.submit(_paint_here, *args)
+        if stop is None:
+            w, h, raw = fut.result()
+        else:
+            # Poll rather than block. The Level that asked for this can be on its
+            # way out at any moment - a respawn, a sector change, quitting to the
+            # menu - and a queued paint it no longer wants is not worth a worker
+            # thread's life, so the future is cancelled and the thread released.
+            while True:
+                try:
+                    w, h, raw = fut.result(timeout=_POLL)
+                    break
+                except FuturesTimeout:
+                    if stop.is_set():
+                        fut.cancel()
+                        return None
     except Exception as exc:                      # noqa: BLE001 - worker fault
         log.warning("paint worker failed for slice %d (%s); painting in-"
                     "process", index, exc)

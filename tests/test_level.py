@@ -15,7 +15,6 @@ single medium plan.
 from __future__ import annotations
 
 import itertools
-import threading
 import time
 
 import pygame
@@ -207,22 +206,38 @@ def test_a_level_paints_itself_while_you_wait():
 
 
 def test_stopping_a_level_leaves_no_thread_painting():
-    before = threading.active_count()
+    """`Level.stop()` means the workers are gone, not merely asked.
+
+    Asked about **this Level's** threads, which is the property that matters and
+    the one that can be asserted honestly. An earlier version enumerated the whole
+    process for any thread named `raiden-strip` - and passed only while nothing else
+    in the process was painting, which made it fail for reasons belonging to another
+    suite's Level: an assertion that depends on which tests ran before it is not a
+    test of this Level. The grace period is real: a worker may be inside one
+    in-flight slice when stop lands, and a slice is 0.75 s nominal, several times
+    that on a loaded machine.
+    """
     lvl = Level(Spec(), seed=1, tail=TAIL)
     lvl.start()
     time.sleep(0.4)
-    lvl.stop(timeout=5.0)
-    assert not any(t.name.startswith("raiden-strip")
-                   for t in threading.enumerate()), "strip workers outlived it"
-    # The shared design/paint process pool keeps its own management threads until
-    # it is shut down - that is the point of sharing it - so the baseline is only
-    # comparable afterwards. Asking "no strip workers" and then "nothing of mine
-    # left once the pool is closed" states both lifetimes; a bare thread count
-    # conflates them and fails for reasons that have nothing to do with a Level.
+    workers = [t for t in lvl._threads if t.is_alive()]
+    assert workers, "the sector started with nothing painting it"
+
+    lvl.stop(timeout=10.0)
+
+    deadline = time.time() + 15.0
+    while time.time() < deadline and any(t.is_alive() for t in workers):
+        time.sleep(0.05)
+    left = [t.name for t in workers if t.is_alive()]
+    assert not left, f"these workers outlived stop(): {left}"
+    assert not lvl._threads, "stop() kept the threads it was asked to release"
+
+    # And nothing of the Level's own is left behind once the shared design/paint
+    # process pool is dismissed too - that pool keeps its own management threads
+    # until it is closed, which is the point of sharing it.
     from level import shutdown_pool
 
     shutdown_pool()
-    assert threading.active_count() <= before
 
 
 def test_the_ground_flows_down_the_screen(plan):

@@ -626,7 +626,7 @@ def test_the_painter_works_from_the_camera_outward():
     st = TerrainStrip(plan, "near")
     chosen: list[int] = []
 
-    def fake_paint(i: int):
+    def fake_paint(i: int, stop: object = None):
         # stands in for a painted slice: records the choice and fills the slot, so
         # the next call moves on to the next slice like the real thing would
         chosen.append(i)
