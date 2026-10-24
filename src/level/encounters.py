@@ -51,6 +51,7 @@ LEAD_IN = 3.0       # seconds of clear ground before the first encounter
 LEAD_OUT = 2.0      # seconds at the end, so a wave does not die mid-screen
 SEARCH = 420.0      # bake px of ground searched around a beat for a site
 PAD = 24.0          # bake px kept clear of the strip's side walls
+DEFAULT_ROSTER = (("grunt", 60), ("weaver", 26), ("darter", 14))
 
 
 def affordance_of(kind: EnemyKind) -> str:
@@ -82,12 +83,15 @@ def _pick(spec: Any, rng: random.Random) -> EnemyKind:
     """A kind from the sector's roster, at its sector's weights.
 
     The roster still comes from the level table - this chooses *which* thing the
-    ground should produce, not what the sector is allowed to produce.
+    ground should produce, not what the sector is allowed to produce. A spec
+    without one (a stub, a work in progress) gets the opening sector's mix
+    rather than an AttributeError: the planner is asked for places, not for
+    table validation.
     """
-    kinds = [EnemyKind(k) for k, _w in spec.spawns]
-    weights = [float(w) for _k, w in spec.spawns]
-    return EnemyKind(rng.choices([str(k) for k in kinds],
-                                 weights=weights, k=1)[0])
+    roster = list(getattr(spec, "spawns", None) or DEFAULT_ROSTER)
+    kinds = [str(k) for k, _w in roster]
+    weights = [float(w) for _k, w in roster]
+    return EnemyKind(rng.choices(kinds, weights=weights, k=1)[0])
 
 
 def _formation(kind: EnemyKind, rng: random.Random) -> tuple[int, str]:
@@ -176,6 +180,14 @@ def _open(plan: SitePlan, y: float, rng: random.Random) -> tuple[float, float] |
 _SITES = {"roof": _roof, "ridge": _ridge, "wet": _wet, "open": _open}
 
 
+def _seed_of(plan: SitePlan, spec: Any) -> int:
+    """Arithmetic, never hash(): the same sector must place the same encounters
+    in a replay, and hash() moves between runs."""
+    name_key = sum((i + 1) * ord(ch)
+                   for i, ch in enumerate(str(getattr(spec, "name", ""))))
+    return plan.seed * 1_000_003 + name_key
+
+
 def plan_encounters(plan: SitePlan, spec: Any,
                     tail: float = 0.0) -> list[Encounter]:
     """The sector's encounters, in the order the player will fly into them.
@@ -188,11 +200,9 @@ def plan_encounters(plan: SitePlan, spec: Any,
     not a walk past more of the same.
     """
     g = plan.geom
-    # arithmetic, never hash(): the same sector must place the same
-    # encounters in a replay, and hash() moves between runs
-    name_key = sum((i + 1) * ord(ch) for i, ch in enumerate(spec.name))
-    rng = random.Random(plan.seed * 1_000_003 + name_key)
-    beat = max(60.0, float(getattr(spec, "spawn_interval", 1.0)) * NEAR_SPEED * SS)
+    rng = random.Random(_seed_of(plan, spec))
+    beat = max(60.0, float(getattr(spec, "spawn_interval", 1.0))
+               * NEAR_SPEED * SS)
     y0 = LEAD_IN * NEAR_SPEED * SS
     y1 = g.h - (LEAD_OUT + tail) * NEAR_SPEED * SS
     out: list[Encounter] = []

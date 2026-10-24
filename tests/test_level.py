@@ -20,6 +20,7 @@ import time
 import pygame
 import pytest
 
+import config as C
 from level.level import Level, strip_length
 from level.strip import STRIP_MARGIN, STRIP_SLICE, TerrainStrip
 from terrain.common import NEAR_SPEED, SS, TILE2
@@ -35,6 +36,9 @@ class Spec:
     def __init__(self, wave: float = WAVE, theme: str = "countryside") -> None:
         self.wave_seconds = wave
         self.theme = theme
+        self.name = f"test-{theme}"
+        self.spawn_interval = 1.0
+        self.spawns = (("grunt", 60), ("weaver", 26), ("darter", 14))
 
 
 @pytest.fixture(scope="module")
@@ -204,6 +208,75 @@ def test_stopping_a_level_leaves_no_thread_painting():
     assert not any(t.name.startswith("raiden-strip")
                    for t in threading.enumerate()), "strip workers outlived it"
     assert threading.active_count() <= before
+
+
+def test_the_ground_flows_down_the_screen(plan):
+    """Direction, not rate - and the direction is not a matter of taste.
+
+    The baked ground moves *down* past the craft (`terrain/layer.py` blits at
+    `HUD_H + off`, and `off` grows). A strip that scrolled up would disagree with
+    the baked map the renderer still falls back to, inside the same frame, and
+    the tell would be unmistakable the moment a slice was missing. So: move the
+    camera forward and the picture must move down by the same amount.
+    """
+    st = _strip(1, plan)
+    for i in range(6):
+        st.paint(i)
+    surf = st.surface(0)
+    # a band as tall as the field, so moving the camera one slice leaves rows
+    # behind to compare against
+    band = pygame.Rect(0, 0, surf.get_width(), C.FIELD_BOTTOM - C.FIELD_TOP)
+
+    def shot(y: float):
+        canvas = pygame.Surface((band.w, band.h), pygame.SRCALPHA)
+        assert st.draw(canvas, band, y) >= 2, "the band should not be empty"
+        return pygame.surfarray.array3d(canvas).transpose(1, 0, 2)
+
+    y0 = 4 * STRIP_SLICE
+    step = STRIP_SLICE // SS               # logical px for one slice of camera
+    a, b = shot(y0), shot(y0 + STRIP_SLICE)
+    # every row of the later picture above `step` is the row `step` above it was
+    moved = (b[step:] == a[:-step]).mean()
+    held = (b == a).mean()
+    assert moved > 0.90, (f"the ground did not flow down: only {moved:.2f} of "
+                          f"rows matched a downward shift of {step} px")
+    assert held < 0.90, "the ground did not move at all"
+
+
+def test_a_sector_opens_on_ground_not_on_a_hole(plan):
+    """The camera starts one screen into the strip, so the opening band is full
+    of ground on the first frame instead of showing the strip's own top edge."""
+    lvl = Level(Spec(), seed=1, tail=TAIL)
+    try:
+        lvl.build()
+        assert lvl.near_y == pytest.approx(TILE2)
+        st = lvl.strips["near"]
+        for i in range(4):
+            st.paint(i)
+        surf = st.surface(0)
+        band = pygame.Rect(0, 0, surf.get_width(), surf.get_height())
+        canvas = pygame.Surface((band.w, band.h), pygame.SRCALPHA)
+        drawn = lvl.draw(canvas, band)
+        assert drawn >= 2, f"only {drawn} slice(s) in the opening band"
+        alpha = pygame.surfarray.array_alpha(canvas)
+        assert (alpha > 200).mean() > 0.85, "the opening band is not covered"
+    finally:
+        lvl.stop()
+
+
+def test_a_sector_fights_where_its_ground_is(plan):
+    """A Level plans its encounters with its ground, on its own thread."""
+    lvl = Level(Spec(), seed=1, tail=TAIL)
+    try:
+        lvl.build()
+        assert lvl.encounters, "the sector designed ground but no fights"
+        kinds = {str(e.kind) for e in lvl.encounters}
+        assert kinds <= {k for k, _w in Spec().spawns}
+        ys = [e.y for e in lvl.encounters]
+        assert ys == sorted(ys)
+        assert all(0.0 <= e.y <= lvl.length for e in lvl.encounters)
+    finally:
+        lvl.stop()
 
 
 def test_two_levels_are_independent():

@@ -25,6 +25,7 @@ import config as C
 from app import App
 from level import Level
 from state import State
+from terrain.common import TILE2
 
 
 @pytest.fixture()
@@ -84,7 +85,7 @@ def test_ground_appears_under_the_craft(app, tiny_sectors):
     lvl = app.level
     assert _wait_for(lambda: lvl.built()), "the sector was never designed"
     assert _wait_for(lambda: lvl.ready_at(0.0)), "no ground reached the camera"
-    assert lvl.near_y == 0.0
+    assert lvl.near_y == pytest.approx(TILE2)
     band = pygame.Rect(0, 0, C.LOGICAL_W, C.LOGICAL_H)
     canvas = pygame.Surface((C.LOGICAL_W, C.LOGICAL_H), pygame.SRCALPHA)
     before = pygame.surfarray.array3d(canvas)
@@ -124,6 +125,37 @@ def test_the_app_does_not_start_levels_when_streaming_is_off(app, tiny_sectors):
     app._warm_level_ahead(0)
     assert app.level is None and app.next_level is None
     assert app.renderer._level is None
+
+
+def test_the_fights_arrive_with_the_ground(app, tiny_sectors):
+    """The seam between the level and the model: the level plans its fights on
+    the land, and the app hands them over as that land reaches the field. The
+    model's spawn clock stops when they start arriving - two systems deciding
+    when things appear is twice the density."""
+    app._start_game()
+    lvl = app.level
+    assert _wait_for(lambda: lvl.encounters, timeout=120.0), \
+        "the sector designed ground but never planned its fights"
+    planned = len(lvl.encounters)
+    assert app.game.ground_spawns is False
+    for _ in range(240):                # four seconds of the app's own update
+        app._update(1.0 / 60.0)
+    assert app._enc_i > 0, "no encounter was released over four seconds of ground"
+    assert app.game.ground_spawns is True, "the model is still spawning on its clock"
+    assert app._enc_i <= planned
+
+
+def test_a_sector_without_a_level_keeps_the_old_director(app, tiny_sectors):
+    """The fallback has to be complete: with streaming off there is no Level, no
+    encounters and no release path, and the sector plays exactly as a baked
+    sector always did."""
+    app.settings = dataclasses.replace(app.settings, streamed_terrain=False)
+    app._start_game()
+    for _ in range(180):
+        app._update(1.0 / 60.0)
+    assert app.level is None
+    assert app.game.ground_spawns is False
+    assert len(app.game.enemies) > 0, "the timer director stopped fielding things"
 
 
 def test_a_streamed_sector_survives_a_frame_loop(app, tiny_sectors):

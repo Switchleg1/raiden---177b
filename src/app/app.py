@@ -43,6 +43,12 @@ log = logging.getLogger("raiden_shadow")
 
 READY_TIME = 1.1          # seconds of "READY" before auto-launch
 
+# Bake px of ground ahead of the top edge at which a planned encounter is handed
+# to the model. An encounter belongs to a piece of ground, so it is released as
+# that ground arrives: a little early, so the group is climbing in over the roof
+# or the ridge it came out of rather than appearing after it passed.
+ENCOUNTER_LEAD = 160.0
+
 
 MOUSE_TRACK_SPEED = 760.0  # logical units / s cap for pointer following
 
@@ -99,6 +105,7 @@ class App:
         self._warmed_next_sector = -1     # sector whose handoff was queued
         self.level: Any = None            # the sector being flown
         self.next_level: Any = None       # the one being painted right now
+        self._enc_i = 0                   # next planned encounter to release
         self.viewport = Viewport(0, 0, C.LOGICAL_W, C.LOGICAL_H)
         self._window_size = C.window_size(self.settings.window_scale)
         self._confirm_text = ""
@@ -641,8 +648,42 @@ class App:
                 lvl.stop()
             lvl = Level(C.LEVELS[idx], seed=idx + 1)
         self.level, self.next_level = lvl, None
+        # A new sector's ground has its own fights planned on it. Everything at
+        # or behind the camera is skipped: on a respawn mid-sector the craft is
+        # already part-way down the strip, and the ground it flew over is not
+        # about to produce another war.
+        self._enc_i = 0
+        if lvl is not None:
+            encs = getattr(lvl, "encounters", ())
+            while self._enc_i < len(encs) and encs[self._enc_i].y < lvl.near_y:
+                self._enc_i += 1
         if self.renderer is not None:
             self.renderer.set_level(lvl)
+
+    def _release_encounters(self) -> None:
+        """Hand the sector's ground-planned fights to the model as they arrive.
+
+        The model owns the fight; the level owns the ground. This is the seam
+        between them: an encounter is addressed by the strip row it stands on,
+        and the app - which owns both - releases it when that row reaches the top
+        of the field. Once the first one lands the model's clock stops, because
+        two systems deciding when things arrive would mean twice the density.
+
+        Sectors without a Level (streaming off) never get here, and the timer
+        director spawns exactly as it always did.
+        """
+        from terrain.common import SS
+
+        lvl = self.level
+        if lvl is None or self.game is None:
+            return
+        encs = getattr(lvl, "encounters", ())
+        while (self._enc_i < len(encs)
+               and encs[self._enc_i].y <= lvl.near_y + ENCOUNTER_LEAD):
+            e = encs[self._enc_i]
+            self._enc_i += 1
+            self.game.ground_spawns = True
+            self.game.release(e.kind, e.x / SS, e.count, e.form)
 
     def _launch_craft(self) -> None:
         if self.sm.state == State.READY:
@@ -1120,6 +1161,7 @@ class App:
         elif st == State.PLAYING:
             self._play_time += dt
             self._watch_load_ahead()
+            self._release_encounters()
             self._apply_craft_input(dt)
             self._acc += dt
             steps = 0
@@ -1329,13 +1371,14 @@ def main(argv: list[str] | None = None) -> int:
     if "-h" in argv or "--help" in argv:
         print("Raiden Shadow - vertical arcade shooter\n"
               "\n"
-              "usage: python main.py [--self-test [FRAMES]] [-h]\n"
+              "usage: python main.py [--self-test [FRAMES]] "
+              "[--streamed-terrain] [-h]\n"
               "\n"
-              "  --self-test [N]  run N frames headless (dummy video/audio)\n"
+              "  --self-test [N]      run N frames headless (dummy video/audio,"
+              " default 90)\n"
               "  --streamed-terrain   fly one designed sector strip, painted as"
               " it scrolls\n"
-              "                   and exit (default 90)\n"
-              "  -h, --help       show this help and exit\n"
+              "  -h, --help           show this help and exit\n"
               "\n"
               "Controls: WASD/arrows or mouse to move, SPACE / left click to\n"
               "fire, X / right click for smart bomb, P / ESC to pause.")

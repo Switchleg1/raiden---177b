@@ -37,6 +37,11 @@ SIG_HAZARD = "hazard"
 SIG_BOMB = "bomb"
 SIG_BOSS = "boss_spawn"
 
+# How busy the field is allowed to get before a planned group waits. The ground
+# decides density, but a release landing while the screen is already full would
+# only stack another fight on top of the one the player is in.
+FIELD_SOFT_CAP = 28
+
 
 @dataclass
 class Game:
@@ -72,6 +77,10 @@ class Game:
     _wave_timer: float = 0.0
     _spawn_timer: float = 0.0
     _boss_spawned: bool = False
+    # Set by the app when a streamed sector hands over its planned encounters:
+    # the ground decides when things arrive, so the clock stops. Leaving it False
+    # is the whole fallback - a baked sector spawns on the timer as it always did.
+    ground_spawns: bool = False
     _escort_timer: float = 0.0
     _cleared: bool = False
 
@@ -264,28 +273,78 @@ class Game:
         weights = [w for _, w in spec.spawns]
         return C.EnemyKind(self.rng.choices(kinds, weights=weights, k=1)[0])
 
+    def _formation_slots(self, kind: C.EnemyKind, centre_x: float,
+                         count: int,
+                         form: str = "auto") -> list[tuple[float, float]]:
+        """Where the members of a group stand, given where the group is.
+
+        One place decides this, because two systems ask for it: the timer
+        director drops a group at a random column, and a ground-planned sector
+        hands over the column the ground chose. Same shapes either way - a file,
+        a V with the tip trailing, or one thing on its own.
+        """
+        spec = C.ENEMY_SPECS[kind]
+        gap = spec.r * 2 + 14.0
+        if form == "auto":
+            # small formation: a single, a horizontal line, or a V of the same
+            # kind
+            roll = self.rng.random()
+            if kind in (C.EnemyKind.HEAVY, C.EnemyKind.SENTRY):
+                count, form = 1, "single"
+            elif roll < 0.5:
+                count, form = 1, "single"
+            elif roll < 0.85:
+                count, form = 3, "line"
+            else:
+                count, form = 5, "v"
+        count = max(1, int(count))
+        total = gap * (count - 1)
+        left = max(C.FIELD_LEFT + spec.r,
+                   min(centre_x - total / 2.0,
+                       C.FIELD_RIGHT - spec.r - total))
+        slots: list[tuple[float, float]] = []
+        for i in range(count):
+            x = P.clamp(left + gap * i,
+                        C.FIELD_LEFT + spec.r, C.FIELD_RIGHT - spec.r)
+            if form == "v":
+                y = C.FIELD_TOP - 30.0 - 26.0 * abs(i - (count - 1) / 2)
+            elif form in ("line", "pair"):
+                y = C.FIELD_TOP - 30.0 - 8.0 * i
+            else:
+                y = C.FIELD_TOP - 30.0
+            slots.append((x, y))
+        return slots
+
+    def release(self, kind: Any, x: float, count: int = 1,
+                form: str = "single") -> int:
+        """Put a planned group on the field, at the column the ground chose.
+
+        A streamed sector plans its fights against the land - a turret out of
+        the hamlet, a heavy off the ridge flank - and the app hands each one over
+        as that ground reaches the top edge. The group enters above the field
+        like any other spawn; what changed is *where* and *when*, and that the
+        land decided it.
+
+        Returns how many were placed: the field can already be busy.
+        """
+        kind = C.EnemyKind(kind)
+        if len(self.enemies) >= FIELD_SOFT_CAP:
+            return 0
+        made = 0
+        for (sx, sy) in self._formation_slots(kind, float(x), count, form):
+            if len(self.enemies) >= FIELD_SOFT_CAP:
+                break
+            self.enemies.append(
+                Enemy.spawn(kind, sx, sy, level=self.level_index, rng=self.rng))
+            made += 1
+        return made
+
     def _spawn_formation(self, events: list[dict[str, Any]]) -> None:
         kind = self._pick_spawn_kind()
-        spec = C.ENEMY_SPECS[kind]
-        # small formation: a single, a horizontal line, or a V of the same kind
-        roll = self.rng.random()
-        if kind in (C.EnemyKind.HEAVY, C.EnemyKind.SENTRY):
-            count = 1
-        elif roll < 0.5:
-            count = 1
-        elif roll < 0.85:
-            count = 3
-        else:
-            count = 5
-        gap = spec.r * 2 + 14.0
-        total = gap * (count - 1)
-        start_x = self.rng.uniform(C.FIELD_LEFT + 40, C.FIELD_RIGHT - 40 - total)
-        for i in range(count):
-            x = start_x + gap * i
-            x = P.clamp(x, C.FIELD_LEFT + spec.r, C.FIELD_RIGHT - spec.r)
-            y = C.FIELD_TOP - 30.0 - 26.0 * abs(i - (count - 1) / 2)
+        x = self.rng.uniform(C.FIELD_LEFT + 40.0, C.FIELD_RIGHT - 40.0)
+        for (sx, sy) in self._formation_slots(kind, x, 0, "auto"):
             self.enemies.append(
-                Enemy.spawn(kind, x, y, level=self.level_index, rng=self.rng))
+                Enemy.spawn(kind, sx, sy, level=self.level_index, rng=self.rng))
 
     def _update_escorts(self, dt: float) -> None:
         """Boss escorts: keep the fight two-layered while the boss is up.
@@ -546,10 +605,12 @@ class Game:
         spec = self._spec()
         if not self._boss_spawned:
             self._wave_timer += dt
-            self._spawn_timer -= dt
-            if self._spawn_timer <= 0.0:
-                self._spawn_formation(events)
-                self._spawn_timer = spec.spawn_interval * self.rng.uniform(0.7, 1.2)
+            if not self.ground_spawns:
+                self._spawn_timer -= dt
+                if self._spawn_timer <= 0.0:
+                    self._spawn_formation(events)
+                    self._spawn_timer = (spec.spawn_interval
+                                         * self.rng.uniform(0.7, 1.2))
             if self._wave_timer >= spec.wave_seconds:
                 self._spawn_boss(events)
         else:

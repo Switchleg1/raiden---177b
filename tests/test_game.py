@@ -27,6 +27,71 @@ def types_of(events):
     return [e["type"] for e in events]
 
 
+# ------------------------------------------------------- ground-planned spawns
+def test_release_puts_the_group_at_the_column_the_ground_chose():
+    """The whole point of planning a fight against the land: the column is not
+    drawn from a hat any more, it is where the rooftop or the ridge is."""
+    g = make_game()
+    made = g.release("sentry", 400.0, 1, "single")
+    assert made == 1
+    e = g.enemies[-1]
+    assert e.kind is C.EnemyKind.SENTRY
+    assert abs(e.x - 400.0) < 1.0
+    assert e.y < C.FIELD_TOP, "a spawn must enter above the field, not inside it"
+
+
+def test_release_centres_a_group_on_its_column_rather_than_starting_one():
+    g = make_game()
+    g.release("grunt", 400.0, 3, "line")
+    xs = sorted(e.x for e in g.enemies)
+    assert len(xs) == 3
+    assert abs(sum(xs) / 3 - 400.0) < 1.0, "the group drifted off its site"
+    assert xs[0] < xs[1] < xs[2]
+
+
+def test_release_cannot_put_a_group_under_the_side_wall():
+    g = make_game()
+    g.release("grunt", 0.0, 5, "v")
+    for e in g.enemies:
+        assert C.FIELD_LEFT <= e.x <= C.FIELD_RIGHT
+
+
+def test_a_v_trails_its_tip_behind():
+    g = make_game()
+    g.release("weaver", 400.0, 5, "v")
+    ys = [e.y for e in g.enemies]
+    assert max(ys) == C.FIELD_TOP - 30.0, "the tip leads"
+    assert min(ys) <= C.FIELD_TOP - 80.0, "the wings do not trail"
+
+
+def test_ground_spawns_stop_the_clock():
+    """Two systems deciding when things arrive means twice the density, so the
+    timer director stands down the moment the ground starts handing things over.
+    Leaving the flag False is the fallback: a baked sector spawns as it always
+    did, and nothing else about a sector changes."""
+    g = make_game()
+    g.new_game()
+    plain = make_game()
+    g.ground_spawns = True
+    for _ in range(400):
+        g.update(DT, move_x=0.0, move_y=0.0, firing=False)
+    for _ in range(400):
+        plain.update(DT, move_x=0.0, move_y=0.0, firing=False)
+    assert not any(e.kind is not C.EnemyKind.BOSS for e in g.enemies) \
+        or all(e.kind is C.EnemyKind.BOSS for e in g.enemies), \
+        "the clock kept spawning while the ground was driving"
+    assert len(plain.enemies) > 0, "the timer path stopped working"
+
+
+def test_a_release_waits_when_the_field_is_already_busy():
+    from game import FIELD_SOFT_CAP
+    g = make_game()
+    for _ in range(FIELD_SOFT_CAP):
+        g.release("grunt", 300.0 + (_ % 6) * 30.0, 1, "single")
+    assert len(g.enemies) <= FIELD_SOFT_CAP
+    assert g.release("heavy", 400.0, 1, "single") == 0
+
+
 # ---------------------------------------------------------------- lifecycle
 def test_new_game_initial_state():
     g = make_game()

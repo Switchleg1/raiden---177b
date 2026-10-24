@@ -177,9 +177,12 @@ class TerrainStrip:
     def missing_at(self, y: float) -> int:
         """Index of the first unfinished slice the camera at `y` can see.
 
-        `y` is bake-space. The camera sees a field of TILE2 bake px.
+        `y` is bake-space, and it is the strip row at the **top** edge of the
+        field: what the camera can see is the screen of ground behind that row,
+        [y - TILE2, y]. Asking only at and past `y` would call a sector ready
+        whose visible ground is not painted yet.
         """
-        top = max(0, int(y) // self.slice_h)
+        top = max(0, int(y - TILE2) // self.slice_h)
         with self._lock:
             for i in range(top, min(self.count, top + 4)):
                 if self._surf[i] is None:
@@ -190,18 +193,28 @@ class TerrainStrip:
     def draw(self, canvas: Any, band: Any, y: float) -> int:
         """Blit the slices the camera at bake offset `y` can see.
 
+        `y` is the strip row standing at the **top edge** of the band, and it
+        grows as the craft flies forward through the sector, so the ground
+        flows *down* the screen past the craft - the same direction the baked detail layers
+        move (`layer.py` blits at `HUD_H + off`). The sign here is not a
+        preference: a strip that scrolls the other way disagrees with the baked
+        ground the renderer still falls back to inside the same frame.
+
         Returns the number of slices drawn, so a caller can tell a hole in the
         ground from the whole picture.
         """
         if not self.downscale:
             raise RuntimeError("a strip drawn unscaled would cover the field 4x")
+        # rows behind the top edge are the ones in view: [y - view, y]
+        lo = int((y - band.height * SS) // self.slice_h) - 1
+        hi = int(y // self.slice_h) + 1
         drawn = 0
-        first = max(0, int(y) // self.slice_h)
-        for i in range(first, min(self.count, first + 4)):
+        for i in range(max(0, lo), min(self.count, hi)):
             surf = self.surface(i)
             if surf is None:
                 continue
-            top = band.top + (i * self.slice_h - y) / SS
+            # the slice's *far* row is the one nearest the top edge
+            top = band.top + (y - (i + 1) * self.slice_h) / SS
             canvas.blit(surf, (band.left, int(round(top))), band)
             drawn += 1
         return drawn

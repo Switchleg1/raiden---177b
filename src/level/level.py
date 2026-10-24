@@ -16,9 +16,10 @@ from __future__ import annotations
 import threading
 from typing import Any
 
-from terrain.common import NEAR_SPEED, SS, TILE2
+from terrain.common import NEAR_SPEED, TILE2
 from terrain.siteplan import CELL, Geom, plan_site
 
+from .encounters import plan_encounters
 from .strip import STRIP_MARGIN, STRIP_SLICE, TerrainStrip
 
 __all__ = ["Level", "strip_length"]
@@ -60,6 +61,8 @@ class Level:
         self.seed = int(seed)
         self.theme = str(getattr(spec, "theme", "")).split(".")[-1].lower()
         self.length = strip_length(spec, tail)
+        self.tail_seconds = float(tail if tail is not None else float(
+            getattr(spec, "boss_tail_seconds", BOSS_TAIL)))
         self.slice_h, self.margin = slice_h, margin
         self._layers = tuple(layers)
         for name in self._layers:
@@ -67,9 +70,14 @@ class Level:
                 raise ValueError(f"unknown strip layer {name!r}")
         self.geom: Any = None
         self.plan: Any = None
+        self.encounters: list[Any] = []
         self.strips: dict[str, TerrainStrip] = {}
-        self.near_y = 0.0
-        self.far_y = 0.0
+        # The camera's row: the strip row standing at the top edge of the field.
+        # It starts one screen into the strip so the opening band is full of
+        # ground at once (rows 0..one screen fill the field), and it grows as the
+        # craft flies forward.
+        self.near_y = float(TILE2)
+        self.far_y = float(TILE2)
         self._threads: list[threading.Thread] = []
         self._stop = threading.Event()
 
@@ -87,6 +95,12 @@ class Level:
             return
         self.geom = Geom(h=self.length, cell=CELL, cyclic=False)
         self.plan = plan_site(self.theme, self.seed, self.geom)
+        # The sector's fights are chosen from the ground, so they are planned on
+        # the same thread, straight after the ground they stand on exists. Cheap
+        # next to the design pass, and it must not run on the frame thread: a
+        # Level is made in the middle of a fight.
+        self.encounters = list(plan_encounters(self.plan, self.spec,
+                                               tail=self.tail_seconds))
         self.strips = {name: TerrainStrip(self.plan, name, self.slice_h,
                                           self.margin)
                        for name in self._layers}
@@ -121,9 +135,14 @@ class Level:
                 self._stop.wait(0.05)
 
     def _need(self, strip: TerrainStrip) -> int:
-        """The slice index the camera is standing on, for this layer."""
+        """The slice index the camera is about to need, for this layer.
+
+        The camera's leading edge is its own row: everything it can see lies at
+        or below that row in the strip, so staying ahead of it means painting
+        slices at indices above `y // slice_h`.
+        """
         y = self.far_y if strip.layer == "far" else self.near_y
-        return int(y / SS) // strip.slice_h + LOOKAHEAD
+        return int(y // strip.slice_h) + LOOKAHEAD
 
     def stop(self, timeout: float = 3.0) -> None:
         """Stop painting and wait for the workers to actually stop.
@@ -190,8 +209,8 @@ class Level:
         self.far_y += FAR_SPEED * dt
         # The strip has an end. Past it there is nothing to draw, so the ground
         # holds rather than running out from under the craft.
-        self.near_y = min(self.near_y, self.length - TILE2)
-        self.far_y = min(self.far_y, self.length - TILE2)
+        self.near_y = min(self.near_y, float(self.length))
+        self.far_y = min(self.far_y, float(self.length))
 
     def draw(self, canvas: Any, band: Any) -> int:
         """Draw the field's ground inside `band` (the field rect).
