@@ -122,6 +122,11 @@ class App:
         self._enc_i = 0                   # next planned encounter to release
         self._ready_wait = 0.0            # extra READY time waited for ground
         self._ready_seen = 0              # slices painted, as of the last sample
+        # Which sector's ground the view is showing, and whether a launch should
+        # wait for new ground to arrive. Dying is neither: it is a pause with
+        # consequences, not a level reload.
+        self._ground_key: tuple[int, int] | None = None
+        self._ground_wait = False
         self.viewport = Viewport(0, 0, C.LOGICAL_W, C.LOGICAL_H)
         self._window_size = C.window_size(self.settings.window_scale)
         self._confirm_text = ""
@@ -526,6 +531,11 @@ class App:
         if self.level is not None:
             self.level.stop()
             self.level = None
+        # A new run is a new world, ground included: forget which sector is
+        # installed so the next _enter_ready treats it as new ground and waits for
+        # it, rather than assuming the dead run's tiles are still there.
+        self._ground_key = None
+        self._ground_wait = False
         self._set_music(self.game.level_index)
         # The first sector has no lead-in of its own - nothing has been painting
         # it - so start it here, where the title and READY seconds are otherwise
@@ -581,29 +591,43 @@ class App:
         self._ready_wait = 0.0
         self._ready_seen = 0
         self._bomb_pending = False
+        # Which sector's ground is currently under the view. Dying does not change
+        # the sector, and treating it as if it did is what made death expensive:
+        # this path used to clear the terrain, detach the ground from the view and
+        # then wait for ground that was already there. Pausing costs nothing, so
+        # neither should dying.
+        key = (self.game.level_index, self.game.level_index + 1)
+        same_ground = self._ground_key == key
         if self.renderer is not None:
             # every sector scrolls its own phase-scheduled terrain
             level = C.LEVELS[self.game.level_index]
             seed = self.game.level_index + 1
             if self.streaming():
-                # A streamed sector has nothing to hand over and nothing to
-                # dissolve. Its ground was designed and painted before the
-                # pointer moved, the renderer draws the Level instead of a baked
-                # map, and the camera keeps scrolling through the change. The
-                # baked handoff used to load the *previous* generation of tiles,
-                # reveal them, and then snap to the new ones - which is the whole
-                # process the strip exists to replace, so it is skipped here
-                # rather than worked around.
-                self.renderer.clear_terrain()
-            elif not (seamless and
-                      self.renderer.handoff_terrain(level, seed)):
-                # A respawn is the sector the craft already flew over; asking
-                # for it must not rebuild the ground under the player.
-                self.renderer.ensure_terrain(level, seed)
+                if not same_ground:
+                    # A streamed sector has nothing to hand over and nothing to
+                    # dissolve. Its ground was designed and painted before the
+                    # pointer moved, the renderer draws the Level instead of a
+                    # baked map, and the camera keeps scrolling through the change.
+                    # The baked handoff used to load the *previous* generation of
+                    # tiles, reveal them, and then snap to the new ones - which is
+                    # the whole process the strip exists to replace, so it is
+                    # skipped here rather than worked around.
+                    self.renderer.clear_terrain()
+            elif not same_ground:
+                if not (seamless and
+                        self.renderer.handoff_terrain(level, seed)):
+                    # A respawn is the sector the craft already flew over; asking
+                    # for it must not rebuild the ground under the player.
+                    self.renderer.ensure_terrain(level, seed)
         # The Level belongs to the game, not to the view: it owns the design of
         # the sector and the threads painting it, so it is made whether or not
         # anything is there to draw it yet.
         self._use_level(self.game.level_index)
+        self._ground_key = key
+        if same_ground:
+            # Nothing new is arriving, so there is nothing to wait for: the ground
+            # the craft is about to fly was under it when it died.
+            self._ground_wait = False
         self._warm_ahead()
 
     def _warm_ahead(self) -> None:
@@ -737,6 +761,9 @@ class App:
         if self.level is not None and self.level is not lvl:
             self.level.stop()
         self.level, self.next_level = lvl, None
+        # New ground has just been attached, so a launch has something to wait for.
+        # A respawn never reaches this line, which is the whole point.
+        self._ground_wait = True
         # A new sector's ground has its own fights planned on it. Everything at
         # or behind the camera is skipped: on a respawn mid-sector the craft is
         # already part-way down the strip, and the ground it flew over is not
@@ -836,6 +863,7 @@ class App:
         self._msg = ""
         self._msg_sub = ""
         self._ready_timer = 0.0
+        self._ground_wait = False      # this ground is paid for
         self.sm.to(State.PLAYING)
         self.input.clear_all()
         return True
@@ -853,6 +881,11 @@ class App:
         if self._opening_painted():
             self._msg = "READY"
             self._msg_sub = "Get ready!"
+            return True
+        if not self._ground_wait:
+            # Nothing new is arriving. This is a craft coming back to ground it was
+            # already flying over, and holding it in READY for ground that exists is
+            # the bug, not the cure.
             return True
         if self._ready_wait >= READY_HOLD_CEIL:
             return True
@@ -951,8 +984,9 @@ class App:
         # the sector's ground - see the same hand-off in _start_game.
         if self.level is not None:
             self.level.stop()
-            self.level = None
-            self.level = None   # title shows the starfield again
+        self.level = None            # title shows the starfield again
+        self._ground_key = None
+        self._ground_wait = False
         self.game = Game(rng=random.Random(), high_score=self.stats.high_score,
                          enable_items=self.settings.powerups)
         self.effects.reset()

@@ -456,6 +456,9 @@ def test_skipping_ready_cannot_launch_onto_missing_ground(app):
     app.sm.to(State.READY)
     app._ready_timer = 0.0
     app._ready_wait = 0.0
+    # New ground is pending - which is exactly when a wait is owed. A respawn of
+    # ground already flown disarms it, and says so elsewhere.
+    app._ground_wait = True
 
     app._on_confirm()                      # the skip
     assert app.sm.state == State.READY, "the skip walked past the ground check"
@@ -492,6 +495,7 @@ def test_the_hold_gives_up_on_ground_that_arrived_and_then_stopped(app):
     app.level = _WaitingGround(painted=1, ready=False)
     app._ready_seen = 0
     app._ready_wait = 0.0
+    app._ground_wait = True
     assert app._ground_ready_to_launch() is False     # grace period: wait
 
     # the first sight of ground counts as progress, so a stall only becomes a
@@ -685,3 +689,60 @@ def test_nothing_is_lost_between_death_and_respawn(app, tiny_sectors):
     assert lvl.near_y == row, "the camera moved because the craft died"
     assert near._hint == hint, (
         "the painter forgot where the camera was and will paint the wrong ground")
+
+
+def test_dying_is_a_pause_not_a_level_reload(app, tiny_sectors, monkeypatch):
+    """Dying is allowed to cost a life. It is not allowed to touch the ground.
+
+    The sector being flown was already under the craft, so re-entering it used to
+    clear the terrain, detach the ground from the view, and then wait for ground
+    that already existed - six seconds of nothing, and before that, actually
+    stopping the painters. Pausing has never done any of this, and death is the
+    same situation with worse consequences.
+
+    So the sector's ground is identified, and re-entering the sector it names does
+    nothing at all to it: no clear, no re-attach, no wait. The launch gate is
+    disarmed for the same reason, and re-armed only when new ground is attached -
+    which the second test checks, because a fix that never waits again has simply
+    removed the fix.
+    """
+    app._start_game()
+    lvl = app.level
+    app.renderer.clear_terrain()          # the state a respawn used to start from
+    app.renderer.set_level(lvl)
+    cleared: list[str] = []
+    monkeypatch.setattr(app.renderer, "clear_terrain",
+                        lambda: cleared.append("cleared"))
+
+    app._enter_ready()                     # the death path
+
+    assert cleared == [], "dying told the view to forget the ground it is on"
+    assert app.renderer._level is lvl, "the ground was detached and re-attached"
+    assert app._ground_wait is False, "the craft is waiting for ground it flew on"
+    assert app._ground_ready_to_launch() is True
+    app._launch_craft()
+    assert app.sm.state == State.PLAYING
+
+
+def test_a_new_sector_does_arm_the_wait_again(app, tiny_sectors):
+    """The wait still exists where ground really is new."""
+    import config as C
+    from level import Level
+
+    app._start_game()
+    # New ground *was* attached for sector 1, so the first launch does wait for it -
+    # then the launch clears the armed flag, and it is that disarmed state the
+    # sector change below is measured against.
+    assert app._ground_wait is True, "sector 1's ground was never armed to be waited for"
+    assert _launch(app), "the first sector's wait never opened"
+    assert app._ground_wait is False, "launching did not discharge the wait"
+    nxt = Level(C.LEVELS[1], seed=2)
+    nxt.start()
+    app.next_level = nxt
+    app.game.advance_level()
+    app.sm.reset(State.READY)      # the sector change arrives via a transition
+    app._enter_ready(seamless=True)
+    assert app.level is nxt
+    assert app._ground_wait is True, (
+        "new ground was attached and the launch was not told to wait for it")
+    nxt.stop()
