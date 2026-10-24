@@ -256,6 +256,36 @@ anchored a hundred-odd px below the kept band). Nothing streams at runtime until
 that is closed, because a chunk boundary that changes a tree's edge is exactly
 the tell the whole exercise is meant to remove.
 
+**The camera convention, because it caused a bug.** `Level.near_y` is the strip
+row standing at the *top* edge of the field, in bake px. It starts at one screen
+(`TILE2`) so the opening band is full of ground on the first frame, it grows as
+the craft flies forward, and so the picture moves *down* the screen - the same
+direction the baked detail layers move. Getting this sign wrong is invisible in
+a still and obvious in motion, so it is asserted: move the camera one slice,
+the picture must move down by that much and must not stand still.
+
+**A second blocker, also measured - and it is the harder one.** Threads are not
+enough. Flying a real sector headless (`scripts/playtest_streamed.py`, sector 1,
+12 s of 60 fps loop): the design pass had not finished after 12 s of wall clock,
+and 1 slice of 66 was painted. Standalone the same design costs 2.7 s and a
+slice costs 0.75 s, and the camera needs one slice every 1.7 s - so painting
+alone wants roughly half a core, and a Python thread competing with the frame
+thread for the GIL got about a fifth. The design pass is pure Python and never
+releases the GIL at all; the painting releases it only where numpy or SDL do the
+work. Two ways out, both real work:
+
+- a **worker process** (the plan is pure data and pickles; slices come back as
+  raw RGBA buffers, ~4 MB each, and the child needs a surface-free painter -
+  `features.py` currently builds pygame surfaces), or
+- a **smaller paint unit** at lower scale for the far layer, plus a cheaper near
+  pass, so the budget per slice drops below what the frame thread leaves over.
+
+The frame thread's own cost matters here too: a headless software blit is
+~16 ms/frame and leaves almost nothing, while a hardware surface leaves more,
+so this may be less hopeless in a real window than in a dummy driver. Measure
+that before choosing. Until it is chosen, streaming stays off by default and
+`--streamed-terrain` is a flag to try, not the way the game runs.
+
 The plan when it is closed: chunk bank (LRU, 3-4 chunks) painted by the existing
 prefetch worker, one continuous strip per sector, and `TerrainTrack`'s zones and
 seam code deleted - the mid-level change becomes a change of land use along the
