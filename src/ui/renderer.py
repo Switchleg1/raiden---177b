@@ -65,6 +65,7 @@ class Renderer:
         self._stars: list[tuple[float, float, float, int]] = []
         self._seed_stars()
         self._terrain: Any = None        # terrain.TerrainTrack when loaded
+        self._level: Any = None          # level.Level when the ground streams
         self._terrain_key: Any = None    # terrain.sector_key of what is loaded
         self._handoff: Any = None        # terrain.SectorHandoff mid-transition
         self._prefetch: Any = None       # prefetch.Prefetch (background loader)
@@ -84,6 +85,24 @@ class Renderer:
 
     def set_settings(self, settings: C.Settings) -> None:
         self.settings = settings
+
+    def set_level(self, level_obj: Any) -> None:
+        """Show a streamed sector: designed in full, painted while it is flown.
+
+        The Level's own threads do the painting, so switching is a pointer swap -
+        and the sector being prepared was already halfway painted before this one
+        started. Passing None goes back to the baked track.
+        """
+        if self._level is level_obj:
+            return
+        if self._level is not None:
+            self._level.stop()
+        self._level = level_obj
+        if level_obj is not None:
+            level_obj.start()
+
+    def level_progress(self) -> float:
+        return 0.0 if self._level is None else self._level.progress()
 
     # ---- terrain (sector backdrop; replaces the starfield in-game) --------
     def set_terrain(self, level: Any, seed: int = 1,
@@ -167,6 +186,9 @@ class Renderer:
                               plan=terrain.plan_span(level))
 
     def clear_terrain(self) -> None:
+        if self._level is not None:
+            self._level.stop()
+            self._level = None
         self._terrain = None
         self._terrain_key = None
         self._handoff = None
@@ -202,6 +224,9 @@ class Renderer:
             if self._handoff.done:
                 self._terrain = self._handoff.new
                 self._handoff = None
+            return
+        if self._level is not None:
+            self._level.update(dt, speed_scale)
             return
         if self._terrain is not None:
             self._terrain.update(dt, speed_scale)
@@ -313,6 +338,11 @@ class Renderer:
                 C.FIELD_RIGHT - C.FIELD_LEFT, C.FIELD_BOTTOM - C.FIELD_TOP)
         if self._handoff is not None:
             self._handoff.draw(self.canvas)
+            pygame.draw.rect(self.canvas, p.field_bg, rect, 1)
+        elif self._level is not None and self._level.draw(
+                self.canvas, pygame.Rect(rect)) > 0:
+            # A streamed sector: the ground it designed, from the slices its
+            # workers have finished. Nothing is faded and nothing is repeated.
             pygame.draw.rect(self.canvas, p.field_bg, rect, 1)
         elif self._terrain is not None:
             self._terrain.draw(self.canvas)

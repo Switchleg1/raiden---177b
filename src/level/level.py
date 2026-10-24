@@ -16,7 +16,7 @@ from __future__ import annotations
 import threading
 from typing import Any
 
-from terrain.common import NEAR_SPEED, TILE2
+from terrain.common import NEAR_SPEED, SS, TILE2
 from terrain.siteplan import CELL, Geom, plan_site
 
 from .strip import STRIP_MARGIN, STRIP_SLICE, TerrainStrip
@@ -24,19 +24,25 @@ from .strip import STRIP_MARGIN, STRIP_SLICE, TerrainStrip
 __all__ = ["Level", "strip_length"]
 
 BOSS_TAIL = 60.0      # seconds of ground kept under a sector after its wave
+LOOKAHEAD = 4         # slices painted ahead of the camera
+# Painting is not a queue to drain. A worker that paints the whole sector up
+# front burns 200 MB and a minute of CPU on ground the player may never reach -
+# death, restart and sector change all throw it away. The workers paint a few
+# slices ahead of the camera and idle otherwise; the strip is still the whole
+# sector, it is just drawn as it is approached.
 # The wave table ends and the boss arrives, but the ground has to keep coming:
 # a boss fight is flown, not paused, and running out of strip mid-fight would
 # stop the world. Generous, because the cost is paint time we were never going
 # to use, not a hitch.
 
 
-def strip_length(spec: Any) -> int:
+def strip_length(spec: Any, tail: float = BOSS_TAIL) -> int:
     """Bake-space length of a sector's ground: everything it can be flown.
 
     The sector's own wave length plus the boss tail, at the ground layer's
-    scroll rate, at the 2x bake scale every painter in ``terrain/`` uses.
+    scroll rate, at the 2x bake scale every painters in ``terrain/`` uses.
     """
-    seconds = float(getattr(spec, "wave_seconds", 0.0) or 0.0) + BOSS_TAIL
+    seconds = float(getattr(spec, "wave_seconds", 0.0) or 0.0) + tail
     return int(round(seconds * NEAR_SPEED * 2))       # SS == 2
 
 
@@ -46,11 +52,12 @@ class Level:
     def __init__(self, spec: Any, seed: int = 1,
                  layers: tuple[str, ...] = ("near", "far"),
                  slice_h: int = STRIP_SLICE,
-                 margin: int = STRIP_MARGIN) -> None:
+                 margin: int = STRIP_MARGIN,
+                 tail: float = BOSS_TAIL) -> None:
         self.spec = spec
         self.seed = int(seed)
         self.theme = str(getattr(spec, "theme", "")).split(".")[-1].lower()
-        self.length = strip_length(spec)
+        self.length = strip_length(spec, tail)
         self.slice_h, self.margin = slice_h, margin
         self._layers = tuple(layers)
         for name in self._layers:
@@ -103,8 +110,18 @@ class Level:
         if self.plan is None or self._stop.is_set():
             return
         strip = self.strips[name]
-        while not self._stop.is_set() and strip.advance():
-            pass
+        while not self._stop.is_set():
+            if not strip.advance():
+                return
+            # Stay a few slices ahead of the camera and no further ahead.
+            while (not self._stop.is_set()
+                   and strip.frontier() >= self._need(strip)):
+                self._stop.wait(0.05)
+
+    def _need(self, strip: TerrainStrip) -> int:
+        """The slice index the camera is standing on, for this layer."""
+        y = self.far_y if strip.layer == "far" else self.near_y
+        return int(y / SS) // strip.slice_h + LOOKAHEAD
 
     def stop(self, timeout: float = 3.0) -> None:
         """Stop painting and wait for the workers to actually stop.
@@ -181,7 +198,12 @@ class Level:
         show yet, which is the caller's cue to fall back or wait.
         """
         drawn = 0
-        for name, strip in self.strips.items():
+        # far first: it is the range behind the ground the craft flies over, and
+        # the near layer is opaque wherever its material grid was laid
+        for name in ("far", "near"):
+            strip = self.strips.get(name)
+            if strip is None:
+                continue
             y = self.far_y if name == "far" else self.near_y
             drawn += strip.draw(canvas, band, y % max(1, self.length - TILE2))
         return drawn

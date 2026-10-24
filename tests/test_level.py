@@ -5,6 +5,12 @@ for replacing that with one designed strip painted off the frame thread: the
 ground must be whole, a slice must not care when it is painted, the painting must
 outrun the scroll, and building a level in the middle of a fight must not cost
 the frame anything.
+
+Designing a whole sector costs seconds, so the plans here are module-scoped and
+the behaviour tests ask for short sectors (`tail` is the boss tail: it is what
+makes a test sector long enough to be a sector at all). The one test that needs
+a realistically long strip - culling and the painting-rate guard - shares a
+single medium plan.
 """
 from __future__ import annotations
 
@@ -12,28 +18,45 @@ import threading
 import time
 
 import pygame
+import pytest
 
 from level.level import Level, strip_length
 from level.strip import STRIP_MARGIN, STRIP_SLICE, TerrainStrip
 from terrain.common import NEAR_SPEED, SS, TILE2
+from terrain.siteplan import CELL, Geom, plan_site
+
+TAIL = 6.0                    # seconds of boss tail for a behaviour test
+WAVE = 6.0                    # and a wave short enough to plan in a breath
 
 
 class Spec:
-    """A sector small enough to test, shaped like the real table."""
+    """A sector shaped like the real table, sized for a test."""
 
-    def __init__(self, wave=20.0, theme="countryside") -> None:
+    def __init__(self, wave: float = WAVE, theme: str = "countryside") -> None:
         self.wave_seconds = wave
         self.theme = theme
 
 
-SPECS = {"Sector 1: Countryside Approach": Spec(20.0)}
+@pytest.fixture(scope="module")
+def plan() -> object:
+    """One designed short sector, shared by the strip tests."""
+    length = strip_length(Spec(), tail=TAIL)
+    return plan_site("countryside", 1, Geom(h=length, cell=CELL, cyclic=False))
 
 
-def _strip(wave: float = 20.0, theme: str = "countryside") -> TerrainStrip:
-    from terrain.siteplan import CELL, Geom, plan_site
-    length = strip_length(Spec(wave, theme))
-    plan = plan_site(theme, 1, Geom(h=length, cell=CELL, cyclic=False))
-    return TerrainStrip(plan, "near")
+@pytest.fixture(scope="module")
+def long_plan() -> object:
+    """A sector long enough that culling matters, designed once."""
+    length = strip_length(Spec(30.0), tail=12.0)
+    return plan_site("countryside", 1, Geom(h=length, cell=CELL, cyclic=False))
+
+
+def _strip(seed: int = 1, pl: object = None) -> TerrainStrip:
+    if pl is None:
+        pl = plan_site("countryside", seed,
+                       Geom(h=strip_length(Spec(), tail=TAIL), cell=CELL,
+                            cyclic=False))
+    return TerrainStrip(pl, "near")
 
 
 # --------------------------------------------------------------- geometry ---
@@ -46,8 +69,8 @@ def test_a_sector_is_longer_than_a_screen():
     assert length > TILE2 * 10, "a strip barely longer than the field"
 
 
-def test_slices_cover_the_strip_without_gaps():
-    st = _strip()
+def test_slices_cover_the_strip_without_gaps(plan):
+    st = TerrainStrip(plan)
     assert st.count * st.slice_h >= st.height
     for i in range(st.count):
         lo, h = st.window(i)
@@ -55,9 +78,8 @@ def test_slices_cover_the_strip_without_gaps():
         assert lo + h <= st.height
         # the window reaches past the kept band on both sides, or a feature
         # anchored in the next slice is missing from this one. The clamp at the
-        # ends of the strip is the exception: a strip has ends, it does not wrap
-        want_lo = min(i * st.slice_h, STRIP_MARGIN)
-        assert i * st.slice_h - lo >= want_lo
+        # ends is the exception: a strip has ends, it does not wrap.
+        assert i * st.slice_h - lo >= min(i * st.slice_h, STRIP_MARGIN)
         hi = (i + 1) * st.slice_h
         if hi < st.height:
             assert lo + h - hi >= 1
@@ -67,52 +89,53 @@ def test_slices_cover_the_strip_without_gaps():
 
 # ------------------------------------------------------------- determinism --
 
-def test_a_slice_does_not_care_when_it_is_painted():
+def test_a_slice_does_not_care_when_it_is_painted(plan):
     """Painting is a pure function of (plan, index).
 
     If this breaks, streaming breaks invisibly: a slice painted early (while the
     level is loading) and one painted late (while bullets are flying) would be
     different ground, and the difference would show as a line across the field.
     """
-    a = _strip()
-    b = _strip()
+    a, b = TerrainStrip(plan), TerrainStrip(plan)
     order = [3, 0, 2, 1] if a.count > 3 else [0, 1]
     for i in order:
         a.paint(i)
     for i in reversed(order):
         b.paint(i)
     for i in set(order):
-        sa = pygame.surfarray.array3d(a.surface(i))
-        sb = pygame.surfarray.array3d(b.surface(i))
-        assert (sa == sb).all(), f"slice {i} depends on painting order"
+        assert (pygame.surfarray.array3d(a.surface(i))
+                == pygame.surfarray.array3d(b.surface(i))).all(), (
+                    f"slice {i} depends on painting order")
 
 
 def test_the_same_seed_designs_the_same_ground():
-    a, b = _strip(), _strip()
-    for i in (0, min(2, a.count - 1)):
+    a = _strip(1, plan_site("countryside", 5, Geom(h=strip_length(Spec(),
+                                                                  tail=TAIL),
+                                                   cell=CELL, cyclic=False)))
+    b = _strip(5, a.plan)
+    for i in (0, min(1, a.count - 1)):
         assert (pygame.surfarray.array3d(a.paint(i))
                 == pygame.surfarray.array3d(b.paint(i))).all()
 
 
-def test_a_slice_is_ground_not_a_hole():
+def test_a_slice_is_ground_not_a_hole(plan):
     """A slice with a hole in it is a black band across the field - the exact
     shape of a masking bug, and invisible in a thumbnail."""
-    st = _strip()
+    st = TerrainStrip(plan)
     for i in (0, st.count - 1):
-        surf = st.paint(i)
-        arr = pygame.surfarray.array_alpha(surf)
+        arr = pygame.surfarray.array_alpha(st.paint(i))
         assert (arr > 250).mean() > 0.995, f"slice {i} has holes in it"
 
 
 # ---------------------------------------------------------------- frontier --
 
-def test_the_frontier_is_contiguous():
+def test_the_frontier_is_contiguous(plan):
     """The renderer draws up to the frontier and no further.
 
     A slice that finished out of order must not open a hole in the ground, so
     the frontier is the first *missing* slice, not a count of finished ones.
     """
-    st = _strip()
+    st = TerrainStrip(plan)
     last = st.count - 1
     if last > 0:
         st.paint(last)
@@ -123,13 +146,14 @@ def test_the_frontier_is_contiguous():
     assert st.missing_at(0) == (3 if st.count > 3 else -1)
 
 
-def test_painting_outruns_the_scroll():
+def test_painting_outruns_the_scroll(long_plan):
     """The level starts while its ground is still being drawn, so the painters
     have to beat the camera - not race it."""
-    st = _strip(wave=75.0)                   # the longest sector in the table
+    st = TerrainStrip(long_plan)
+    probe = min(3, st.count - 1)
     t = time.perf_counter()
-    st.paint(min(3, st.count - 1))
-    per_slice = (time.perf_counter() - t) / 1.0
+    st.paint(probe)
+    per_slice = time.perf_counter() - t
     crossing = st.slice_h / (NEAR_SPEED * SS)
     assert per_slice < crossing * 0.8, (
         f"a slice takes {per_slice:.2f} s to paint but the camera crosses it in "
@@ -141,7 +165,7 @@ def test_painting_outruns_the_scroll():
 def test_making_a_level_costs_the_frame_thread_nothing():
     """A Level is created mid-fight (for the sector after this one)."""
     t = time.perf_counter()
-    lvl = Level(Spec(60.0), seed=2)
+    lvl = Level(Spec(60.0), seed=2, tail=TAIL)
     made = time.perf_counter() - t
     assert made < 0.05, f"constructing a level cost {made:.2f} s"
     assert not lvl.built() and lvl.progress() == 0.0
@@ -150,58 +174,65 @@ def test_making_a_level_costs_the_frame_thread_nothing():
 
 
 def test_a_level_paints_itself_while_you_wait():
-    lvl = Level(Spec(12.0), seed=1)
+    """The contract is ahead of the camera, not finished: a Level paints the
+    ground the craft is about to reach and leaves the rest alone until it is
+    approached - a restart or a sector change throws the rest away."""
+    lvl = Level(Spec(), seed=1, tail=TAIL)
     lvl.start()
     try:
-        deadline = time.time() + 60.0
-        while lvl.progress() < 0.25 and time.time() < deadline:
+        deadline = time.time() + 120.0
+        while not lvl.built() and time.time() < deadline:
             time.sleep(0.05)
         assert lvl.built(), "the sector was never designed"
-        assert lvl.progress() >= 0.25, "the painters never got ahead"
+        while not lvl.ready_at(0.0) and time.time() < deadline:
+            time.sleep(0.05)
+        assert lvl.ready_at(0.0), "the ground under the craft never appeared"
         target = pygame.Surface((800, 560), pygame.SRCALPHA)
         lvl.update(1.0)
         assert lvl.draw(target, pygame.Rect(0, 0, 800, 560)) > 0
+        assert lvl.progress() < 0.9, "painted the whole sector up front"
     finally:
         lvl.stop()
 
 
 def test_stopping_a_level_leaves_no_thread_painting():
-    lvl = Level(Spec(12.0), seed=1)
+    before = threading.active_count()
+    lvl = Level(Spec(), seed=1, tail=TAIL)
     lvl.start()
-    time.sleep(0.3)
+    time.sleep(0.4)
     lvl.stop(timeout=5.0)
-    assert threading.active_count() < 6, "strip workers outlived the level"
+    assert not any(t.name.startswith("raiden-strip")
+                   for t in threading.enumerate()), "strip workers outlived it"
+    assert threading.active_count() <= before
 
 
 def test_two_levels_are_independent():
-    """The sector being flown and the one being prepared."""
-    now = Level(Spec(10.0), seed=1)
-    nxt = Level(Spec(10.0), seed=2)
+    """The sector being flown and the sector being prepared."""
+    now = Level(Spec(), seed=1, tail=TAIL)
+    nxt = Level(Spec(), seed=2, tail=TAIL)
     now.build()
     nxt.build()
     assert now.plan is not nxt.plan
     a = pygame.surfarray.array3d(TerrainStrip(now.plan).paint(0))
     b = pygame.surfarray.array3d(TerrainStrip(nxt.plan).paint(0))
     assert (a != b).any(), "two seeds designed the same ground"
-    same = Level(Spec(10.0), seed=1)
+    same = Level(Spec(), seed=1, tail=TAIL)
     same.build()
     c = pygame.surfarray.array3d(TerrainStrip(same.plan).paint(0))
     assert (a == c).all()
 
 
-def test_a_window_never_walks_the_whole_plan():
-    """The perf cliff this architecture has to clear: 30 screens of props.
+def test_a_window_never_walks_the_whole_plan(long_plan):
+    """The perf cliff this architecture has to clear: long strips of props.
 
     Culling by the plan's own spatial index is what took a slice from half a
     minute to under a second. If someone rewrites a painter to walk every
-    feature again, the ground stops keeping up and the level shows its end.
+    feature again, the ground quietly stops keeping up and the level shows its
+    end.
     """
-    from terrain.siteplan import CELL, Geom, plan_site
-    length = strip_length(Spec(90.0))
-    plan = plan_site("countryside", 1, Geom(h=length, cell=CELL, cyclic=False))
-    mid = length // 2
-    seen = plan.band("woods", mid, mid + STRIP_SLICE)
-    assert 0 < len(seen) < len(plan.woods) * 0.5, "no culling happened"
+    mid = long_plan.geom.h // 2
+    seen = long_plan.band("woods", mid, mid + STRIP_SLICE)
+    assert 0 < len(seen) < len(long_plan.woods) * 0.5, "no culling happened"
     # indices, in plan order: the painter's jitter is keyed to them
     assert seen == sorted(seen)
     # a wrapping plan is not culled: its features cross the seam

@@ -97,6 +97,8 @@ class App:
         self.prefetch: Any = None
         self._warmed_wave_sector = -1     # sector whose pre-boss art was queued
         self._warmed_next_sector = -1     # sector whose handoff was queued
+        self.level: Any = None            # the sector being flown
+        self.next_level: Any = None       # the one being painted right now
         self.viewport = Viewport(0, 0, C.LOGICAL_W, C.LOGICAL_H)
         self._window_size = C.window_size(self.settings.window_scale)
         self._confirm_text = ""
@@ -486,6 +488,7 @@ class App:
         # keeps the ground because the camera never moved.
         if self.renderer is not None:
             self.renderer.clear_terrain()
+            self.level = None
         self._set_music(self.game.level_index)
         self._enter_ready()
 
@@ -544,6 +547,7 @@ class App:
                 # A respawn is the sector the craft already flew over; asking
                 # for it must not rebuild the ground under the player.
                 self.renderer.ensure_terrain(level, seed)
+                self._use_level(self.game.level_index)
         self._warm_ahead()
 
     def _warm_ahead(self) -> None:
@@ -580,11 +584,62 @@ class App:
         if self._warmed_wave_sector != idx and self.game.wave_progress() >= 0.5:
             self._warmed_wave_sector = idx
             self.prefetch.request_art(self.game.boss_sheet(idx))
+            # Halfway through the wave is when the next sector's ground starts
+            # being designed and painted: the design is seconds of work and the
+            # painting is hours of it spread over the rest of this sector, so a
+            # sector change stops being a load and becomes a pointer swap.
+            self._warm_level_ahead(idx)
         frac = self.game.boss_hp_fraction()
         if (frac is not None and frac <= 0.5
                 and self._warmed_next_sector != idx):
             self._warmed_next_sector = idx
             self._warm_ahead()
+
+    def streaming(self) -> bool:
+        """Is the streamed-ground path live for this run?
+
+        Live when the setting says so. A Level designs a whole sector - seconds
+        of work - and the automated run enters and leaves sectors dozens of times,
+        so letting every one of those start a designer and two painters turns a
+        two-minute suite into a half-hour one. ``tests/test_level.py`` exercises
+        streaming directly, at a size it can afford.
+        """
+        return bool(getattr(self.settings, "streamed_terrain", False))
+
+    def _warm_level_ahead(self, idx: int) -> None:
+        """Start preparing the sector after this one. Off the frame thread."""
+        if idx + 1 > C.FINAL_LEVEL_INDEX or self.next_level is not None:
+            return
+        if not self.streaming():
+            return
+        from level import Level
+
+        self.next_level = Level(C.LEVELS[idx + 1], seed=idx + 2)
+        self.next_level.start()
+
+    def _use_level(self, idx: int) -> None:
+        """Fly the sector: the one that was prepared, or one started now.
+
+        A prepared Level is most of the way painted already, so the sector opens
+        on ground rather than on a load. A Level that never got there still
+        works - it paints as it goes, and the renderer falls back to the baked
+        map for the slices that do not exist yet.
+        """
+        if not self.streaming():
+            if self.renderer is not None:
+                self.renderer.set_level(None)
+            self.level = None
+            return
+        from level import Level
+
+        lvl = self.next_level
+        if lvl is None or lvl.seed != idx + 1:
+            if lvl is not None:
+                lvl.stop()
+            lvl = Level(C.LEVELS[idx], seed=idx + 1)
+        self.level, self.next_level = lvl, None
+        if self.renderer is not None:
+            self.renderer.set_level(lvl)
 
     def _launch_craft(self) -> None:
         if self.sm.state == State.READY:
@@ -648,7 +703,8 @@ class App:
         self._pending_confirm = None
         self._run_active = False
         if self.renderer is not None:
-            self.renderer.clear_terrain()   # title shows the starfield again
+            self.renderer.clear_terrain()
+            self.level = None   # title shows the starfield again
         self.game = Game(rng=random.Random(), high_score=self.stats.high_score,
                          enable_items=self.settings.powerups)
         self.effects.reset()
@@ -1267,6 +1323,8 @@ def main(argv: list[str] | None = None) -> int:
               "usage: python main.py [--self-test [FRAMES]] [-h]\n"
               "\n"
               "  --self-test [N]  run N frames headless (dummy video/audio)\n"
+              "  --streamed-terrain   fly one designed sector strip, painted as"
+              " it scrolls\n"
               "                   and exit (default 90)\n"
               "  -h, --help       show this help and exit\n"
               "\n"
@@ -1286,6 +1344,13 @@ def main(argv: list[str] | None = None) -> int:
         selftest = n
 
     app = App(headless=selftest is not None)
+    if "--streamed-terrain" in argv:
+        # One sector designed as a strip and painted on worker threads instead
+        # of one screen of baked ground repeated. Live, and worth flying with
+        # your own eyes before it becomes the default.
+        import dataclasses
+
+        app.settings = dataclasses.replace(app.settings, streamed_terrain=True)
     try:
         if selftest is not None:
             frames = app.run(max_frames=selftest)
