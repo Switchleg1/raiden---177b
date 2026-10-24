@@ -145,6 +145,7 @@ class TerrainStrip:
         # materials land on the same tile grid and props land on the same ground
         # as they would in any other window. `wrap=0` - a strip does not loop.
         plane = Plane(W2, h, x0=0, y0=y0)
+        plane.scale = SS           # the plan speaks planning units; see `_band`
         if self.layer == "near":
             # The ground the craft flies over is opaque, and it is opaque
             # because the material grid is laid down *under* the plan - the same

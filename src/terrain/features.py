@@ -60,6 +60,12 @@ class Plane:
         self.x0, self.y0 = int(x0), int(y0)
         # a plan that loops in y paints its seam copies; a strip does not
         self.wrap = float(wrap)
+        # Bake px per planning unit. The plan speaks planning units and a strip
+        # window speaks bake px; without this, culling compares the two directly
+        # and asks about the wrong stretch of ground - which is how a house ends up
+        # painted by one slice and not by its neighbour, i.e. half a house on the
+        # slice boundary.
+        self.scale = 1
         self.rgb = np.zeros((w, h, 3), dtype=np.float32)
         self.a = np.zeros((w, h), dtype=np.float32)     # 0..1
         self._layer = pygame.Surface((w, h), pygame.SRCALPHA)
@@ -588,7 +594,13 @@ def _band(canvas: Any, plan: SitePlan, kind: str) -> list[int]:
     """
     y0 = getattr(canvas, "y0", 0.0)
     h = getattr(canvas, "h", 0) or getattr(canvas, "get_height", lambda: 0)()
-    return plan.band(kind, y0, y0 + h)
+    # Ask in the plan's own units. A strip window is measured in bake pixels and the
+    # features in planning units; comparing them directly queried a stretch of
+    # ground SS times too long and shifted differently for every slice, so whether a
+    # given house was in a window at all depended on which slice was asking. The
+    # player sees that as half a house on the boundary line.
+    scale = getattr(canvas, "scale", 1) or 1
+    return plan.band(kind, y0 / scale, (y0 + h) / scale)
 
 
 def _bytes(v: int) -> bytes:
