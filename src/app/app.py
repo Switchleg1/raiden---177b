@@ -767,7 +767,12 @@ class App:
         if not strips:
             return False
         try:
-            done = sum(int(s.frontier()) for s in strips.values())
+            # Not `frontier`: painting is ordered from the camera outward, so the
+            # contiguous-from-zero count can sit at nought while the screen is
+            # completely covered, and a hold reading it would give up on ground
+            # that was arriving perfectly well.
+            done = sum(int(getattr(s, "painted_count", s.frontier)())
+                       for s in strips.values())
         except (AttributeError, RuntimeError, ValueError):
             return False
         better = done > self._ready_seen

@@ -78,6 +78,8 @@ class TerrainStrip:
         self._surf: list[Any] = [None] * self.count
         self._lock = threading.Lock()
         self._cursor = 0
+        # Where the camera wants ground next, as a slice index. See `focus`.
+        self._hint = 0
 
     # ------------------------------------------------------------- painting
     def window(self, i: int) -> tuple[int, int]:
@@ -164,11 +166,12 @@ class TerrainStrip:
 
     # ------------------------------------------------------------- frontier
     def frontier(self) -> int:
-        """How many slices from the top are painted, contiguously.
+        """Slices painted contiguously from the top of the strip.
 
-        Contiguously matters: the renderer draws up to this line and nothing
-        beyond it, so a slice that finished early out of order must not open a
-        hole in the ground.
+        **Not** a measure of coverage: painting is ordered by what the camera needs
+        next (`focus`), so ground behind the craft is deliberately painted last and
+        this stays at 0 while the screen is fully covered. Use `missing_at` for
+        "is the view covered" and `painted_count` for "how much exists".
         """
         with self._lock:
             n = 0
@@ -176,22 +179,49 @@ class TerrainStrip:
                 n += 1
             return n
 
+    def painted_count(self) -> int:
+        """How many slices exist, wherever they are in the strip."""
+        with self._lock:
+            return sum(1 for s in self._surf if s is not None)
+
+    def focus(self, y: float) -> None:
+        """Tell the painter where the camera is, in bake rows.
+
+        Painting used to start at slice 0 and walk down, which meant the first
+        seconds of a sector's work went on ground behind the craft - never to be
+        seen - while the screen itself stayed empty and the launch gate waited. The
+        painter now starts at the camera's own window and walks forward, back-
+        filling behind when it has nothing else to do. Called from the frame thread
+        with a number the camera already knows.
+        """
+        lo, _ = self.window_at(y)
+        self._hint = lo
+
     def surface(self, i: int) -> Any:
         with self._lock:
             return self._surf[i] if 0 <= i < self.count else None
 
     def advance(self) -> bool:
-        """Paint the next unfinished slice. False when the strip is done.
+        """Paint the next slice the camera will need. False when the strip is done.
 
-        The worker's whole inner loop: one slice at a time, so a stop request
-        costs at most one slice.
+        The worker's whole inner loop: one slice at a time, so a stop request costs
+        at most one slice. Ordered from the current `focus` forward and then wrapped
+        around, so the ground about to be flown arrives first and the ground already
+        flown over arrives when the painters are idle - which is also what makes a
+        respawn free: nothing about the painted set is thrown away, and the cursor
+        is the camera's, not a counter that has to be re-wound.
         """
         with self._lock:
-            while self._cursor < self.count and self._surf[self._cursor] is not None:
-                self._cursor += 1
-            if self._cursor >= self.count:
+            start = min(max(int(self._hint), 0), self.count - 1)
+            i = -1
+            for k in range(self.count):
+                cand = (start + k) % self.count
+                if self._surf[cand] is None:
+                    i = cand
+                    break
+            if i < 0:
                 return False
-            i = self._cursor
+            self._cursor = i
         self.paint(i)
         return True
 

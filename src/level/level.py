@@ -144,20 +144,18 @@ class Level:
         while not self._stop.is_set():
             if not strip.advance():
                 return
-            # Stay a few slices ahead of the camera and no further ahead.
+            # Stay a few slices ahead of the camera and no further ahead. Asked as
+            # "is the ground the camera will need there yet", not as a count from
+            # the top of the strip: painting is ordered from the camera outward, so
+            # a contiguous-from-zero count sits at nought while the screen is fully
+            # covered, and a throttle reading it would paint the whole sector before
+            # the craft had moved.
+            y = self.far_y if strip.layer == "far" else self.near_y
             while (not self._stop.is_set()
-                   and strip.frontier() >= self._need(strip)):
+                   and strip.missing_at(y + LOOKAHEAD * strip.slice_h) < 0):
                 self._stop.wait(0.05)
-
-    def _need(self, strip: TerrainStrip) -> int:
-        """The slice index the camera is about to need, for this layer.
-
-        The camera's leading edge is its own row: everything it can see lies at
-        or below that row in the strip, so staying ahead of it means painting
-        slices at indices above `y // slice_h`.
-        """
-        y = self.far_y if strip.layer == "far" else self.near_y
-        return int(y // strip.slice_h) + LOOKAHEAD
+                strip.focus(self.far_y if strip.layer == "far"
+                            else self.near_y)
 
     def stop(self, timeout: float = 3.0) -> None:
         """Stop painting and wait for the workers to actually stop.
@@ -226,6 +224,13 @@ class Level:
         # holds rather than running out from under the craft.
         self.near_y = min(self.near_y, float(self.length))
         self.far_y = min(self.far_y, float(self.length))
+        # Tell the painters where the camera got to. Cheap integer arithmetic on the
+        # frame thread, and it is what keeps painting ahead of the scroll instead of
+        # behind it: a strip paints from its `focus` forward, so the ground about to
+        # be flown is always next and the ground already flown is back-filled when
+        # the painters have nothing else to do.
+        for name, strip in self.strips.items():
+            strip.focus(self.far_y if name == "far" else self.near_y)
 
     def draw(self, canvas: Any, band: Any) -> int:
         """Draw the field's ground inside `band` (the field rect).

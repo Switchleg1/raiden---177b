@@ -600,3 +600,88 @@ def test_a_respawn_keeps_the_ground_and_every_painter_on_it(app, tiny_sectors):
     assert lvl.near_y == row, "the camera was moved by dying"
     assert app.renderer._level is lvl, "the view never took the ground back"
     assert _painters_alive(lvl), "the respawn killed the painters of sector 1"
+
+
+def test_the_painter_works_from_the_camera_outward():
+    """Painting starts where the camera is, not at row 0 of the map.
+
+    It used to start at slice 0 and walk down, so a sector's first seconds went on
+    ground behind the craft - never to be seen - while the screen stayed empty.
+    That is the opening ramp, and it is what made a respawn cost seconds even after
+    the ground stopped being destroyed on death.
+
+    Which slice a worker picks is a decision, so the decision is what is tested:
+    painting itself is stubbed, because 36 slices of real terrain is a slow way to
+    read an index.
+    """
+    from level.strip import TerrainStrip
+    from terrain.siteplan import CELL, Geom, plan_site
+
+    plan = plan_site("countryside", 11, Geom(h=CELL * 300, cell=CELL,
+                                             cyclic=False))
+    st = TerrainStrip(plan, "near")
+    chosen: list[int] = []
+
+    def fake_paint(i: int):
+        # stands in for a painted slice: records the choice and fills the slot, so
+        # the next call moves on to the next slice like the real thing would
+        chosen.append(i)
+        st._surf[i] = object()
+        return st._surf[i]
+
+    st.paint = fake_paint                                  # type: ignore[assignment]
+
+    y = 6.5 * st.slice_h + st.view
+    st.focus(y)
+    lo, hi = st.window_at(y)
+    assert hi > lo and lo >= 2, "this test needs a camera well down the strip"
+
+    assert st.advance() is True
+    assert chosen == [lo], (
+        f"camera at slices {lo}..{hi}: the painter chose {chosen[0]} - ground "
+        "behind the craft is being drawn before ground ahead of it")
+
+    # Forward from the camera, then wrapped around to back-fill what was flown
+    # over, and every slice of the strip is reached exactly once.
+    for _ in range(st.count - 1):
+        st.advance()
+    assert sorted(chosen) == list(range(st.count)), (
+        "the painter does not visit every slice, or visits one twice")
+    ahead = list(range(lo, st.count))
+    assert chosen[:len(ahead)] == ahead, (
+        "painting did not run forward from the camera to the end of the strip "
+        "before wrapping to back-fill")
+    assert chosen[len(ahead):] == list(range(0, lo)), (
+        "the back-fill is not in order behind the camera either")
+
+
+def test_nothing_is_lost_between_death_and_respawn(app, tiny_sectors):
+    """A death may cost a life, a transition and a moment of tension. It may not
+    cost one painted slice, nor the painters' idea of where the camera is.
+
+    The painted set is compared directly rather than by count: totals would pass
+    while one strip lost a slice and another invented one.
+    """
+    import time
+
+    app._start_game()
+    lvl = app.level
+    deadline = time.time() + 30.0
+    while time.time() < deadline and not lvl.built():
+        time.sleep(0.05)
+    assert lvl.built(), "the fixture's sector never got designed"
+    lvl.near_y += 4 * 560          # fly a bit, so there is something to lose
+    near = lvl.strips["near"]
+    lvl.update(0.0)                # the painters are told where the camera is
+    before = {i for i in range(near.count) if near.surface(i) is not None}
+    row, hint = lvl.near_y, near._hint
+
+    app._enter_ready()              # the respawn path, end to end
+
+    after = {i for i in range(near.count) if near.surface(i) is not None}
+    assert before <= after, (
+        f"a respawn discarded {len(before - after)} painted slice(s): "
+        f"{sorted(before - after)[:4]}")
+    assert lvl.near_y == row, "the camera moved because the craft died"
+    assert near._hint == hint, (
+        "the painter forgot where the camera was and will paint the wrong ground")

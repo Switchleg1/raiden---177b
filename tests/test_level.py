@@ -214,6 +214,14 @@ def test_stopping_a_level_leaves_no_thread_painting():
     lvl.stop(timeout=5.0)
     assert not any(t.name.startswith("raiden-strip")
                    for t in threading.enumerate()), "strip workers outlived it"
+    # The shared design/paint process pool keeps its own management threads until
+    # it is shut down - that is the point of sharing it - so the baseline is only
+    # comparable afterwards. Asking "no strip workers" and then "nothing of mine
+    # left once the pool is closed" states both lifetimes; a bare thread count
+    # conflates them and fails for reasons that have nothing to do with a Level.
+    from level import shutdown_pool
+
+    shutdown_pool()
     assert threading.active_count() <= before
 
 
