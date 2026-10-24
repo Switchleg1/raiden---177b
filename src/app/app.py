@@ -820,7 +820,11 @@ class App:
             return True
         if not lvl.built():
             return False
-        return lvl.ready_at(lvl.near_y / 2.0)
+        # One screen of lead, not just what is on screen at the instant of launch.
+        # A craft that starts moving into ground nobody promised shows black for a
+        # second and then never stops looking broken, however well the loading went.
+        from terrain.common import TILE2
+        return lvl.ready_ahead(lvl.near_y, TILE2)
 
     def _release_encounters(self) -> None:
         """Hand the sector's ground-planned fights to the model as they arrive.
@@ -909,16 +913,27 @@ class App:
         lvl = self.level
         if lvl is None:
             return 1.0, ""                    # a baked sector: nothing pending
-        if not lvl.built():
-            return 0.0, "Designing the sector"
         strips = getattr(lvl, "strips", None) or {}
         near = strips.get("near")
-        if near is None:
-            return 1.0, ""
-        lo, hi = near.window_at(lvl.near_y)
-        need = max(1, hi - lo)
-        done = sum(1 for i in range(lo, hi) if near.surface(i) is not None)
-        return min(1.0, done / need), "Painting the ground"
+
+        # Second half: counted. Slices that exist over slices the camera will draw.
+        painted = 1.0
+        if near is not None:
+            lo, hi = near.window_at(lvl.near_y)
+            need = max(1, hi - lo)
+            painted = sum(1 for i in range(lo, hi)
+                          if near.surface(i) is not None) / need
+
+        if not lvl.built():
+            # First half: an estimate, and labelled as one by never reaching the
+            # mid-point until the design actually lands. It moves because the bar
+            # has to look like something is happening - a bar that sits at nought
+            # for ten seconds reads as a freeze, which is the failure a loading bar
+            # exists to prevent - and the estimate is the last measured design of
+            # this same sector on this machine, not a constant somebody typed.
+            done = lvl.design_elapsed() / max(0.25, lvl.design_estimate())
+            return 0.5 * min(0.97, done), "Designing the sector"
+        return 0.5 + 0.5 * min(1.0, painted), "Painting the ground"
 
     def _load_fraction(self) -> float:
         """The bar on its own, for a caller that only wants the number."""

@@ -26,6 +26,12 @@ from .strip import STRIP_MARGIN, STRIP_SLICE, TerrainStrip
 
 __all__ = ["Level", "strip_length"]
 
+# Last measured design time, per (theme, seed, length). The loading bar's first half
+# has nothing countable inside it - one call designs the whole sector - so it creeps
+# against this, which is at least a measurement of the same job on this machine.
+_DESIGN_SECONDS: dict[tuple[str, int, int], float] = {}
+_DESIGN_DEFAULT = 8.0
+
 # Workers whose `stop()` ran out of budget. They are joined by the next stop rather
 # than dropped, because "timed out" is not the same as "finished" and a live worker
 # walking into SDL teardown is a crash, not an exception.
@@ -95,6 +101,7 @@ class Level:
         self.near_y = float(TILE2)
         self.far_y = float(TILE2)
         self._threads: list[threading.Thread] = []
+        self._design_t0: float | None = None
         self._stop = threading.Event()
 
     # ------------------------------------------------------------ lifecycle
@@ -110,8 +117,16 @@ class Level:
         if self.plan is not None:
             return
         self.geom = Geom(h=self.length, cell=CELL, cyclic=False)
+        t0 = time.monotonic()
+        self._design_t0 = t0
         self.plan = plan_sector(self.theme, self.seed, self.length,
                                 process=self.process_design, stop=self._stop)
+        if self.plan is not None:
+            # Remembered, not assumed: the loading bar's first half is an estimate,
+            # and the only honest estimate is the last time this same job took. Each
+            # finished design replaces the guess, so the bar learns the machine it
+            # is running on instead of a number someone typed.
+            _DESIGN_SECONDS[self._estimate_key()] = time.monotonic() - t0
         if self.plan is None:
             # Taken down mid-design. `plan` stays None, so `built()` is false and
             # every reader falls back the way it already does for a sector that has
@@ -212,6 +227,26 @@ class Level:
     def built(self) -> bool:
         return self.plan is not None
 
+    def _estimate_key(self) -> tuple[str, int, int]:
+        return (str(self.theme), int(self.seed), int(self.length))
+
+    def design_elapsed(self) -> float:
+        """How long this sector's design has been running; 0 once it is done."""
+        if self.plan is not None or self._design_t0 is None:
+            return 0.0
+        return time.monotonic() - self._design_t0
+
+    def design_estimate(self) -> float:
+        """Seconds this design is expected to take, from the last time it ran.
+
+        A sector's design is one call with nothing countable inside it, so the
+        loading bar cannot measure it the way it measures slices. The honest
+        substitute is the previous measurement of the same job on this machine,
+        which every completed design replaces - and the bar never claims the first
+        half is finished, it only creeps towards it.
+        """
+        return _DESIGN_SECONDS.get(self._estimate_key(), _DESIGN_DEFAULT)
+
     def progress(self) -> float:
         """0..1 of the way painted, counting the *slowest* layer.
 
@@ -229,6 +264,23 @@ class Level:
             return False
         y = y_logical * 2
         return all(strip.missing_at(y) < 0 for strip in self.strips.values())
+
+    def ready_ahead(self, y_bake: float, lead: float) -> bool:
+        """Is the ground painted for a camera at `y_bake` **and** `lead` rows more?
+
+        This is what a launch should ask. Asking only about what is on screen at
+        the instant of launch is how play begins with black underneath it: the
+        craft starts moving immediately, and the ground it moves into is the ground
+        nobody promised. One screen of lead is a few seconds of flight, which is
+        roughly how long the painters need to stay in front anyway - so the wait is
+        paid from READY, where it is invisible, instead of from the first second of
+        play, where it is the first thing the player sees.
+        """
+        if not self.strips:
+            return False
+        return all(strip.missing_at(y_bake + lead) < 0
+                   and strip.missing_at(y_bake) < 0
+                   for strip in self.strips.values())
 
     def ensure(self, y_logical: float) -> int:
         """Paint synchronously whatever the camera at `y` can still see.

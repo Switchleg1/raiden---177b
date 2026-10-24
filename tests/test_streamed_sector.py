@@ -431,13 +431,25 @@ class _WaitingGround:
     def __init__(self, painted: int = 0, ready: bool = False) -> None:
         self.painted = painted
         self.ready = ready
+        self.elapsed = 0.0
+        self.built_flag = True
         self.strips = {"near": self._Strip(self)}
 
     def built(self) -> bool:
-        return True
+        return self.built_flag
 
     def ready_at(self, y: float) -> bool:
         return self.ready
+
+    def ready_ahead(self, y: float, lead: float) -> bool:
+        # the fake has no geometry; `ready` answers for the whole lead
+        return self.ready
+
+    def design_elapsed(self) -> float:
+        return self.elapsed
+
+    def design_estimate(self) -> float:
+        return 10.0
 
     def stop(self, timeout: float | None = None) -> None:
         pass
@@ -463,17 +475,30 @@ def test_skipping_ready_cannot_launch_onto_missing_ground(app):
     app._on_confirm()                      # the skip
     assert app.sm.state == State.READY, "the skip walked past the ground check"
     assert app._msg == "LOADING", f"the wait was never named: {app._msg!r}"
-    assert app._load_fraction() == 0.0
+    # Two phases, and the mid-point is where the handover happens: the design is
+    # over, the painting has begun, and nothing has been painted yet - so half,
+    # not zero. A bar that reads nought while half the work is done is a bar that
+    # tells the player nothing about how much is left.
+    assert app._load_status() == (0.5, "Painting the ground")
 
-    # the bar moves as the tiles arrive, and only reaches full when every slice
-    # the camera will draw exists - the same range the launch gate asks about
+    # The first half belongs to the design and creeps while it runs, against the
+    # last measured design of this sector on this machine - and it never claims to
+    # be finished, because there is nothing inside that call to count.
+    app.level.built_flag = False
+    app.level.elapsed = 5.0                       # of an estimate of 10.0
+    frac, label = app._load_status()
+    assert label == "Designing the sector"
+    # the whole first half is 0 -> 0.5, so halfway through the estimate is 0.25
+    assert 0.20 < frac < 0.30, f"design at half its estimate read as {frac:.2f}"
+    app.level.elapsed = 1.0
+    assert app._load_fraction() < frac, "the first half did not track the design"
+    app.level.built_flag = True
+
+    # The second half is counted: slices that exist over slices the camera draws.
     mid = app._load_fraction()
     app.level.painted = 1
     assert app._load_fraction() > mid, "the bar did not move when ground arrived"
-    app.level.built = lambda: False
-    assert app._load_status() == (0.0, "Designing the sector")
-    app.level.built = lambda: True
-    app.level.painted = app.level.strips["near"].count      # bar reaches the end
+    app.level.painted = app.level.strips["near"].count
     assert app._load_fraction() == 1.0
     assert app._load_status()[1] == "Painting the ground"
     app.level.ready = True
@@ -746,3 +771,54 @@ def test_a_new_sector_does_arm_the_wait_again(app, tiny_sectors):
     assert app._ground_wait is True, (
         "new ground was attached and the launch was not told to wait for it")
     nxt.stop()
+
+
+def test_the_launch_wants_ground_the_craft_has_not_reached_yet(app,
+                                                               tiny_sectors):
+    """The black second after the loading bar goes away.
+
+    The gate used to ask only about what was on screen at the instant of launch.
+    The craft starts moving the same frame, and the ground it moves into was never
+    promised - so the sector opened covered and then immediately showed the field's
+    backdrop, which is worse timing than waiting: it looks like the loading lied.
+
+    One screen of lead is the ask, and it costs a fraction of a second of READY
+    rather than a second of the player's first view.
+    """
+    import time
+
+    from terrain.common import TILE2
+
+    app._start_game()
+    lvl = app.level
+    deadline = time.time() + 30.0
+    while time.time() < deadline and not lvl.built():
+        time.sleep(0.05)
+    assert lvl.built(), "the sector was never designed"
+    deadline = time.time() + 10.0
+    while time.time() < deadline and not lvl.strips:
+        time.sleep(0.05)
+    assert lvl.strips, "the strips were never built"
+    near = lvl.strips["near"]
+    for strip in lvl.strips.values():
+        for i in range(strip.count):
+            strip._surf[i] = None
+
+    # The camera's own window complete, and nothing beyond it: covered at launch,
+    # black a heartbeat later. That is exactly the state that used to pass.
+    lo, hi = near.window_at(lvl.near_y)
+    for strip in lvl.strips.values():
+        for i in range(lo, min(hi, strip.count)):
+            strip._surf[i] = object()
+    assert lvl.ready_at(lvl.near_y / 2.0), "the window itself should read covered"
+    assert not lvl.ready_ahead(lvl.near_y, TILE2), (
+        "a covered screen with nothing ahead must not be launchable")
+    assert app._opening_painted() is False, (
+        "the gate opened on ground the craft had not reached yet - the black "
+        "second the player sees next")
+
+    for strip in lvl.strips.values():
+        for i in range(strip.count):
+            strip._surf[i] = object()
+    assert lvl.ready_ahead(lvl.near_y, TILE2)
+    assert app._opening_painted() is True
