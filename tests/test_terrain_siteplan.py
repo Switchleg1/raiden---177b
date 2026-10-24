@@ -15,7 +15,19 @@ import time
 import pytest
 
 from terrain.compose import PLANNED
-from terrain.siteplan import CELL, CH, COLS, CW, ROWS, SPEC, Geom, SitePlan, _in_poly, plan_site
+from terrain.siteplan import (
+    CELL,
+    CH,
+    COLS,
+    CW,
+    ROWS,
+    SPEC,
+    Geom,
+    SitePlan,
+    _in_poly,
+    _y_extent,
+    plan_site,
+)
 
 SEEDS = (1, 2, 3, 7, 11)
 
@@ -366,3 +378,29 @@ def test_planning_a_strip_scales_with_its_length():
     assert long_ < 12.0 * short + 0.2, (
         f"planning went superlinear: 4x length cost {long_ / short:.1f}x "
         f"({short:.2f} s -> {long_:.2f} s)")
+
+
+def test_every_feature_kind_is_indexed_where_it_actually_is():
+    """The spatial index is only safe if a feature's y-extent is its real one.
+
+    A ridge keeps its points in `spine`, not `path`, and the extent helper had no
+    case for it: every ridge on a thirty-screen strip was indexed at y 0..0. The
+    slice cull then dropped ridges out of every window but the first, and every
+    "is there a ridge here" question answered no. A new feature kind has to be
+    findable by the index, so this checks every kind a planner can emit.
+    """
+    strip = plan_site("glacier", 6, Geom(h=12 * CH, cyclic=False))
+    for kind in ("ridges", "water", "roads", "buildings", "fields", "woods",
+                 "greens"):
+        feats = getattr(strip, kind)
+        if not feats:
+            continue
+        # every feature is found by a window placed on it, and missed by a
+        # window a screen and a half past its end
+        for index, f in enumerate(feats[:8]):
+            assert index in strip.band(kind, *_y_extent(f)), \
+                f"{kind} not findable where it stands"
+            far = _y_extent(f)[1] + 1.5 * CH
+            if far + 0.5 * CH < strip.geom.h:
+                assert index not in strip.band(kind, far, far + 0.5 * CH), \
+                    f"{kind} indexed where it is not"

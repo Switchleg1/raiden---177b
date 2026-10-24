@@ -186,6 +186,14 @@ def _y_extent(f: Any) -> tuple[float, float]:
             ys = [p[1] for p in poly]
         elif hasattr(f, "items"):
             ys = [p[1] for p in f.items]
+        elif hasattr(f, "spine"):
+            # a ridge: its points are the spine, and its flanks hang off them.
+            # Missing this case put every ridge on a strip at y 0..0, so the
+            # slice cull dropped the ridges out of every window but the first -
+            # and the spatial index answered "no ridges here" to everything.
+            ys = [p[1] for p in f.spine]
+            for spur in getattr(f, "spurs", ()):
+                ys += [p[1] for p in spur]
         elif hasattr(f, "y"):
             ys = [f.y - getattr(f, "radius", 0.0),
                   f.y + getattr(f, "radius", 0.0)]

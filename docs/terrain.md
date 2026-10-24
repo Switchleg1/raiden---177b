@@ -261,6 +261,60 @@ prefetch worker, one continuous strip per sector, and `TerrainTrack`'s zones and
 seam code deleted - the mid-level change becomes a change of land use along the
 strip (roads, rivers and ridges carrying across it) rather than a boundary.
 
+**The index that makes windows cheap, and what it costs to get wrong.** Culling
+by y depends on every feature kind reporting the y-range it really occupies
+(`_y_extent`). Ridges keep their points in `spine`, not `path`, and the helper
+had no case for them: every ridge on a 20-screen strip was indexed at y 0..0.
+In the baked one-screen path that is invisible - the window covers the whole
+map, so "everything" and "everything at y 0" are the same set. In a strip it is
+spectacular: the first slice got every ridge in the sector and every later slice
+got none. `test_every_feature_kind_is_indexed_where_it_actually_is` is the guard,
+and a new feature kind has to be findable by the index before it is painted.
+
+**Design cost is now linear, and guarded.** Planning a strip used to answer
+every spatial question - is this parcel off the road, does this drain stack on
+the last one, does this route cross the river - by walking every segment of
+every path, so cost grew with the square of the length: 28 s for a 111 s sector.
+Path segments are now filed by the y-band they touch (cached per path object),
+threshold queries stop at the first hit, and crossings test only segments
+sharing a band. The same sector designs in about 2 s, and
+`test_planning_a_strip_scales_with_its_length` fails if the shape goes
+superlinear again. This is what makes an unprepared sector usable: the first
+slice can be painted about two seconds after entering, not half a minute.
+
+## Encounters come from the ground (`src/level/encounters.py`)
+
+The spawn director has always worked on a clock: every `spawn_interval` seconds,
+roll a kind and drop it over the top edge. That is why a sector stops feeling
+like a place - the same formation can arrive over a rice paddy, a car park and a
+lava channel, because nothing about the ground was consulted when it was placed.
+
+A site plan already knows where the houses, water, steep flanks and open fields
+are. Those are affordances, and the archetypes have homes:
+
+| affordance | kinds | why the ground explains the shot |
+|---|---|---|
+| `roof`  | sentry, gunner    | a turret climbs out of the highest thing in view |
+| `ridge` | heavy, rammer     | slow and armoured things come off high ground, on the flank perpendicular to the spine |
+| `wet`   | splitter, bomber  | things that scatter rise off a wash |
+| `open`  | grunt, weaver, darter | clear ground: not built, not wet, not on a crest |
+
+`plan_encounters(plan, spec, tail=...)` walks the sector a beat at a time - one
+beat per `spawn_interval` seconds of scroll, so density is still a level number
+and has simply stopped being a clock - and for each beat draws a kind from the
+sector's own roster, then asks the plan for a place that kind can stand. If the
+ground has nothing to offer (no rooftop in this stretch), it says so rather than
+inventing one in mid-air. Positions are in the plan's space, bake pixels down the
+strip, which is the same y the painted strips are indexed by: the encounter and
+the ground it belongs to are addressed identically.
+
+Determinism holds: the draws are keyed on `plan.seed` and arithmetic over the
+sector name, never `hash()`, so a replay meets the same guns in the same
+doorways. Formations are decided with the site (a hamlet puts up a pair of guns,
+a field puts up a file), and `LEAD_IN`/`LEAD_OUT` keep the sector from starting
+or ending inside a formation. Not yet wired into `game.py`: the release path is
+the next step, replacing the timer with "this ground is on screen".
+
 ## Realism layers
 
 Three post/primitive passes give the maps a painted, non-flat look

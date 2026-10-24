@@ -13,8 +13,9 @@ painting rate against the scroll rate.
 """
 from __future__ import annotations
 
+from .encounters import Encounter, plan_encounters
 from .level import Level, strip_length
 from .strip import STRIP_MARGIN, STRIP_SLICE, TerrainStrip
 
-__all__ = ["Level", "TerrainStrip", "STRIP_MARGIN", "STRIP_SLICE",
-           "strip_length"]
+__all__ = ["Encounter", "Level", "TerrainStrip", "STRIP_MARGIN",
+           "STRIP_SLICE", "plan_encounters", "strip_length"]
