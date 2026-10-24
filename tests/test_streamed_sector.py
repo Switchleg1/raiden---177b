@@ -171,3 +171,22 @@ def test_a_streamed_sector_survives_a_frame_loop(app, tiny_sectors):
     assert _wait_for(lambda: lvl.ready_at(lvl.near_y / 2.0), timeout=60.0), \
         "the painters fell behind the camera"
     assert lvl.strips["near"].frontier() >= top
+
+
+def test_a_respawn_keeps_the_ground_the_craft_flew_over(app, tiny_sectors):
+    """Dying does not move the craft to another sector. Re-entering the sector
+    used to build a fresh Level, which put the strip back at row 0 under a craft
+    standing halfway down it and threw away every slice its painters had
+    finished - the streamed equivalent of the guard `ensure_terrain` already is
+    for the baked path."""
+    app._start_game()
+    lvl = app.level
+    assert _wait_for(lambda: lvl.ready_at(0.0), timeout=120.0)
+    for _ in range(30):                 # some ground under the wings first
+        lvl.update(1.0 / 60.0)
+    before = lvl.strips["near"].frontier()
+    near_y = lvl.near_y
+    app._enter_ready()                  # the respawn path re-enters the sector
+    assert app.level is lvl, "the respawn replaced the sector's ground"
+    assert app.level.near_y == pytest.approx(near_y), "the camera was moved"
+    assert app.level.strips["near"].frontier() >= before

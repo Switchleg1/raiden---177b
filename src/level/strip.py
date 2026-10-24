@@ -69,6 +69,9 @@ class TerrainStrip:
         self.downscale = downscale
         self.height = int(plan.geom.h)
         self.count = max(1, math.ceil(self.height / self.slice_h))
+        # Painting happens in the worker process unless the caller says otherwise
+        # (see `paint`). Set by `Level`, which knows how long the sector is.
+        self.via_process = False
         self._surf: list[Any] = [None] * self.count
         self._lock = threading.Lock()
         self._cursor = 0
@@ -88,11 +91,26 @@ class TerrainStrip:
         return lo, hi - lo
 
     def paint(self, i: int) -> Any:
-        """Paint slice `i` and return its surface. Idempotent, thread-safe."""
+        """Paint slice `i` and return its surface. Idempotent, thread-safe.
+
+        With `via_process` set, the work is asked for in the design/paint worker
+        - which is the point of the whole arrangement, since a slice is 0.75 s of
+        numpy and surface work that the frame thread will not share. A worker
+        that cannot do it costs a slower slice, not a hole: the local path is
+        always there. The picture is the same either way, which is asserted in
+        tests/test_level_paint.py rather than assumed.
+        """
         with self._lock:
             if self._surf[i] is not None:
                 return self._surf[i]
-        surf = self._paint(i)
+        surf = None
+        if self.via_process:
+            from .paintsrv import paint_slice
+
+            surf = paint_slice(self.plan, self.layer, i, self.slice_h,
+                               self.margin)
+        if surf is None:
+            surf = self._paint(i)
         with self._lock:
             # Another worker may have finished the same slice while this one
             # was drawing; keep the first, free the second, hand back a surface

@@ -642,10 +642,19 @@ class App:
             return
         from level import Level
 
-        lvl = self.next_level
-        if lvl is None or lvl.seed != idx + 1:
-            if lvl is not None:
-                lvl.stop()
+        # The sector the craft is standing in already has its ground designed
+        # and partly painted. Dying does not move it to another sector, so a
+        # respawn must keep this Level: rebuilding it would put the strip back
+        # at row 0 under a craft that is halfway down it, and throw away every
+        # slice its painters had finished. The baked path has the same guard in
+        # `ensure_terrain`; this is that guard for the streamed one.
+        if self.level is not None and self.level.seed == idx + 1:
+            return
+        if self.next_level is not None and self.next_level.seed == idx + 1:
+            lvl = self.next_level
+        else:
+            if self.next_level is not None:
+                self.next_level.stop()
             lvl = Level(C.LEVELS[idx], seed=idx + 1)
         self.level, self.next_level = lvl, None
         # A new sector's ground has its own fights planned on it. Everything at

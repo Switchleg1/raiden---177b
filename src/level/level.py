@@ -19,7 +19,7 @@ from typing import Any
 from terrain.common import NEAR_SPEED, TILE2
 from terrain.siteplan import CELL, Geom
 
-from .design import plan_sector
+from .design import PROCESS_MIN_LENGTH, plan_sector
 from .encounters import plan_encounters
 from .strip import STRIP_MARGIN, STRIP_SLICE, TerrainStrip
 
@@ -58,7 +58,8 @@ class Level:
                  slice_h: int = STRIP_SLICE,
                  margin: int = STRIP_MARGIN,
                  tail: float | None = None,
-                 process_design: bool | None = None) -> None:
+                 process_design: bool | None = None,
+                 process_paint: bool | None = None) -> None:
         self.spec = spec
         self.seed = int(seed)
         self.theme = str(getattr(spec, "theme", "")).split(".")[-1].lower()
@@ -76,6 +77,9 @@ class Level:
         # sector is designed in another process so the frame thread cannot stall
         # it. True/False says so.
         self.process_design = process_design
+        # Same judgement for the painting: a sector is painted in the worker
+        # process, a one-screen map is painted here.
+        self.process_paint = process_paint
         self.encounters: list[Any] = []
         self.strips: dict[str, TerrainStrip] = {}
         # The camera's row: the strip row standing at the top edge of the field.
@@ -111,6 +115,10 @@ class Level:
         self.strips = {name: TerrainStrip(self.plan, name, self.slice_h,
                                           self.margin)
                        for name in self._layers}
+        use = ((self.length >= PROCESS_MIN_LENGTH) if self.process_paint is None
+               else bool(self.process_paint))
+        for strip in self.strips.values():
+            strip.via_process = use
 
     def start(self) -> None:
         """Begin designing and painting: one thread per layer, the designer on

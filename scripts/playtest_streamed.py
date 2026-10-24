@@ -49,6 +49,7 @@ def main(argv: list[str]) -> int:
                        C.FIELD_BOTTOM - C.FIELD_TOP)
     scratch = pygame.Surface((C.LOGICAL_W, C.LOGICAL_H), pygame.SRCALPHA)
     drawn: list[int] = []
+    cover: list[float] = []
     holes = 0
     # Throttle like the real loop (`clock.tick(FPS)`) and sample lightly. An
     # unthrottled loop holds the GIL solid and the painting threads never get a
@@ -62,8 +63,12 @@ def main(argv: list[str]) -> int:
         if i % every == 0:
             scratch.fill((0, 0, 0, 0))
             drawn.append(lvl.draw(scratch, band))
-            alpha = pygame.surfarray.array_alpha(scratch)
-            if (alpha > 200).mean() < 0.9:
+            # coverage inside the field band only - the rest of the canvas is
+            # not ground and never will be
+            alpha = pygame.surfarray.array_alpha(scratch)[
+                band.left:band.right, band.top:band.bottom]
+            cover.append(float((alpha > 200).mean()))
+            if cover[-1] < 0.9:
                 holes += 1
         left = frame - (time.perf_counter() - t0) / (i + 1)
         time.sleep(max(0.0, min(frame, left)))
@@ -76,12 +81,16 @@ def main(argv: list[str]) -> int:
           f"  ({lvl.progress() * 100:4.1f}%)")
     print(f"  slices   : min {min(drawn)} mean {statistics.mean(drawn):.2f} "
           f"max {max(drawn)}  sampled frames under-covered: {holes}/{len(drawn)}")
+    print(f"  coverage : mean {statistics.mean(cover) * 100:5.1f}%  "
+          f"min {min(cover) * 100:5.1f}%  last half "
+          f"{statistics.mean(cover[len(cover) // 2:]) * 100:5.1f}%")
     print(f"  frontier : near {lvl.strips['near'].frontier()}/"
           f"{lvl.strips['near'].count} slices, far "
           f"{lvl.strips['far'].frontier()}/{lvl.strips['far'].count}")
     print(f"  fights   : {len(encs)} planned, "
           f"{app._enc_i} released, {len(app.game.enemies)} on the field, "
           f"clock {'off' if app.game.ground_spawns else 'ON'}")
+    app.shutdown()          # stop the painters before the worker pool goes away
     if encs:
         kinds = {}
         for e in encs:
