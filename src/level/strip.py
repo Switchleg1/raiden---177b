@@ -13,6 +13,7 @@ a slice does not care when it is painted, in which order, or by which thread.
 from __future__ import annotations
 
 import math
+import os
 import random
 import threading
 from typing import Any
@@ -54,6 +55,21 @@ class TerrainStrip:
     they scroll at different rates and one slow painter must not hold up the
     other.
     """
+
+    # A/B switch for finding the line that appears at every slice boundary.
+    # Baked sectors are clean and streamed ones are not, so the artifact is in the
+    # strip path. Two candidates remain: each band being resampled 2x -> 1x on its
+    # own, or the paint disagreeing with itself in the last row or two of every band
+    # (the slice-vs-reference test reports 0.02% differing - 1-2 rows out of 278,
+    # thin enough to pass every ratio test written so far and straight enough to see
+    # as a line). With this on, bands are nearest-sampled. Lines gone = the resampler.
+    # Lines still there = the paint. Either answer is one specific fix, instead of
+    # another round of confident guessing.
+    #
+    # Read from the environment at import: the processes that paint the bands are
+    # children, and a class attribute set in the parent after they started would
+    # look like a switch that does nothing.
+    NEAREST_BANDS = os.environ.get("RAIDEN_NEAREST_BANDS") == "1"
 
     def __init__(self, plan: SitePlan, layer: str = "near",
                  slice_h: int = STRIP_SLICE, margin: int = STRIP_MARGIN,
@@ -184,7 +200,8 @@ class TerrainStrip:
         keep = surf.subsurface((0, top, W2, min(h - top, self.slice_h)))
         keep = keep.copy()
         if self.downscale:
-            keep = pygame.transform.smoothscale(
+            keep = (pygame.transform.scale if TerrainStrip.NEAREST_BANDS
+                    else pygame.transform.smoothscale)(
                 keep, (keep.get_width() // SS, keep.get_height() // SS))
         return keep
 

@@ -344,6 +344,15 @@ class App:
             if ev.type == pygame.QUIT:
                 self.running = False
                 continue
+            if ev.type == pygame.KEYDOWN and ev.key == pygame.K_F10:
+                # Live A/B of the band resample. Only reaches the process that
+                # paints, so with the multiprocess painter it affects nothing until
+                # the next sector's workers start; `--nearest-bands` is the reliable
+                # switch because it travels through the environment.
+                from level.strip import TerrainStrip
+                TerrainStrip.NEAREST_BANDS = not TerrainStrip.NEAREST_BANDS
+                print(f"band resample: "
+                      f"{'NEAREST' if TerrainStrip.NEAREST_BANDS else 'SMOOTH'}")
             if ev.type == pygame.KEYDOWN and ev.key == pygame.K_F11:
                 # Screenshots show a band of ground about one slice tall, about
                 # 8/255 darker than the ground above and below, with hard tone steps
@@ -1720,6 +1729,11 @@ def main(argv: list[str] | None = None) -> int:
               "                       (ground designed as one strip and painted "
               "as it\n"
               "                       scrolls is the default)\n"
+              "  --nearest-bands      blit the ground bands with nearest rather "
+              "than\n"
+              "                       smooth scaling (diagnostic: tells a "
+              "resampling\n"
+              "                       artifact from a painting one)\n"
               "  -h, --help           show this help and exit\n"
               "\n"
               "Controls: WASD/arrows or mouse to move, SPACE / left click to\n"
@@ -1750,6 +1764,13 @@ def main(argv: list[str] | None = None) -> int:
         # Still accepted: streaming is the default now, and muscle memory is a
         # real interface. Asking for it explicitly does no harm.
         app.settings = dataclasses.replace(app.settings, streamed_terrain=True)
+    if "--nearest-bands" in argv:
+        # A/B the 2x -> 1x resample the streamed ground is blitted through. Baked
+        # ground is clean and streamed ground shows a line at every slice boundary;
+        # this decides whether the resampler makes it or the paint does. It goes in
+        # the environment because the processes that actually paint the bands are
+        # children, and a flag the painter never sees is not an A/B test.
+        os.environ["RAIDEN_NEAREST_BANDS"] = "1"
     try:
         if selftest is not None:
             frames = app.run(max_frames=selftest)
