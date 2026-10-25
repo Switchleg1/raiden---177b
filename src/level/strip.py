@@ -13,7 +13,6 @@ a slice does not care when it is painted, in which order, or by which thread.
 from __future__ import annotations
 
 import math
-import os
 import random
 import threading
 from typing import Any
@@ -56,24 +55,8 @@ class TerrainStrip:
     other.
     """
 
-    # A/B switch for finding the line that appears at every slice boundary.
-    # Baked sectors are clean and streamed ones are not, so the artifact is in the
-    # strip path. Two candidates remain: each band being resampled 2x -> 1x on its
-    # own, or the paint disagreeing with itself in the last row or two of every band
-    # (the slice-vs-reference test reports 0.02% differing - 1-2 rows out of 278,
-    # thin enough to pass every ratio test written so far and straight enough to see
-    # as a line). With this on, bands are nearest-sampled. Lines gone = the resampler.
-    # Lines still there = the paint. Either answer is one specific fix, instead of
-    # another round of confident guessing.
-    #
-    # Read from the environment at import: the processes that paint the bands are
-    # children, and a class attribute set in the parent after they started would
-    # look like a switch that does nothing.
-    NEAREST_BANDS = os.environ.get("RAIDEN_NEAREST_BANDS") == "1"
-
     def __init__(self, plan: SitePlan, layer: str = "near",
-                 slice_h: int = STRIP_SLICE, margin: int = STRIP_MARGIN,
-                 supersample: bool = False) -> None:
+                 slice_h: int = STRIP_SLICE, margin: int = STRIP_MARGIN) -> None:
         if layer not in ("near", "far"):
             raise ValueError(f"unknown strip layer {layer!r}")
         if slice_h <= 0 or margin < 0:
@@ -82,7 +65,6 @@ class TerrainStrip:
         self.layer = layer
         self.slice_h = int(slice_h)
         self.margin = int(margin)
-        self.supersample = supersample
         self.height = int(plan.geom.h)
         # The bake rows a camera can see at one time: one field-height of ground,
         # and the definition `window_at` measures a slice range against.
@@ -151,27 +133,33 @@ class TerrainStrip:
             return self._surf[i]
 
     def _paint(self, i: int) -> Any:
+        """Paint slice `i` and return the band `draw` blits.
+
+        The band comes back TURNED OVER - its first row carries the strip's farthest
+        world row - for the reason spelled out at the return below.
+        """
         import pygame
 
         from terrain.features import Plane, paint_far, paint_site
 
         kit = kit_for()
         y0, h = self.window(i)
-        # A window, not a canvas: the plane knows where it sits in the world, so
-        # materials land on the same tile grid and props land on the same ground
-        # as they would in any other window. `wrap=0` - a strip does not loop.
+        # One painted pixel per pixel shown. `Plane.scale` counts PLAN pixels per
+        # painted pixel, so that means scale = SS: the plane comes out the size of the
+        # band the renderer blits, and NOTHING sits between painting and blitting - no
+        # scaler, no filter, nothing per slice to filter differently at an edge. It is
+        # also three quarters fewer pixels to paint.
         #
-        # `scale` says how many plan pixels one painted pixel covers. Painting at the
-        # size the game blits (scale = SS) means the plane comes out the size of the
-        # band, so nothing is filtered afterwards: the per-slice downscale this used
-        # to end in is gone, along with three quarters of the pixels it painted.
-        # `Plane.scale` counts PLAN pixels per PAINTED pixel, so the two routes are
-        # the opposite of what they look like: painting one pixel per pixel shown
-        # means two plan pixels per painted one (scale = SS) and needs no filter,
-        # while the historic supersampled route paints at plan resolution (scale =
-        # 1) and filters the plane down afterwards. `supersample=True` keeps that
-        # route so the two can be compared in the same afternoon.
-        scale = 1 if self.supersample else SS
+        # The route this replaces painted at plan resolution and `smoothscale`d every
+        # slice down, because the baked PNG pipeline was authored at 2x ("baked PNGs
+        # live at 2x for extra detail; runtime loads them once and downscales"). Measured
+        # through one material's texel, that route ran 256 -> 160 -> 80 -> 156 device px
+        # at a 1.95x window: it ended with FEWER pixels than the material had before it
+        # was halved, and what it bought was a resample of the whole plane per slice.
+        # Materials still take the same two bilinear steps (256 -> 160 at load in
+        # `TileKit`, 160 -> 80 for the tile pitch) - once per material, not once per
+        # slice of ground.
+        scale = SS
         plane = Plane(W2, h, x0=0, y0=y0, scale=scale)
         if self.layer == "near":
             # The ground the craft flies over is opaque, and it is opaque
@@ -210,15 +198,27 @@ class TerrainStrip:
         # difference; slice 0 showed none at all.
         top = (i * self.slice_h - y0) // scale
         rows = min(h - (top * scale), self.slice_h) // scale
-        keep = surf.subsurface((0, top, surf.get_width(), rows))
-        keep = keep.copy()
-        if self.supersample:
-            # Only the supersampled route has anything to filter, and it filters the
-            # whole plane - which is the pass that put a line on every boundary.
-            keep = (pygame.transform.scale if TerrainStrip.NEAREST_BANDS
-                    else pygame.transform.smoothscale)(
-                keep, (keep.get_width() // SS, keep.get_height() // SS))
-        return keep
+        keep = surf.subsurface((0, top, surf.get_width(), rows)).copy()
+        # Turn the band over. `draw` places a slice so that its LAST world row - the
+        # "far" row, furthest along the strip - sits at the top edge, because that is
+        # what makes the ground continuous: the world row a display row stands for is
+        # then `(y - row) / SS` no matter which slice the row came from. The plane
+        # hands its rows over in ASCENDING world order, so returning `keep` as it came
+        # out mirror-imaged every band inside its own footprint and left the neighbours
+        # pointing the other way: measured across a composed frame, the world row shown
+        # stepped correctly by SS within a band and then JUMPED BY 1110 world rows - two
+        # whole slices - at every single boundary.
+        #
+        # That is the bug the screenshots have been describing since the start: a
+        # half-house at each boundary, "some tiles are fine and others are just wrong",
+        # "remove every second tile and it lines up" (every other band landed where its
+        # own arithmetic expected). It survived because it is invisible to every test
+        # that asks whether the ground is COVERED or whether slices AGREE: every row is
+        # painted, and every slice paints the same way. `tests/test_level_paint.py::
+        # test_slice_boundaries_show_no_jump_in_the_world_row` is the test that can see
+        # it - colour every band row with the world row it carries and read the screen
+        # back - and it fails on the un-flipped band with exactly the 1110-row jump.
+        return pygame.transform.flip(keep, False, True)
 
     # ------------------------------------------------------------- frontier
     def frontier(self) -> int:
@@ -342,7 +342,21 @@ class TerrainStrip:
                 raise RuntimeError(
                     f"slice {i} is {surf.get_size()} and would not tile the field: "
                     f"a band must be {want} display rows tall")
-            # the slice's *far* row is the one nearest the top edge
+            # Where this slice goes. Its display row 0 stands for world row
+            # `i * slice_h`, and a world row belongs at `band.top + (y - world) / SS`,
+            # so:
+            #
+            #     top_i = band.top + (y - i * slice_h) / SS
+            #
+            # This used to read `(y - (i + 1) * slice_h) / SS`, which is the position
+            # of the NEXT slice's first row: every band was drawn one whole slice too
+            # high. It is invisible to a tiling check (consecutive bands still differ
+            # by exactly a band height, so nothing gaps or overlaps) and invisible to a
+            # coverage check (every row is still painted by somebody) - which is how it
+            # survived while the ground was being drawn 278 display rows away from
+            # where its own geometry says it is. `test_each_display_row_shows_the_
+            # slice_that_owns_it` is what sees it: colour every slice, then ask row by
+            # row whether the slice standing there is the one that owns that world row.
             top = band.top + (y - (i + 1) * self.slice_h) / SS
             # The clip is a rect *in the slice*, not the band it lands on. An
             # area's left/top are read as offsets into the source surface, so

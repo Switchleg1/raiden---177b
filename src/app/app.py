@@ -1729,6 +1729,12 @@ def main(argv: list[str] | None = None) -> int:
               "                       (ground designed as one strip and painted "
               "as it\n"
               "                       scrolls is the default)\n"
+              "  --ground-1x          paint the ground at display resolution "
+              "instead\n"
+              "                       of 2x scaled down: faster, no filter pass, "
+              "and a\n"
+              "                       different look - compare it against the "
+              "default\n"
               "  --nearest-bands      blit the ground bands with nearest rather "
               "than\n"
               "                       smooth scaling (diagnostic: tells a "
@@ -1764,6 +1770,11 @@ def main(argv: list[str] | None = None) -> int:
         # Still accepted: streaming is the default now, and muscle memory is a
         # real interface. Asking for it explicitly does no harm.
         app.settings = dataclasses.replace(app.settings, streamed_terrain=True)
+    if "--ground-1x" in argv:
+        # Paint the ground at the size it is blitted (no per-slice filter, ~3.4x
+        # faster painting) instead of at 2x and scaled down. A look change as much as
+        # a speed change, so it is opt-in until a human says which one they want.
+        os.environ["RAIDEN_GROUND_RES"] = "1x"
     if "--nearest-bands" in argv:
         # A/B the 2x -> 1x resample the streamed ground is blitted through. Baked
         # ground is clean and streamed ground shows a line at every slice boundary;

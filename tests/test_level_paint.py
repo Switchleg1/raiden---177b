@@ -125,6 +125,12 @@ def test_a_slice_shows_the_same_ground_as_the_truth(layer):
     truth = whole.paint(0)
     assert truth is not None and whole.count == 1, "need a one-window reference"
     tv = numpy.asarray(pygame.surfarray.array3d(truth))
+    # Put the reference back into ascending world order. `paint` turns a band over
+    # (see `_paint`), and the reference is itself a band - one window over the whole
+    # sector - so as it comes out, its column 0 is the LAST world row. Reversing it
+    # once here lets the loop below address it by world row, which is what a reader
+    # and the failure message both want.
+    tv = tv[:, ::-1]
 
     assert small.count >= 3, "want interior slices and the clamped last one"
     worst = (None, 0.0, 0.0)
@@ -135,7 +141,9 @@ def test_a_slice_shows_the_same_ground_as_the_truth(layer):
         # The band decides its own stride; bands are logical rows, the strip's
         # geometry decides how many, and assuming a unit here hid a factor of SS.
         stride = band.get_height()
-        ref = tv[:, i * stride:(i + 1) * stride]
+        # `kept` arrives turned over, so its column k carries world row
+        # (i+1)*slice_h - 1 - k; the reference above is ascending, hence the reverse.
+        ref = tv[:, i * stride:(i + 1) * stride][:, ::-1]
         assert ref.shape == kept.shape, (ref.shape, kept.shape)
         diff = numpy.abs(ref.astype(int) - kept.astype(int))
         bad = float((diff.max(axis=2) > 0).mean())
@@ -184,3 +192,109 @@ def test_a_slice_shows_the_same_ground_as_the_truth(layer):
         f"{worst[1] * 100:.3f}% of pixels (mean magnitude {worst[2]:.1f}/255): the "
         "slice is not painting the ground it belongs to. Look first at the kept-band "
         "crop in `_paint` (is `top` the right sign?), then at what a window culls.")
+
+
+def test_slice_boundaries_show_no_jump_in_the_world_row():
+    """The world row on screen must advance in ONE progression across a boundary.
+
+    Which way world rows run on the screen is a convention - up or down, both are
+    coherent, and the game has always drawn this way. What cannot be right, whatever
+    the convention, is a placement whose arithmetic depends on WHICH SLICE a display
+    row came from: that makes every boundary a jump, and it is invisible to a tiling
+    check (bands still abut) and to a coverage check (every row is painted).
+
+    So stamp every band row with a colour that encodes (slice, row within slice) and
+    read the screen back: the decoded world rows must step by a constant, with no
+    jump at a slice boundary.
+    """
+    import config as C
+    from level.strip import STRIP_SLICE, TerrainStrip
+    from terrain.common import SS
+
+    rows = STRIP_SLICE * 5
+    plan = _plan_here("countryside", 7, rows)
+    strip = TerrainStrip(plan, "near")
+    want_rows = strip.slice_h // SS
+
+    def stamp(i):
+        surf = pygame.Surface((8, want_rows), 0, 24)
+        for k in range(want_rows):
+            # 255 is never used: it is the transparent key on some paths, and a
+            # stamp that disappears for a reason unrelated to the bug under test
+            # wastes another day.
+            #
+            # DESCENDING on purpose: a band arrives from `_paint` turned over, its
+            # first row carrying the strip's FARTHEST world row, because that is what
+            # makes `draw`'s placement continuous. The stamp follows the same
+            # convention so the test measures placement and not the painting.
+            world = (i + 1) * strip.slice_h - 1 - k * SS
+            col = (1 + i, 1 + (world // 250) % 250, 1 + world % 250)
+            surf.fill(col, (0, k, 4, 1))
+            surf.fill(col, (4, k, 4, 1))
+        return surf
+
+    with strip._lock:
+        for i in range(strip.count):
+            strip._surf[i] = stamp(i)
+
+    band = pygame.Rect(C.FIELD_LEFT, C.FIELD_TOP,
+                       C.FIELD_RIGHT - C.FIELD_LEFT,
+                       C.FIELD_BOTTOM - C.FIELD_TOP)
+    canvas = pygame.Surface((C.LOGICAL_W, C.LOGICAL_H), pygame.SRCALPHA)
+
+    for y in (STRIP_SLICE * 2 + 1, STRIP_SLICE * 2 + 300):
+        canvas.fill((0, 0, 0, 0))
+        assert strip.draw(canvas, band, y) >= 2
+        seq = []
+        for row in range(band.top, band.bottom):
+            r, g, b, a = canvas.get_at((band.left + 5, row))
+            if not a:
+                continue
+            i, world = r - 1, ((g - 1) * 250 + (b - 1))
+            seq.append((row, world))
+        assert len(seq) > 200, f"only read {len(seq)} rows back"
+        steps = {seq[j][1] - seq[j - 1][1] for j in range(1, len(seq))}
+        spans = {seq[j][0] - seq[j - 1][0] for j in range(1, len(seq))}
+        assert len(steps) == 1 and len(spans) == 1, (
+            f"y={y}: the world row shown takes {sorted(steps)} from one display row "
+            f"to the next (rows step {sorted(spans)}) - one constant step is a "
+            "continuous ground, anything else is a jump where one slice's "
+            "arithmetic stopped and another's began")
+
+
+def test_ground_is_continuous_where_two_bands_meet():
+    """The rows meeting at a boundary must look like ground, not like a jump.
+
+    A vertical mirror inside a band leaves the ground's tone statistics untouched, so
+    every "step at a boundary vs step anywhere" measurement written so far said the
+    ground was clean while it was mirrored: mirroring does not make a tone step, it
+    makes the scenery on one side of the line come from somewhere else entirely.
+
+    Measure the thing that mirrors break: take two adjacent bands, stack them the way
+    `draw` stacks them, and compare the pair of rows meeting at their joint with the
+    pairs meeting inside a band. Real ground next to itself differs by weather; a
+    mirrored band differs by 1112 world rows of different scenery.
+    """
+    import numpy
+
+    from level.strip import STRIP_SLICE, TerrainStrip
+
+    rows = STRIP_SLICE * 6
+    plan = _plan_here("countryside", 5, rows)
+    strip = TerrainStrip(plan, "near")
+
+    def arr(i):
+        return numpy.asarray(pygame.surfarray.array3d(strip.paint(i))).astype(int)
+
+    a, b = arr(2), arr(3)          # a is nearer the camera, b is further up
+    inside_a = float(numpy.abs(a[:, :-1] - a[:, 1:]).mean(axis=2).mean())
+    inside_b = float(numpy.abs(b[:, :-1] - b[:, 1:]).mean(axis=2).mean())
+    # `draw` places a band with its FIRST row at the far end (nearest the top edge),
+    # so b sits above a and b's LAST row is the one next to a's FIRST row.
+    joint = float(numpy.abs(a[:, 0] - b[:, -1]).mean(axis=1).mean())
+    typical = max(inside_a, inside_b)
+    assert joint < 6 * typical + 8, (
+        f"the two rows meeting at a slice boundary differ by {joint:.0f}/255 while "
+        f"rows meeting inside a band differ by {typical:.0f} - the ground on the two "
+        "sides of the line is not neighbouring ground, which is what a band painted "
+        "in the wrong world order (or placed by the wrong row) produces")

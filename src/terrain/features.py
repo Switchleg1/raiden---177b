@@ -397,7 +397,7 @@ def _path_mask(path: list[tuple[float, float]], width: float,
         return Mask(np.zeros((1, 1), dtype=np.float32), (0, 0, 1, 1))
     (x0, y0, x1, y1), surf = painted
     m = np.asarray(pygame.surfarray.array3d(surf))[:, :, 0].astype(np.float32)
-    m = _feather(m * (1.0 / 255.0), 2)
+    m = _feather(m * (1.0 / 255.0), _softness(plane, 2))
     return Mask(m, (x0, y0, x1, y1))
 
 
@@ -477,6 +477,19 @@ def _feather(m: Any, passes: int) -> Any:
     return m
 
 
+def _softness(plane: Any, passes: int) -> int:
+    """How many blur passes a mask edge needs AT THIS PLANE'S RESOLUTION.
+
+    A feather is a softness in the WORLD, not a count of pixels. Asked in painted
+    pixels, it doubles the moment the plane halves its resolution: the supersampled
+    route blurred twice at 2x and then halved the whole plane, ending about one
+    display pixel wide, while painting at 1x with the same two passes ends about two -
+    so the change of resolution quietly made the whole ground softer than it was,
+    which is an appearance regression wearing the costume of a performance change.
+    """
+    return max(1, int(round(passes / max(1, getattr(plane, "scale", 1)))))
+
+
 def _paste(mask: Any, painted: Any, feather: int) -> Any:
     import pygame
     np = _numpy()
@@ -509,7 +522,8 @@ def _raster_mask(path: list[tuple[float, float]], r: float, feather: int,
         return Mask(np.zeros((1, 1), dtype=np.float32), (0, 0, 1, 1))
     (x0, y0, x1, y1), surf = painted
     m = np.asarray(pygame.surfarray.array3d(surf))[:, :, 0].astype(np.float32)
-    return Mask(_feather(m * (1.0 / 255.0), feather), (x0, y0, x1, y1))
+    return Mask(_feather(m * (1.0 / 255.0), _softness(plane, feather)),
+                (x0, y0, x1, y1))
 
 
 def _fill_mask(canvas: Any, kit: TileKit, mat: str, mask: Any,
