@@ -751,12 +751,12 @@ window in every slice and the bug hides below the crop.
 the material that used to live there, so which ground appeared depended on what had
 been painted earlier in the run. Keyed by `(name, pitch, fade, patch)` now.
 
-## Open: painting a slice is not fully order-independent
+## Closed: painting a slice is not fully order-independent
 
-The first slice's window is clamped at the world start, and it disagrees with a
+The first slice's window is clamped at the world start, and it disagreed with a
 one-window reference on ~0.7% of pixels (mean 2, max 6 per 255) in an isolated run and
-more in a full-suite run - and in a full run an interior slice has shown 0.3%. Ruled
-out by measurement, not by argument:
+more in a full-suite run - and in a full run an interior slice had shown 0.3%. Ruled
+out by measurement, not by argument, back in the first pass of this:
 
  - every individual pass (relief, fields, water, roads, greens, buildings, cover) and
    the material underlay agree **bit-for-bit** between a 652-row and a 4640-row window
@@ -766,11 +766,48 @@ out by measurement, not by argument:
    size differs on **0.000%** of pixels, so cached surfaces surviving a mode change is
    not it either.
 
-So the residue is in the composition and depends on what ran before, in ways not yet
-pinned. The test does not pretend otherwise: it bounds total disagreement and gates
-the **structure** of a line - a row disagreeing on >25% of its pixels at >=5/255 -
-because a line is 1-3 rows of 278, i.e. 0.4-1.1% of a band, small enough to slip under
-any threshold loose enough to absorb scattered rounding. That gate was checked against
-invented cases: it fails a 2-row line at 9/255 and at 5/255, passes residue at <=3
-across half the pixels, and passes a compact 100x100 blob (a blob is not a line, and
-the volume bound catches it).
+That measurement held for the *old* water: strokes along paths, everything small. What
+broke it was making water a filled **region**, and the test says so plainly once the
+passes are separated. Painting one pass at a time in both windows and diffing:
+
+    paint_relief     row diffs    0   whole-slice bad 0.0000
+    paint_water      row diffs  257   whole-slice bad 0.0037   <-- here
+    paint_fields     row diffs    0   whole-slice bad 0.0000
+    paint_roads      row diffs    4   whole-slice bad 0.0016   (a road edge, mag 69)
+    paint_greens     row diffs    0   whole-slice bad 0.0000
+    paint_buildings  row diffs    0   whole-slice bad 0.0000
+    paint_cover      row diffs    0   whole-slice bad 0.0000
+
+**The cause: a soft mask's raster box belongs to the window.** A mask is rasterized
+into a box derived from the geometry's extent, padded, then clamped to the plane. A
+small feature falls wholly inside a window or wholly outside it, so the two windows
+agree pixel-for-pixel; a feature whose box *straddles* a window edge gets cut, and the
+feather and the darken applied at that edge differ from the same geometry painted in a
+taller window. A lake's bank band was the widest soft mask in the plan: the channel
+formula `half * 2 + 22` - where `half` for a closed body is its **minor radius** -
+painted a shore as wide as the lake itself (470 px of pale gravel around a 600-px
+lake), a band whose box straddled window edges all over the strip. One row at a slice
+boundary disagreed on 32% of its pixels, at magnitudes up to 48/255 after the later
+passes put their materials on top of the disagreement.
+
+Fix: **a shore is a shore at any size** - a closed body's bank band is a fixed band
+(`min(half * 2 + 22, 110)`) instead of one scaled by the lake's own radius. Two
+related changes went in with it, both about geometry rather than paint order:
+
+ - a channel's floodplain is filled **one segment at a time** with the segment skipped
+   when it lies inside a closed body - one long stroke is another straddling box, and
+   ordering the fill before the water (which is what a muddy lake demands) only hides
+   the problem while creating the box problem;
+ - a channel's furniture (bank lines, margin splats, flow glints) is skipped by a
+   **point-in-outline test** where it would land inside standing water, so a river
+   running through a lake doesn't paint a roadway with centre lines down the middle of
+   it. This replaced an attempt to repaint the lake after everything else, which is
+   exactly the window-dependent move this section is about.
+
+The test keeps its shape: a volume bound (1%) and a **structure** gate - a row
+disagreeing on >25% of its pixels at >=5/255 - because a line is 1-3 rows of 278,
+i.e. 0.4-1.1% of a band, small enough to slip under any threshold loose enough to
+absorb scattered rounding. That gate was checked against invented cases: it fails a
+2-row line at 9/255 and at 5/255, passes residue at <=3 across half the pixels, and
+passes a compact 100x100 blob (a blob is not a line, and the volume bound catches it).
+It is the gate that found this.

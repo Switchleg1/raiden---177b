@@ -1,7 +1,12 @@
 # Testing
 
 ```
-python -m pytest tests -q          # full suite (650 tests, ~170 s)
+python -m pytest tests             # 8 workers, stops at the first failure
+python -m pytest tests --maxfail=0   # see every failure (run this before pushing)
+python -m pytest tests -n 0          # serial: use this for process/timing tests
+python -m pytest tests -n 16         # more workers (the suite is ~70 s at -n 8)
+python -m pytest tests -k paint      # one area: -k matches test ids
+python -m pytest tests/test_places.py -k lake   # one file, one behaviour
 ```
 
 Runs pygame-free (model) and with `SDL_VIDEODRIVER=dummy` (view/app/terrain).
@@ -68,6 +73,17 @@ SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
 - pytest → 650 passed (boss habits, shield bubble, terrain phases, sprites/whip/pickup pods, specialists, drum kit and grooves, synthesised instruments, the trance/electro bed, melodic identity, seamless sector handoff and prefetch included)
 - `python scripts/audit_symbols.py` → 0 flags (declarations in `src/` that nothing references; the census counts table keys and strings as uses, exit code 1 when anything is flagged)
 - self-test → 240 frames, exit 0
+
+`addopts` in `pyproject.toml` carries `-q --tb=line -p no:warnings --maxfail=1
+-n 8`:
+
+one line per failure, and the run ends at the first one. That is a deliberate
+trade - the suite renders whole sectors, so serial is ~6 minutes and `-n 8` is ~70 s;
+`--maxfail=1` means one breakage costs the time to reach it, not the time to
+enumerate 400 passes afterwards. The cost
+is that `pytest` alone no longer enumerates every breakage, so the pre-ship pass is
+`--maxfail=0`: when two failures are symptoms of one cause (which they usually are
+here), seeing both is worth the wait, and that is the run the gate below uses.
 
 The gate is the four commands above, in that order; `pytest`'s exit code is the
 verdict (its summary line does not always survive a pipe on Windows).

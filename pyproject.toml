@@ -19,6 +19,7 @@ dependencies = [
 dev = [
     "pytest>=8",
     "pytest-cov>=4",
+    "pytest-xdist>=3.8",
     "ruff>=0.6",
     "mypy>=1.8",
 ]
@@ -34,7 +35,15 @@ py-modules = []
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+# Run on 8 workers and stop at the FIRST failure. Both halves of that are about
+# waiting, which is the only thing this suite costs: it renders whole sectors, so the
+# serial run is ~6 minutes; `-n 8` brings it to ~70 s on a 24-core box (verified: the
+# failure set is identical serial vs parallel, so the workers are not hiding or
+# inventing anything - if a failure ever appears only in one mode, that IS the bug).
+# `--maxfail=1` ends the run at the first breakage; `--tb=line` keeps each one to a
+# readable line. To see everything: `pytest --maxfail=0`. To run serially (when a
+# failure involves processes or timing, e.g. the paint-server tests): `pytest -n 0`.
+addopts = "-q --tb=line -p no:warnings --maxfail=1 -n 8"
 filterwarnings = ["ignore::DeprecationWarning"]
 
 [tool.ruff]

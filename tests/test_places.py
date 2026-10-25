@@ -186,86 +186,163 @@ def test_ink_size_follows_scale_and_facing():
 def test_a_lake_is_water_in_the_middle():
     """A closed water body is a REGION. Stroked like a river it becomes a ring of
     water with a bank line on each side of the ring and flow glints down the middle
-    of it - which is what the user described as "lakes appear to be roadways made in
-    a circle because they still have the centre lines inside". The test paints a
-    sector and asks the simplest question about a lake: is the middle of it water?
-    Water is the darkest thing in a green sector, so the middle of a lake must be
-    darker than the ground outside it."""
+    of it - what the user described as "lakes appear to be roadways made in a circle
+    because they still have the centre lines inside".
+
+    The first version of this test compared the middle of the lake to ground 260 px
+    away and was wrong on its own terms: with woodlands and relief shading, ground
+    outside a lake is regularly DARKER than the water, which says nothing about the
+    bug. Two invariants do measure the defect:
+
+    * the water is darker than its OWN bank, which is pale gravel/snow by design -
+      the adjacency the painter relies on to make water readable at all;
+    * the interior is smooth. One material, one darkening pass. A ring leaves dry
+      ground in the middle, and that ground carries a bank line, a shoreline and
+      glints through it, which is texture no filled body has.
+    """
+    import math
+
     import numpy as np
     import pygame
 
     from level.strip import STRIP_MARGIN, STRIP_SLICE, TerrainStrip
-    from terrain.siteplan import Geom, plan_site
+    from terrain.siteplan import Geom, _in_poly, plan_site
 
     rows = STRIP_SLICE * 4
-    plan = plan_site("countryside", 5, Geom(h=rows, cyclic=False))
-    lakes = [w for w in plan.water if w.closed and w.inside is not None]
-    if not lakes:
-        raise AssertionError("the countryside blueprint lays no lakes at all")
-    strip = TerrainStrip(plan, "near", slice_h=rows, margin=STRIP_MARGIN)
-    band = np.asarray(pygame.surfarray.array3d(strip.paint(0))).astype(int)
-    lum = band.mean(axis=2)          # [x][y] in painted px, band flipped: row 0 far
-    h = lum.shape[1]
-    for w in lakes:
-        ix, iy = w.inside
-        # world row -> band column. The band is TURNED OVER (`_paint` flips every
-        # band so its far world row lands nearest the top of the screen), so band
-        # column 0 is the LAST world row, not the first.
-        col = (rows - 1 - int(iy)) // 2
-        row = int(ix // 2)
-        if not (0 <= col < h and 0 <= row < lum.shape[0]):
+    checked = 0
+    for seed in (5, 3, 11):
+        plan = plan_site("countryside", seed, Geom(h=rows, cyclic=False))
+        lakes = [w for w in plan.water if w.closed and w.inside is not None]
+        if not lakes:
             continue
-        inside = lum[row, col]
-        # ground a long way from this lake's shore, off in the same band
-        far = []
-        for dx in (-260.0, 260.0):
-            fx = int((ix + dx) // 2)
-            if 0 <= fx < lum.shape[0]:
-                far.append(lum[fx, col])
-        if not far:
-            continue
-        assert inside < min(far) - 4, (
-            f"the middle of a {w.kind} at ({ix:.0f},{iy:.0f}) is not darker than the"
-            f" ground outside it ({inside:.0f} vs {min(far):.0f}): the water is a ring"
-            f" and its middle is dry ground with lines in it")
+        strip = TerrainStrip(plan, "near", slice_h=rows, margin=STRIP_MARGIN)
+        band = np.asarray(pygame.surfarray.array3d(strip.paint(0))).astype(int)
+        lum = band.mean(axis=2)      # [x][y] in painted px
+        h = lum.shape[1]
+        for w in lakes:
+            ix, iy = w.inside
+            # world row -> band column: the band is turned over (`_paint` flips every
+            # band so its far world row lands nearest the top of the screen)
+            col = (rows - 1 - int(iy)) // 2
+            row = int(ix // 2)
+            if not (0 <= col < h and 0 <= row < lum.shape[0]):
+                continue
+            # scan the whole body and a little past both shores: the middle against the
+            # water, the band just outside against the bank material
+            xs = [q[0] for q in w.path]
+            span = int((max(xs) - min(xs)) * 0.5) + 90
+            inside, bank = [], []
+            for d in range(-span, span + 1, 5):
+                wx = ix + d * 2
+                wy = iy
+                r2 = int(wx // 2)
+                if not (0 <= r2 < lum.shape[0] and 0 <= col < h):
+                    continue
+                near = min(math.hypot(wx - qx, wy - qy)
+                           for qx, qy in w.path)
+                if _in_poly(wx, wy, w.path):
+                    # the fill is feathered, so a sample a pixel or two inside the
+                    # geometric outline can legitimately be bank material. Only the
+                    # body's actual interior is water; the shoreline itself is not
+                    # evidence either way.
+                    if near > 16.0:
+                        inside.append(lum[r2, col])
+                elif near < w.half + 30.0:
+                    # the bank band: outside the water, but against the shore
+                    bank.append(lum[r2, col])
+            if len(inside) < 8 or len(bank) < 4:
+                continue
+            checked += 1
+            wat, shore = float(np.mean(inside)), float(np.mean(bank))
+            assert wat < shore - 3.0, (
+                f"the water inside a {(w.kind)} is not darker than its own shore band "
+                f"({wat:.0f} vs {shore:.0f}): the middle is not water")
+            # The middle has to be WATER, not ground with water round it. The art
+            # decides the number: `water_river` darkened the way the painter darkens a
+            # wet body reads 20.5 mean, 52 at its brightest texel, and a lake interior
+            # measured over a filled body runs 17-24. Dry ground in the same sectors
+            # runs 35-70. A mean separates those with room to spare; a per-sample count
+            # did not, because a scan at fixed pitch walks straight into the water
+            # material's own ripple texels and calls them land.
+            assert float(np.mean(inside)) < 28.0, (
+                f"the middle of a {w.kind} is not water: its interior samples average "
+                f"{float(np.mean(inside)):.0f} where the water material on this theme "
+                "averages 20 and dry ground averages 40-60")
+    assert checked >= 2, (
+        f"only {checked} lake(s) could be sampled across three countryside "
+        "sectors - the test cannot pass on a plan with nothing to measure")
 
 
 def test_a_neighborhood_lane_holds_houses_on_both_sides():
-    """A neighborhood is a STREET: houses along a road, facing it, on both sides.
-    One walker alternating sides spent a full house-width whether or not the other
-    side produced a house, so a 450 px lane against 190 px houses held one house -
-    which read as "single houses here and there", not a neighborhood."""
-    def plan_for(theme: str, seed: int):
-        from terrain.siteplan import Geom, plan_site
-        return plan_site(theme, seed, Geom(h=1120 * 4, cyclic=False))
+    """A neighborhood is a STREET network: houses along each street, facing it, on
+    BOTH sides of it, meeting at intersections.
 
-    seen = False
-    for seed in (5, 33, 19, 41, 47):
-        plan = plan_for("countryside", seed)
-        lanes = [r for r in plan.roads if r.kind == "spur" and len(r.path) > 4]
+    Two things are measured and they are not the same thing:
+
+    * the STRUCTURE, on every street that exists - three or more fronting houses and
+      they do not all stand on the same side. A loop road is exempt: its houses face
+      the green in the middle of it, which is why a loop is built.
+    * the PRESENCE, across the sectors. A sector that is half lake or all ridge
+      cannot hold a subdivision and should not try. Requiring one in every sector
+      measures the geography, not the design; requiring them in most sectors is what
+      says the blueprint actually reaches the ground it wants.
+    """
+    sectors = 0
+    with_estates = 0
+    streets = 0
+    for seed in (3, 5, 7, 9, 11, 13, 17, 21):
+        plan = plan_site("countryside", seed, Geom(h=1120 * 4, cyclic=False))
+        sectors += 1
         homes = [b for b in plan.buildings if b.group == "neighborhood"]
-        for lane in lanes:
-            sides = {1: 0, -1: 0}
-            for b in homes:
-                # the side of the lane this house stands on, judged at the lane
-                # point nearest to it
-                best = min(((math.hypot(b.x - px, b.y - py), i)
-                            for i, (px, py) in enumerate(lane.path)))
-                i = best[1]
-                a = lane.path[max(0, i - 1)]
-                c = lane.path[min(len(lane.path) - 1, i + 1)]
-                nx, ny = -(c[1] - a[1]), (c[0] - a[0])
-                side = 1 if (b.x - lane.path[i][0]) * nx + (
-                    b.y - lane.path[i][1]) * ny > 0 else -1
-                if best[0] < 190.0:
-                    sides[side] += 1
-            if min(sides.values()) >= 2:
-                seen = True
-                break
-        if seen:
-            break
-    assert seen, ("no neighborhood in five sectors has houses on both sides of its "
-                  "lane: " + str([
-                      sum(1 for b in plan_for("countryside", s).buildings
-                          if b.group == "neighborhood")
-                      for s in (5, 33, 19, 41, 47)]))
+        if homes:
+            with_estates += 1
+        for r in plan.roads:
+            # an estate's own streets. A main road's frontage row is a different
+            # thing and holds houses wherever the ground allows; a subdivision is
+            # the thing the user is asking to be organised.
+            if r.kind not in ("spur", "track") or len(r.path) < 3:
+                continue
+            if math.hypot(r.path[0][0] - r.path[-1][0],
+                          r.path[0][1] - r.path[-1][1]) < 40.0:
+                continue              # a closed loop: it faces its own centre
+            on_street, sides = 0, []
+            for b in plan.buildings:
+                if b.group != "neighborhood":
+                    continue
+                # measured against the PATH, not its chord: a collector that winds
+                # puts its own frontage outside a +-170 px band around the straight
+                # line between its ends, which is how a street with six houses on
+                # both sides read as holding none.
+                end = b.drive[-1] if b.drive else (b.x, b.y)
+                best = None
+                for i in range(len(r.path) - 1):
+                    (ax, ay), (bx, by) = r.path[i], r.path[i + 1]
+                    vx, vy = bx - ax, by - ay
+                    seg = math.hypot(vx, vy) or 1.0
+                    t = max(0.0, min(1.0, ((b.x - ax) * vx + (b.y - ay) * vy)
+                                     / (seg * seg)))
+                    qx, qy = ax + vx * t, ay + vy * t
+                    d = math.hypot(b.x - qx, b.y - qy)
+                    if best is None or d < best[0]:
+                        best = (d, vx / seg, vy / seg, qx, qy)
+                if best is None or best[0] > 170.0:
+                    continue
+                if min(math.hypot(end[0] - sx, end[1] - sy)
+                       for sx, sy in r.path) > 90.0:
+                    continue
+                _d, vx, vy, qx, qy = best
+                on_street += 1
+                sides.append(1 if (vx * (b.y - qy) - vy * (b.x - qx)) >= 0.0
+                             else -1)
+            if on_street >= 3:
+                streets += 1
+                assert len(set(sides)) >= 2, (
+                    f"seed {seed}: {on_street} houses front one {r.kind} street and "
+                    "every one of them is on the same side of it")
+    assert streets >= 6, (
+        f"{streets} street(s) across {sectors} sectors hold three or more fronting "
+        "houses: a neighborhood is a row of houses along a street, and rows of one "
+        "or two are scattered houses")
+    assert with_estates >= sectors // 2, (
+        f"only {with_estates} of {sectors} countryside sectors have a neighborhood "
+        "at all - the blueprint is not reaching the ground it wants")

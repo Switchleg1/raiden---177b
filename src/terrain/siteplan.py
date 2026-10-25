@@ -300,6 +300,11 @@ def _y_extent(f: Any) -> tuple[float, float]:
     drive = getattr(f, "drive", None)
     if drive:
         ys += [p[1] for p in drive]
+    if not ys:
+        # An item list emptied by a later pass (a building cleared the growth it
+        # stands on) has no extent, and `min()` of nothing is a crash inside the
+        # paint worker. A range no window can intersect is the honest answer.
+        return (1.0e18, -1.0e18)
     return (min(ys), max(ys))
 
 
@@ -456,8 +461,19 @@ class SitePlan:
         return bool(self.place) and             self.place[self.geom.row(y)][self.geom.col(x)]
 
     def near_water(self, x: float, y: float, dist: float) -> bool:
-        return any(_near_path(self.geom, x, y, w.path, dist)
-                   for w in self.water)
+        for w in self.water:
+            # A CLOSED body is a region, and being inside it is closer to water than
+            # any distance test against its outline can say. `_near_path` measures to
+            # the shoreline, and a lake's `half` is its MINOR radius: a point deep in
+            # the middle of a wide lake is further from the outline than `half`, so
+            # every guard of the form `near_water(x, y, 70)` - scree, outcrops,
+            # vegetation - read the middle of a lake as dry ground and dropped rocks
+            # in it.
+            if w.closed and _in_poly(x, y, w.path):
+                return True
+            if _near_path(self.geom, x, y, w.path, dist):
+                return True
+        return False
 
     def near_road(self, x: float, y: float, dist: float) -> bool:
         return any(_near_path(self.geom, x, y, r.path, dist)
@@ -880,23 +896,24 @@ SPEC: dict[str, SiteSpec] = {
         ridge_count=(2, 3), water_kinds=("river",), road="main",
         build=("house", "barn"), field_kinds=("crop", "pasture", "orchard"),
         field_count=(5, 8), tree_props=("tree_clump", "pine_clump"),
-        woods=(3, 5),
-        places=("neighborhood", "farmstead", "campground", "lake")),
+        woods=(1, 3),
+        places=("neighborhood", "woodland", "farmstead", "campground",
+                "lake")),
     "farmland": SiteSpec(
         ridge_shapes=("domefield", "massif"), ridge_weight=0.7,
         ridge_count=(1, 1), water_kinds=("channel", "river"), road="main",
         build=("barn", "house"), field_kinds=("crop", "paddy", "pasture"),
         field_count=(8, 12), tree_props=("tree_clump", "pine_clump"),
-        woods=(2, 4),
-        places=("farmstead", "neighborhood", "lake")),
+        woods=(1, 2),
+        places=("neighborhood", "woodland", "farmstead", "lake")),
     "forest": SiteSpec(
         ridge_shapes=("massif", "hogback"), ridge_weight=0.8,
         ridge_count=(1, 2),
         water_kinds=("river",), road="main", build=("hut",),
         field_kinds=("pasture",), field_count=(1, 3),
-        tree_props=("pine_clump", "tree_clump"), woods=(7, 11),
+        tree_props=("pine_clump", "tree_clump"), woods=(5, 8),
         treeline=True,
-        places=("campground", "lake", "farmstead")),
+        places=("woodland", "campground", "lake", "farmstead")),
     "canyon": SiteSpec(
         ridge_shapes=("mesa", "hogback", "sawback"), ridge_weight=0.95,
         ridge_count=(2, 3), water_kinds=("wash",), road="main",
@@ -910,7 +927,7 @@ SPEC: dict[str, SiteSpec] = {
         ridge_shapes=("massif", "domefield", "cone"), ridge_weight=0.9,
         ridge_count=(2, 3), water_kinds=("channel",), road="main",
         build=("hut",), field_count=(0, 0),
-        tree_props=("pine_snow",), woods=(3, 6), scree=True,
+        tree_props=("pine_snow",), woods=(2, 4), scree=True,
         places=("farmstead",)),
     "volcanic": SiteSpec(
         ridge_shapes=("cone", "cone", "sawback", "hogback"), ridge_weight=0.95,
@@ -929,8 +946,8 @@ SPEC: dict[str, SiteSpec] = {
         ridge_count=(1, 2), water_kinds=("river",), road="main",
         build=("house",), hamlet=True, field_kinds=("pasture",),
         field_count=(2, 4), tree_props=("tree_clump", "dead_tree"),
-        woods=(3, 5),
-        places=("neighborhood", "farmstead", "lake")),
+        woods=(1, 3),
+        places=("neighborhood", "woodland", "farmstead", "lake")),
     "city": SiteSpec(
         ridge_shapes=("domefield",), ridge_count=(1, 1),
         ridge_weight=0.5, relief_gain=0.45, water_kinds=("river",),
@@ -939,7 +956,7 @@ SPEC: dict[str, SiteSpec] = {
         road="grid", scree=False,
         build=("house",), hamlet=True,
         field_kinds=("lot", "park", "yard"), field_count=(10, 16),
-        tree_props=("tree_clump",), woods=(4, 7), treeline=False,
+        tree_props=("tree_clump",), woods=(2, 4), treeline=False,
         places=("neighborhood", "highway")),
     "airbase": SiteSpec(
         ridge_shapes=("domefield",), ridge_weight=0.3, ridge_count=(0, 1),
@@ -960,7 +977,7 @@ SPEC: dict[str, SiteSpec] = {
         # there is, crossing every channel - because without a road there is no
         # settlement either, and the sector reads as an empty green soup
         road="main", build=("hut_stilt",), hamlet=False, field_count=(0, 0),
-        tree_props=("cypress_clump", "dead_tree"), woods=(6, 10),
+        tree_props=("cypress_clump", "dead_tree"), woods=(3, 6),
         treeline=False,
         places=("farmstead",)),
     "ocean": SiteSpec(
@@ -1623,10 +1640,63 @@ def _settlement(spec: SiteSpec, plan: SitePlan, rng: random.Random) -> None:
                            drive=[(hx, hy), (bx, by)])
 
 
+def _shore_clear(plan: SitePlan, x: float, y: float, scale: float) -> bool:
+    """Would this tree's crown hang over standing water?
+
+    The shore band in the wet grid is a *building* margin (26 px): ground you will not
+    put a house on. A tree is a different object - the art is a 256 px ink box and the
+    crown is roughly 90 px of radius at scale 1 - so a lake ringed by trees planted
+    just outside its wet band came out with pale blobs sitting on the water (measured:
+    mask 1.0 water pixels reading 46-58 luminance because a crown was painted over
+    them; the lake test calls it "dry ground with lines in it").
+
+    Only CLOSED bodies are tested. A tree leaning over a narrow stream is what a
+    stream bank looks like, and the riparian pass already keeps its own distance from
+    the channel; the defect is foliage floating on a lake.
+    """
+    # The art's own half-width (a 256 px prop at scale 1), plus the error in the
+    # distance test itself: `_near_path` measures to a path's SAMPLE POINTS, not to
+    # its edges, and a shoreline sampled every ~48 px reads up to half that further
+    # away than it is. Measured: trees 71-88 px from a lake's nearest vertex still
+    # lightened water 30-100 px inside the shoreline; keeping them 150*scale clear of
+    # it took the body from 14/22 dark samples to 21/22. The honest fix is segment
+    # distance in `_near_path` itself, which changes every proximity rule in the plan
+    # and is not tonight's change.
+    reach = 150.0 * scale
+    for w in plan.water:
+        if not w.closed:
+            continue
+        if _in_poly(x, y, w.path) or _near_path(plan.geom, x, y, w.path, reach):
+            return False
+    return True
 def _near_building(plan: SitePlan, x: float, y: float, dist: float) -> bool:
     """Foliage within arm's reach of a house reads as scrub swallowing the
     village, which is exactly what the old maps did."""
     return any(math.hypot(b.x - x, b.y - y) < dist for b in plan.buildings)
+
+
+def lift_vegetation(plan: SitePlan,
+                    rect: tuple[float, float, float, float],
+                    margin: float = 18.0) -> None:
+    """Clear the growth out of the ground a building is about to stand on.
+
+    Trees claim no cells, so a footprint test cannot see them: a frontage barn was
+    laid in ground a woodland had planted first, and the map got a tree crown sitting
+    on a roof (`foliage_does_not_swallow_the_village`). The order of the plan makes it
+    unavoidable in general - a woodland is a landmark laid before the small roadside
+    buildings fill the gaps - and the answer real development uses is a clearing: the
+    footprint, plus a margin for the crown that leans over the wall, is cleared.
+    """
+    x0, y0, x1, y1 = rect[0] - margin, rect[1] - margin, \
+        rect[2] + margin, rect[3] + margin
+    kept = []
+    for wd in plan.woods:
+        items = [(x, y, s) for (x, y, s) in wd.items
+                 if not (x0 <= x <= x1 and y0 <= y <= y1)]
+        if len(items) >= 2 or (items and wd.kind in ("riparian", "treeline")):
+            wd.items = items
+            kept.append(wd)
+    plan.woods = kept
 
 
 def _rect_free(plan: SitePlan, rect: tuple[float, float, float, float]) -> bool:
@@ -1650,15 +1720,34 @@ def _rect_free(plan: SitePlan, rect: tuple[float, float, float, float]) -> bool:
     # a lane can climb to, not on a slope it has to sit into.
     if plan.relief_at((x0 + x1) / 2.0, (y0 + y1) / 2.0) > 0.40:
         return False
-    if not _in_strip(g, y0) or not _in_strip(g, y1):
+    # NOT `_in_strip`: that asks "does this y exist once the strip wraps", which is
+    # always yes, so a footprint straddling the seam was tested against cells it does
+    # not cover. A building whose rect leaves [0, h) has its own ground on one side of
+    # the seam and its cell test on the other: a neighborhood house measured up at
+    # y = 1233 in a 1120-tall sector, standing in a river it was never checked
+    # against. Straddling the seam is not worth the bookkeeping; refuse it.
+    if y0 < 0.0 or y1 > g.h:
         return False
     j0, j1 = _span(y0, y1, g.rows, g.cell)
     i0, i1 = _span(x0, x1, g.cols, g.cell)
+    # `built` and slope get zero tolerance: another building's ground and a hillside
+    # are not things a footprint may clip. WET gets a small share, because the cell
+    # grid (64 px) is coarser than a house (170x134 px): a lot next to a river covers
+    # one river cell with a corner and was refused for it, which is how three
+    # countryside sectors ended up with no buildings at all. What decides whether the
+    # house stands in water is the corner-and-centre test below, against the water's
+    # own geometry - that stays exact.
+    wet_cells = 0
+    cells = (j1 - j0 + 1) * (i1 - i0 + 1)
     for j in range(j0, j1 + 1):
         row_rel, row_wet, row_built = plan.relief[j], plan.wet[j], plan.built[j]
         for i in range(i0, i1 + 1):
-            if row_built[i] or row_wet[i] or row_rel[i] > 0.42:
+            if row_built[i] or row_rel[i] > 0.42:
                 return False
+            if row_wet[i]:
+                wet_cells += 1
+    if wet_cells > cells * 0.12:
+        return False
     # a footprint must not straddle water either: the corners and the middle are
     # enough, because a channel wider than the spacing between those samples would
     # swallow the whole building anyway
@@ -1727,6 +1816,8 @@ def place_building(plan: SitePlan, kind: str, x: float, y: float,
         # them - which is what `every_house_is_reached_by_a_road` caught.
         return b
     plan.buildings.append(b)
+    lift_parcel_ground(plan, rect)
+    lift_vegetation(plan, rect)
     _claim_rect(plan, rect)
     return b
 
@@ -1893,6 +1984,40 @@ def _parcel_ok(plan: SitePlan, poly: list[Point]) -> bool:
     return True
 
 
+def lift_parcel_ground(plan: SitePlan,
+                       rect: tuple[float, float, float, float]) -> None:
+    """Take the crop out of the ground a building is about to stand on.
+
+    Field parcels claim their cells (`_mark_parcel`), which is what stops a hedgerow
+    running through a living room and a barn standing in a crop. It also meant a
+    neighborhood could not be built at all: the flat, drained, road-side ground a
+    subdivision wants IS farmland, and one sector refused 161 estate house probes for
+    standing in a field. Real development eats fields, so the plan says the same:
+    the parcel a footprint covers is removed and its ground released, and the house
+    goes there.
+
+    Only the lifted parcel's own cells are cleared - a road or another building that
+    claimed ground keeps its claim.
+    """
+    x0, y0, x1, y1 = rect
+    g = plan.geom
+    keep = []
+    for f in plan.fields:
+        fx = [q[0] for q in f.poly]
+        fy = [q[1] for q in f.poly]
+        if max(fx) < x0 or min(fx) > x1 or max(fy) < y0 or min(fy) > y1:
+            keep.append(f)
+            continue
+        jr = _span(max(y0, min(fy)), min(y1, max(fy)), g.rows, CELL)
+        ic = _span(max(x0, min(fx)), min(x1, max(fx)), g.cols, CELL)
+        for j in range(jr[0], jr[1] + 1):
+            for i in range(ic[0], ic[1] + 1):
+                px, py = i * CELL + CELL / 2.0, j * CELL + CELL / 2.0
+                if plan.built[j][i] and _in_poly(px, py, f.poly):
+                    plan.built[j][i] = False
+    plan.fields = keep
+
+
 def _mark_parcel(plan: SitePlan, poly: list[Point]) -> None:
     g = plan.geom
     xs = [p[0] for p in poly]
@@ -1971,12 +2096,15 @@ def _cover(spec: SiteSpec, plan: SitePlan, rng: random.Random) -> None:
                 a = rng.uniform(0, math.tau)
                 r = abs(rng.gauss(0, 46.0))
                 x, y = cx + math.cos(a) * r, cy + math.sin(a) * r * 0.8
+                sc = rng.uniform(0.45, 1.05)
                 if 12 < x < g.w - 12 and _in_strip(g, y) \
                         and plan.relief_at(x, y) < 0.72 \
                         and not plan.is_built(x, y) \
                         and not plan.is_place(x, y) \
+                        and not plan.is_wet(x, y) \
+                        and _shore_clear(plan, x, y, sc) \
                         and not _near_building(plan, x, y, 60.0):
-                    items.append((x, y, rng.uniform(0.45, 1.05)))
+                    items.append((x, y, sc))
             if len(items) >= 3:
                 plan.woods.append(Wood(kind="wood", items=items))
         # riparian corridor: trees follow the water, with gaps
@@ -1986,9 +2114,13 @@ def _cover(spec: SiteSpec, plan: SitePlan, rng: random.Random) -> None:
                 a, b = w.path[i], w.path[i + 1]
                 ln = math.hypot(b[0] - a[0], b[1] - a[1])
                 step += ln
-                if step > 62.0:
+                # One tree per ~110 px of bank, at 20%: the corridor used to plant a
+                # tree every 62 px at 42%, which is a wall of foliage along every
+                # drain in the sector, and the sector read as scrub with roofs in it
+                # (measured: 347-529 trees in a 4-screen countryside sector).
+                if step > 110.0:
                     step = 0.0
-                    if rng.random() < 0.42:      # the corridor is not a wall
+                    if rng.random() < 0.20:      # the corridor is not a wall
                         side = 1.0 if rng.random() < 0.5 else -1.0
                         ang = math.atan2(b[1] - a[1], b[0] - a[0]) + \
                             side * math.pi / 2
@@ -1998,13 +2130,15 @@ def _cover(spec: SiteSpec, plan: SitePlan, rng: random.Random) -> None:
                         d = w.half + rng.uniform(42.0, 76.0)
                         x = a[0] + math.cos(ang) * d
                         y = a[1] + math.sin(ang) * d
+                        sc = rng.uniform(0.5, 0.8)
                         if 12 < x < g.w - 12 and _in_strip(g, y) \
                                 and not plan.is_built(x, y) \
                                 and not plan.is_place(x, y) \
+                                and not plan.is_wet(x, y) \
+                                and _shore_clear(plan, x, y, sc) \
                                 and not _near_building(plan, x, y, 50.0):
                             plan.woods.append(Wood(
-                                kind="riparian",
-                                items=[(x, y, rng.uniform(0.5, 0.8))]))
+                                kind="riparian", items=[(x, y, sc)]))
         # treeline where the hillside turns: contour-following, so it reads as
         # the top of the trees rather than a random band of them
         if spec.treeline:
@@ -2017,11 +2151,19 @@ def _cover(spec: SiteSpec, plan: SitePlan, rng: random.Random) -> None:
                     ang = math.atan2(by - ay, bx - ax) + math.pi / 2
                     d = ridge.width * rng.uniform(0.55, 0.8)
                     x = ax + math.cos(ang) * d
+                    sc = rng.uniform(0.6, 1.0)
                     if 12 < x < g.w - 12:
                         y = ay + math.sin(ang) * d
-                        if _in_strip(g, y) and not _near_building(plan, x, y,
-                                                                 50.0):
-                            items.append((x, y, rng.uniform(0.6, 1.0)))
+                        # a treeline follows the hillside, and the hillside goes on
+                        # underneath a lake: relief was laid before the water and has
+                        # no idea the water exists. Measured, this planted a lattice of
+                        # crowns at ~40 px spacing straight across three lakes, which
+                        # is what "dry ground with lines through the middle" looked
+                        # like after the fill itself was fixed.
+                        if (_in_strip(g, y) and not plan.is_wet(x, y)
+                                and _shore_clear(plan, x, y, sc)
+                                and not _near_building(plan, x, y, 50.0)):
+                            items.append((x, y, sc))
                 if len(items) >= 6:
                     plan.woods.append(Wood(kind="treeline", items=items))
         # orchard rows inside one field
@@ -2095,7 +2237,8 @@ def _water_mark_body(plan: SitePlan, w) -> None:
     planner believes the middle of that lake is dry ground.
     """
     g = plan.geom
-    lo_j, hi_j, lo_i, hi_i = _cell_box(g, w.path, w.half + 14.0)
+    lo_j, hi_j, lo_i, hi_i = _cell_box(g, w.path,
+                                       w.half + (26.0 if w.closed else 14.0))
     for j in range(lo_j, hi_j + 1):
         for i in range(lo_i, hi_i + 1):
             cx, cy = i * CELL + CELL / 2, j * CELL + CELL / 2
@@ -2106,10 +2249,20 @@ def _water_mark_body(plan: SitePlan, w) -> None:
             # something there. That dry core, ringed by the inner bank line and the
             # flow glints of a channel stroke, is what made a lake look like "a
             # roadway made in a circle, with the centre lines still inside it".
-            if w.closed and _in_poly(cx, cy, w.path):
-                plan.wet[j][i] = True
-                continue
-            if _near_path(g, cx, cy, w.path, w.half + 14.0):
+            #
+            # And the shore band is a BAND. The channel radius (`half + 14`, where
+            # `half` is a channel's own half-width) made no sense for a body whose
+            # `half` is its minor radius: a lake 446 px across marked everything
+            # within ~460 px of its shoreline wet, and measured 37-50% of two
+            # countryside sectors became unbuildable shore - no house, lane, field or
+            # camp anywhere near water, and 0 buildings in those sectors. A lake's
+            # ground is water, its shore is marsh for a short way, and beyond that it
+            # is the ground everybody else uses.
+            if w.closed:
+                if _in_poly(cx, cy, w.path) or _near_path(g, cx, cy, w.path,
+                                                          26.0):
+                    plan.wet[j][i] = True
+            elif _near_path(g, cx, cy, w.path, w.half + 14.0):
                 plan.wet[j][i] = True
 
 

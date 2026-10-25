@@ -996,10 +996,16 @@ def paint_water(canvas: Any, kit: TileKit, plan: SitePlan,
     bank_mat = {"glacier": "ice_sheet", "canyon": "sand_canyon",
                 "wasteland": "sand_canyon", "volcanic": "obsidian",
                 "swamp": "mud_flat"}.get(plan.theme, "gravel_rubble")
+    # Every body's masks first, then the passes in ORDER: banks of every body, then
+    # the water of every body, then the detailing. Doing each body start to finish is
+    # what put one lake's pale shore band on top of its neighbour's water - two blue-
+    # print lakes close together and one of them came out light in the middle (a bank
+    # material at luminance 99 over water at 18), which is what the lake test caught.
+    # Water has to be the last thing laid on its own surface, whatever else is nearby.
+    feats = []
     for wi in _band(canvas, plan, "water"):
         w = plan.water[wi]
         frng = _frand(plan, wi, 17)
-        mat = WATER_MAT.get(plan.theme, "water_river")
         # A CLOSED water body with an `inside` point is a REGION, not a channel.
         # Stroking its shoreline like a river painted a ring of water `half` deep on
         # both sides of the outline, then drew a bank line on each side of that ring
@@ -1007,69 +1013,117 @@ def paint_water(canvas: Any, kit: TileKit, plan: SitePlan,
         # circular roadway with centre lines. It is filled, banked on the outside
         # only, and given still-water margin marks instead of a current.
         region = bool(w.closed) and w.inside is not None
-        bank_mask = (_path_mask(w.path, w.half * 2.0 + 22.0, canvas) if region
-                     else _path_mask(w.path, w.half * 2.0 + 10.0, canvas))
+        # A closed body's bank is a SHORE BAND of a fixed width, not the channel
+        # formula scaled up: `half * 2 + 22` with `half` being the lake's minor radius
+        # painted a shore as wide as the lake itself (470 px of pale gravel around a
+        # 600-px lake), and it made the widest soft mask in the plan - soft masks are
+        # what disagree between windows, since a raster box and the feather and darken
+        # at its edge belong to the window. The shore is a shore at any size.
+        bank_mask = (_path_mask(w.path, min(w.half * 2.0 + 22.0, 110.0), canvas)
+                     if region else _path_mask(w.path, w.half * 2.0 + 10.0, canvas))
         water_mask = (_poly_mask(w.path, canvas) if region
                       else _path_mask(w.path, w.half * 2.0, canvas))
-        # A bank of material first, water on top of it. Water_river is lum 35 on
-        # a lum 42 grass base - almost no value separation - and a *stroke*
-        # along the shore reads as a drawn outline. A real band of pale gravel,
-        # sand or snow around the channel gives the dark/light adjacency the eye
-        # uses to find water, without looking drawn.
-        _fill_mask(canvas, kit, bank_mat, bank_mask, 0.55)
-        _fill_mask(canvas, kit, mat, water_mask, 1.0)
+        feats.append((w, frng, region, bank_mask, water_mask))
+    # A bank of material first, water on top of it. Water_river is lum 35 on
+    # a lum 42 grass base - almost no value separation - and a *stroke* along the
+    # shore reads as a drawn outline. A real band of pale gravel, sand or snow around
+    # the channel gives the dark/light adjacency the eye uses to find water, without
+    # looking drawn.
+    # Standing water wins over a channel's furniture and over its floodplain. A river
+    # that flows THROUGH a lake otherwise paints its whole vocabulary inside the lake:
+    # a bank line either side of its channel, mud splats at its margins, white flow
+    # glints along its flow, a pale floodplain band along its whole length. Down the
+    # middle of a lake that is the "roadway with centre lines" the user reported,
+    # arriving from a third direction. The test is pure geometry - a point inside a
+    # closed body's outline - so it cannot depend on which window is painting, which
+    # is what painting the lake last did instead (a mask's raster box, and the feather
+    # and darken at its edge, belong to the window: it put a one-row line at a slice
+    # boundary in the seam test).
+    bodies = [x for x in plan.water if x.closed]
+
+    def in_standing(px: float, py: float) -> bool:
+        from .siteplan import _in_poly
+        return any(_in_poly(px, py, b.path) for b in bodies)
+
+    for _w, _frng, _region, bm, _wm in feats:
+        _fill_mask(canvas, kit, bank_mat, bm, 0.55)
+    # Floodplain before any water, for the same reason the banks are first: it is a
+    # mask fill, and ground beside a river being muddy must not be laid on top of a
+    # lake the river runs into.
+    # One mask per SEGMENT, and none of it inside standing water. The floodplain is
+    # the widest soft mask a channel lays (`flood * 0.45`, so a hundred-px-wide band
+    # along a river for thousands of px): as one stroke its raster box straddles every
+    # window it crosses, a box clamped at a window edge feathers and darkens
+    # differently from the same box in a taller window, and the pixel-level difference
+    # lands as a one-row line at a slice boundary - measured at 257 differing pixels on
+    # a single band row, amplified by the later passes into a line visible at 48/255.
+    # Short masks fall inside a window or outside it, and `in_standing` keeps the mud
+    # out of the lake the river runs into, which is what making this fill happen
+    # before the water was trying to buy.
+    for w, _frng, region, _bm, _wm in feats:
+        if w.half < 34.0 or region:
+            continue                        # only a wide channel earns a floodplain
+        mud = "mud_flat" if plan.theme != "glacier" else "ice_sheet"
+        for i in range(len(w.path) - 1):
+            qa, qb = w.path[i], w.path[i + 1]
+            if in_standing((qa[0] + qb[0]) * 0.5, (qa[1] + qb[1]) * 0.5):
+                continue
+            _fill_mask(canvas, kit, mud,
+                       _path_mask([qa, qb], w.flood * 0.45, canvas), 0.10)
+    for _w, _frng, _region, _bm, wm in feats:
+        _fill_mask(canvas, kit, WATER_MAT.get(plan.theme, "water_river"), wm, 1.0)
+    for w, _frng, _region, _bm, wm in feats:
         dry = w.kind in ("wash", "arroyo")
-        # a wet channel is darkened - water reads by value. A DRY wash is
-        # lightened instead: a desert arroyo is pale bare sand between darker
-        # desert pavement, and darkening one turns it into a black scratch
-        _darken_band(canvas, water_mask, 1.12 if dry else 0.62)
+        # a wet channel is darkened - water reads by value. A DRY wash is lightened
+        # instead: a desert arroyo is pale bare sand between darker desert pavement,
+        # and darkening one turns it into a black scratch
+        _darken_band(canvas, wm, 1.12 if dry else 0.62)
+    for w, frng, region, _bm, _wm in feats:
         # floodplain: ground beside a river is not ground away from it - but at
         # under half the width, or it becomes one more pale smear
-        # The floodplain is a *hint*: at the old width and alpha it was a band
-        # of pale mud three times wider than the river itself, and reviewers read
-        # the whole corridor as "ambiguous pale strip - stream or track?". The
-        # dark river material is the feature; the mud only softens its edge.
-        if w.half >= 34.0 and not region:    # only a wide channel earns a floodplain
-            _fill_mask(canvas, kit, "mud_flat" if plan.theme != "glacier"
-                       else "ice_sheet",
-                       _path_mask(w.path,
-                                  w.flood * 0.45, canvas),
-                       0.10)
-        edge = "splat_mud" if plan.theme not in ("glacier", "volcanic") \
-            else "splat_snow"
+        # The floodplain is a *hint*: at the old width and alpha it was a band of
+        # pale mud three times wider than the river itself, and reviewers read the
+        # whole corridor as "ambiguous pale strip - stream or track?". The dark river
+        # material is the feature; the mud only softens its edge.
+        edge = ("splat_mud" if plan.theme not in ("glacier", "volcanic")
+                else "splat_snow")
         for i in range(0, len(w.path) - 1, 3):
             if frng.random() < 0.34:
                 (ax, ay), (bx, by) = w.path[i], w.path[i + 1]
                 side = 1.0 if frng.random() < 0.5 else -1.0
                 ang = math.atan2(by - ay, bx - ax) + side * math.pi / 2
                 d = w.half + frng.uniform(4.0, 16.0)
-                _splat(kit, canvas, edge, ax + math.cos(ang) * d,
-                       ay + math.sin(ang) * d, frng.uniform(0.18, 0.34), frng)
+                sx2, sy2 = ax + math.cos(ang) * d, ay + math.sin(ang) * d
+                if in_standing(sx2, sy2):
+                    continue  # a mud splat floating on a lake is not a margin
+                _splat(kit, canvas, edge, sx2, sy2, frng.uniform(0.18, 0.34),
+                       frng)
         # a bank line on each side: water needs an edge to be read against, or a
         # river is just a dark smear with rocks in it. A closed body gets ONE line,
         # on its outer edge: the second line would sit inside the water and read as
         # a marking.
         for side in ((0.0,) if region else (-1.0, 1.0)):
-            pts = []
+            # stroked ONE SEGMENT AT A TIME: a single polyline through points that
+            # skip a lake would draw a chord straight across it
             for i in range(len(w.path) - 1):
                 (ax, ay), (bx, by) = w.path[i], w.path[i + 1]
                 ln = math.hypot(bx - ax, by - ay) or 1.0
                 nx, ny = -(by - ay) / ln, (bx - ax) / ln
                 d = w.half * side
-                pts.append((ax + nx * d, ay + ny * d))
-            _tint_lines(canvas, pts, bank, 3.0)
-            # no bright inner lip: it reads as a drawn outline - "its thin
-            # bright banks look drawn on" - which is the opposite of a bank
+                qa = (ax + nx * d, ay + ny * d)
+                qb = (bx + nx * d, by + ny * d)
+                if in_standing((qa[0] + qb[0]) * 0.5, (qa[1] + qb[1]) * 0.5):
+                    continue
+                _tint_lines(canvas, [qa, qb], bank, 3.0)
+            # no bright inner lip: it reads as a drawn outline - "its thin bright
+            # banks look drawn on" - which is the opposite of a bank
         if region:
-            # still water: a few dark shallows marks just inside the shore, placed
-            # by the polygon itself rather than by a flow direction it does not have
-            for i in range(0, len(w.path) - 1, 2):
-                if frng.random() < 0.45:
-                    ax, ay = w.path[i]
-                    ix, iy = w.inside
-                    k = frng.uniform(0.06, 0.20)
-                    _splat(kit, canvas, edge, ax + (ix - ax) * k,
-                           ay + (iy - ay) * k, frng.uniform(0.10, 0.22), frng)
+            # A closed body stops here. It got a fill, a bank band and one shoreline
+            # line. It does NOT get the marks channels get - no flow glints (still
+            # water has no direction) and no margin splats: the first version put mud
+            # splats just inside the shore and the lake test caught it as texture
+            # inside the water (std 16/255 where a filled body sits near 0). Mud
+            # floating on water is not shallows, it is a bug wearing a nature name.
             continue
         # glints along the flow, so water reads as moving
         for i in range(2, len(w.path) - 2, 3):
@@ -1080,8 +1134,9 @@ def paint_water(canvas: Any, kit: TileKit, plan: SitePlan,
                 off = frng.uniform(0.0, w.half * 0.7)
                 a = (ax + nx * off, ay + ny * off)
                 b = (bx + nx * off, by + ny * off)
+                if in_standing((a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5):
+                    continue   # a standing body has no current to glint along
                 _tint_lines(canvas, [a, b], (255, 255, 255), 1)
-
 
 def _bridge_cut(surf: Mask, wet: Any, deck: Any) -> Mask:
     """Cut the water out of a road mask and put the bridge decks back."""
