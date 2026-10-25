@@ -150,14 +150,21 @@ rng)` first; the vector painters below remain the no-tileset fallback
   no `hash()`); `scripts/build.py` ships `data/textures/tiles/` alongside
   terrain/sprites.
 
-## The site plan (`terrain/siteplan.py` + `terrain/features.py`)
+## The site plan (`terrain/plan/` + `terrain/design/` + `terrain/paint/`)
+
+(These were `siteplan.py`, `places.py` and `features.py` - about 5,600 lines in
+three files - until they were split: the plan's data is `terrain/plan/`, one class
+per module; the planner is `terrain/design/` with the place blueprints in
+`terrain/design/places/`; the painter is `terrain/paint/`. Names were kept, so a
+function this document mentions is found by name in the package that does that
+job.)
 
 Scattered props do not make a place. A landscape is **dependency-ordered**:
 the ridges decide where water runs, water and ridges decide where the road
 threads, the road decides where houses stand, the flat dry ground the road
 left over is what gets enclosed, and the trees follow the water and the
 treeline. `plan_site(theme, seed)` computes that chain as data; the painter
-`terrain/features.py` only draws it.
+`terrain/paint/` only draws it.
 
 - **Pure Python, no pygame, no numpy** — so the whole chain is testable
   headlessly (see `tests/test_terrain_siteplan.py`) and cheap (70–300 ms).
@@ -216,7 +223,7 @@ treeline. `plan_site(theme, seed)` computes that chain as data; the painter
   the reviewer was scoring stale PNGs. All of those are fixed, and the
   render scripts no longer swallow stderr.
 
-## Places: what the planner knows how to build (`terrain/places.py`)
+## Places: what the planner knows how to build (`terrain/design/places/`)
 
 The plan used to put buildings, trees and parcels down as scattered choices with a
 distance check between *centres*. Centres are not buildings: `house_top.png` is
@@ -399,7 +406,7 @@ work. Two ways out, both real work:
 
 - a **worker process** (the plan is pure data and pickles; slices come back as
   raw RGBA buffers, ~4 MB each, and the child needs a surface-free painter -
-  `features.py` currently builds pygame surfaces), or
+  `terrain/paint/` currently builds pygame surfaces), or
 - a **smaller paint unit** at lower scale for the far layer, plus a cheaper near
   pass, so the budget per slice drops below what the frame thread leaves over.
 

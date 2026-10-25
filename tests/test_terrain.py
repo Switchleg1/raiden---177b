@@ -88,23 +88,25 @@ def test_plane_masks_stay_inside_the_canvas():
     """The painter fills only the box a mask covers. If a box is wrong, the bug
     is invisible as an artefact and visible as a black region - so check the
     bookkeeping directly."""
-    from terrain import features
-    from terrain.siteplan import plan_site
+    from terrain.design.site import plan_site
+    from terrain.paint.plane import Plane
+    from terrain.paint.raster import _path_mask, _poly_mask
+    from terrain.paint.surface import _PAD
     from terrain.tilekit import CH, CW
 
     p = plan_site("countryside", 1)
-    plane = features.Plane(CW, CH, wrap=CH)
-    masks = ([features._path_mask(w.path, w.half * 2.0, plane) for w in p.water]
-             + [features._path_mask(r.path, 24.0, plane) for r in p.roads]
-             + [features._poly_mask(f.poly, plane) for f in p.fields])
+    plane = Plane(CW, CH, wrap=CH)
+    masks = ([_path_mask(w.path, w.half * 2.0, plane) for w in p.water]
+             + [_path_mask(r.path, 24.0, plane) for r in p.roads]
+             + [_poly_mask(f.poly, plane) for f in p.fields])
     for m in masks:
         x0, y0, x1, y1 = m.box
         # The box is the GEOMETRY's, so it may lean over the edge - by a bounded
         # amount, and it is that bound which keeps a pathological path from asking
         # for a canvas-sized surface. What must never leave the canvas is a PIXEL,
         # and `clip` is the only way anything writes, two tests below.
-        assert -features._PAD <= x0 <= x1 <= CW + features._PAD, m.box
-        assert -features._PAD <= y0 <= y1 <= CH + features._PAD, m.box
+        assert -_PAD <= x0 <= x1 <= CW + _PAD, m.box
+        assert -_PAD <= y0 <= y1 <= CH + _PAD, m.box
         # pygame's arrays are (x, y): the box is (width, height)
         assert m.arr.shape == (x1 - x0, y1 - y0)
         assert m.arr.max() <= 1.0 and m.arr.min() >= 0.0
@@ -124,22 +126,25 @@ def test_a_window_paints_its_own_local_geometry():
     """A plane is a window of the world. Masks and stamps come back in WINDOW
     coordinates and must stay inside it - a mask that leaks outside shows up as
     a missing strip, and a stamp at world coordinates lands somewhere else."""
-    from terrain import features
-    from terrain.siteplan import Geom, plan_site
+    from terrain.design.site import plan_site
+    from terrain.paint.plane import Plane
+    from terrain.paint.raster import _path_mask
+    from terrain.paint.surface import _PAD
+    from terrain.plan.geom import Geom
     from terrain.tilekit import CH, CW
 
     strip = plan_site("countryside", 1, Geom(h=3 * CH, cyclic=False))
-    win = features.Plane(CW, CH, x0=0, y0=2 * CH)
+    win = Plane(CW, CH, x0=0, y0=2 * CH)
     assert win.wrap == 0.0 and win.shifts() == (0.0,)
     inside = 0
     for w in strip.water:
-        m = features._path_mask(w.path, w.half * 2.0, win)
+        m = _path_mask(w.path, w.half * 2.0, win)
         x0, y0, x1, y1 = m.box
         # A window's mask may reach `_PAD` beyond it - the shape of a river cannot
         # depend on where the window ends, which is what used to make a feature
         # change shape at a slice boundary. Only writes are clipped.
-        assert -features._PAD <= x0 <= x1 <= CW + features._PAD, m.box
-        assert -features._PAD <= y0 <= y1 <= win.h + features._PAD, m.box
+        assert -_PAD <= x0 <= x1 <= CW + _PAD, m.box
+        assert -_PAD <= y0 <= y1 <= win.h + _PAD, m.box
         assert m.arr.shape == (x1 - x0, y1 - y0)
         cbox, carr = m.clip(CW, win.h)
         if carr is not None:
@@ -153,7 +158,7 @@ def test_a_window_paints_its_own_local_geometry():
             inside += 1
     assert inside, "the window should overlap some of the strip's water"
     # a one-screen plan does wrap, so its seam copies still get stamped
-    whole = features.Plane(CW, CH, wrap=CH)
+    whole = Plane(CW, CH, wrap=CH)
     assert whole.shifts() == (0.0, -float(CH), float(CH))
 
 
@@ -162,17 +167,18 @@ def test_planned_ground_covers_the_layer():
     that skips a region reads as a black band while the map scrolls."""
     import random
 
-    from terrain import features
     from terrain.compose import kit_available
-    from terrain.siteplan import plan_site
+    from terrain.design.site import plan_site
+    from terrain.paint.plane import Plane
+    from terrain.paint.site import paint_site
     from terrain.tilekit import CH, CW, kit
 
     if not kit_available():
         pytest.skip("no generated tileset")
-    pl = features.Plane(CW, CH)
+    pl = Plane(CW, CH)
     pl.stamp.fill((30, 30, 30, 255))       # base ground stands in for the grid
     pl.sync()
-    features.paint_site(pl, kit(), plan_site("canyon", 2), random.Random(5))
+    paint_site(pl, kit(), plan_site("canyon", 2), random.Random(5))
     surf = pl.surface()
     a = pygame.surfarray.array_alpha(surf)
     assert (a > 200).mean() > 0.99, f"{(a > 200).mean():.2f} of the layer painted"

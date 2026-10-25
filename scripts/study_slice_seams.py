@@ -39,8 +39,10 @@ from level.strip import STRIP_MARGIN, STRIP_SLICE  # noqa: E402
 # same number of rows at each end of the overlap is each window's own edge.
 _PAD_ROWS = 56
 from terrain.common import W2  # noqa: E402
-from terrain.features import Plane, paint_site  # noqa: E402
-from terrain.siteplan import CELL, Geom, plan_site  # noqa: E402
+from terrain.design.site import plan_site  # noqa: E402
+from terrain.paint.plane import Plane  # noqa: E402
+from terrain.paint.site import paint_site  # noqa: E402
+from terrain.plan.geom import CELL, Geom  # noqa: E402
 from terrain.tilekit import TileKit  # noqa: E402
 
 

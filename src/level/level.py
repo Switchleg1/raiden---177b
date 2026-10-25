@@ -1,9 +1,10 @@
 """One sector, as an object: planned in full, painted while you fly it.
 
 A `Level` is what the game is looking at. It knows the sector's whole length, so
-it plans the entire ground once (`siteplan` over a strip, not a screen) and then
-paints that plan a slice at a time on worker threads. The level starts as soon as
-the first slices exist - the rest of the sector is still being drawn when the
+it plans the entire ground once (`terrain.design.site.plan_site` over a strip,
+not a screen) and then paints that plan a slice at a time on worker threads. The
+level starts as soon as the first slices exist - the rest of the sector is still
+being drawn when the
 craft takes off, and drawing has to outrun the scroll, not finish first.
 
 The App keeps exactly two of these: the one being flown, and the one being
@@ -18,7 +19,7 @@ import time
 from typing import Any
 
 from terrain.common import NEAR_SPEED, TILE2
-from terrain.siteplan import CELL, Geom
+from terrain.plan.geom import CELL, Geom
 
 from .design import PROCESS_MIN_LENGTH, plan_sector
 from .encounters import plan_encounters

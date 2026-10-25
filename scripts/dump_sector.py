@@ -45,7 +45,8 @@ os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
 from config import LEVELS  # noqa: E402
 from level.level import strip_length  # noqa: E402
 from level.strip import STRIP_MARGIN, STRIP_SLICE, TerrainStrip  # noqa: E402
-from terrain.siteplan import CELL, Geom, plan_site  # noqa: E402
+from terrain.design.site import plan_site  # noqa: E402
+from terrain.plan.geom import CELL, Geom  # noqa: E402
 
 OUT = ROOT / "screenshots" / "terrain"
 

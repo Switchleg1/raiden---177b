@@ -6,7 +6,7 @@ inside the game's interpreter. A slice is 0.75 s of numpy and pygame surface
 work, and the camera wants one every 1.7 s: that is half a core, which the frame
 thread is not willing to give up.
 
-So the child does the painting too. It can: `terrain.features` paints into pygame
+So the child does the painting too. It can: `terrain.paint` paints into pygame
 surfaces, and a child with a dummy video driver has working surfaces - nothing
 about the painter needs a window. What crosses the boundary is the finished
 slice: about 0.9 MB of RGBA at logical scale (the child downscales, as it does
@@ -70,7 +70,8 @@ def _plan_for(theme: str, seed: int, length: int,
         # Design *inside* the lock: two workers asked for slices of the same
         # sector at once would otherwise each spend seconds thinking up the same
         # ground, and each hold a copy of it.
-        from terrain.siteplan import CELL, Geom, plan_site
+        from terrain.design.site import plan_site
+        from terrain.plan.geom import CELL, Geom
 
         plan = plan_site(theme, int(seed), Geom(h=int(length), cell=CELL,
                                                 cyclic=False), scars=float(scars))

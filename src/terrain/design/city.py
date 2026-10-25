@@ -6,7 +6,7 @@ park behind, houses with gardens toward the edge of town. The old pass enclosed
 each block as one bare parcel - "lot", "yard" or "park" - and put nothing on it,
 which is how a whole city sector came out with four buildings in it.
 
-Run from `siteplan._fields` once the street grid, the places and the frontage
+Run from `design.fields._fields` once the street grid, the places and the frontage
 are down, so a block builds on whatever ground the river, the highway and the
 places left it.
 """
@@ -14,6 +14,10 @@ from __future__ import annotations
 
 import random
 
+from ..plan.geom import Point
+from ..plan.site_plan import SitePlan
+from ..plan.wood import Wood
+from .art import _face, ink_size
 from .city_table import (
     APARTMENT,
     BLOCK_MIX,
@@ -29,14 +33,7 @@ from .city_table import (
     SIDEWALK,
     TOWER,
 )
-from .siteplan import (
-    Point,
-    SitePlan,
-    Wood,
-    _face,
-    ink_size,
-    place_building,
-)
+from .footprint import place_building
 
 Rect = tuple[float, float, float, float]
 
@@ -123,7 +120,7 @@ def _inset(r: Rect, d: float) -> Rect:
 
 
 def _parcel(plan: SitePlan, r: Rect, mat: str, kind: str) -> None:
-    from .places import add_parcel
+    from .places.ground import add_parcel
     add_parcel(plan, _rect_poly(r), mat, kind)
 
 
@@ -258,7 +255,7 @@ def _parking(plan: SitePlan, r: Rect, rng: random.Random,
              sides: frozenset[str] = frozenset()) -> int:
     _ = sides
     n = _cars(plan, _inset(r, 8.0), rng)
-    from .places import add_parcel
+    from .places.ground import add_parcel
     f = add_parcel(plan, _rect_poly(r), MAT_PARKING, "parking")
     if f is not None:
         f.furrows = _stalls(_inset(r, 8.0))
@@ -355,7 +352,7 @@ def build_city(plan: SitePlan, rng: random.Random) -> dict[str, int]:
         # the pavement: a paved base under the whole block, laid BEFORE the block's
         # own surfaces in paint order (fields paint in list order) and after its
         # buildings in plan order (a building lifts any parcel it stands on)
-        from .places import add_parcel
+        from .places.ground import add_parcel
         base = add_parcel(plan, _rect_poly(_inset(r, -4.0)), MAT_SIDEWALK, "lot")
         if base is not None:
             plan.fields.remove(base)

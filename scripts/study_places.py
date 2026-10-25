@@ -26,8 +26,12 @@ import pygame  # noqa: E402
 pygame.init()
 pygame.display.set_mode((8, 8))
 
-from terrain import siteplan  # noqa: E402
-from terrain.siteplan import SPEC, Geom, _ink_rect  # noqa: E402
+from terrain.design import footprint  # noqa: E402
+from terrain.design.art import _ink_rect  # noqa: E402
+from terrain.design.geometry import _span  # noqa: E402
+from terrain.design.site import plan_site  # noqa: E402
+from terrain.design.spec_table import SPEC  # noqa: E402
+from terrain.plan.geom import Geom  # noqa: E402
 
 
 def main(argv: list[str]) -> int:
@@ -41,7 +45,7 @@ def main(argv: list[str]) -> int:
         screens = int(argv[argv.index("--screens") + 1])
 
     # Wrap the one gate that refuses a footprint, and say WHY it refused.
-    real = siteplan._rect_free
+    real = footprint._rect_free
     why: dict[str, int] = {}
 
     def probe(plan, rect):
@@ -53,8 +57,8 @@ def main(argv: list[str]) -> int:
         if x0 < 10.0 or x1 > g.w - 10.0:
             key = "off-strip"
         else:
-            j0, j1 = siteplan._span(y0, y1, g.rows, g.cell)
-            i0, i1 = siteplan._span(x0, x1, g.cols, g.cell)
+            j0, j1 = _span(y0, y1, g.rows, g.cell)
+            i0, i1 = _span(x0, x1, g.cols, g.cell)
             tally = {"built": 0, "wet": 0, "steep": 0}
             for j in range(j0, j1 + 1):
                 for i in range(i0, i1 + 1):
@@ -73,13 +77,13 @@ def main(argv: list[str]) -> int:
 
     # `place_building` lives in siteplan and calls `_rect_free` by global name, so
     # patching the module attribute is enough - no alias chasing.
-    siteplan._rect_free = probe
+    footprint._rect_free = probe
 
     themes = sorted(SPEC) if theme == "all" else [theme]
     bad = 0
     for t in themes:
         t0 = time.perf_counter()
-        p = siteplan.plan_site(t, seed, Geom(h=1120 * screens, cyclic=False))
+        p = plan_site(t, seed, Geom(h=1120 * screens, cyclic=False))
         dt = time.perf_counter() - t0
         # footprints must never overlap - the headline property
         r = [_ink_rect(b.kind, b.x, b.y, b.scale, b.angle) for b in p.buildings]
@@ -111,7 +115,7 @@ def main(argv: list[str]) -> int:
         print(f"{'':12s}   woods      {dict(sorted(wd.items()))}"
               f"  fields={len(p.fields)} water={len(p.water)} "
               f"greens={len(p.greens)} overlap={ov}{flag}")
-    siteplan._rect_free = real
+    footprint._rect_free = real
     print("\nwhy footprints were refused:", dict(sorted(why.items(),
                                                       key=lambda kv: -kv[1])))
     return 1 if bad else 0

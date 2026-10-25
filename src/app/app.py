@@ -33,10 +33,7 @@ from input import (
 )
 from state import State, StateMachine
 
-from .settings_rows import (
-    SETTINGS_ROWS,
-    _replace,
-)
+from .settings_rows import SETTINGS_ROWS, _replace
 
 log = logging.getLogger("raiden_shadow")
 

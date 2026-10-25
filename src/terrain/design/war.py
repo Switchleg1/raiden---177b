@@ -15,7 +15,11 @@ from __future__ import annotations
 import math
 import random
 
-from .siteplan import Field, Point, SitePlan, Wood, _in_poly, _in_strip
+from ..plan.field import Field
+from ..plan.geom import Point
+from ..plan.site_plan import SitePlan
+from ..plan.wood import Wood
+from .geometry import _in_poly, _in_strip
 from .war_table import (
     BURN_RADIUS,
     BURNABLE_WOODS,

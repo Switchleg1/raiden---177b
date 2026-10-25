@@ -48,7 +48,8 @@ _BROKEN = False
 
 def _plan_here(theme: str, seed: int, length: int, scars: float = 0.0) -> Any:
     """Design in this interpreter. The fallback, and the small-map path."""
-    from terrain.siteplan import CELL, Geom, plan_site
+    from terrain.design.site import plan_site
+    from terrain.plan.geom import CELL, Geom
 
     return plan_site(theme, seed, Geom(h=int(length), cell=CELL, cyclic=False),
                      scars=float(scars))

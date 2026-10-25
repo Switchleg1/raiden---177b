@@ -1,8 +1,8 @@
 """The site plan: what a sector's ground *is*.
 
-``terrain.siteplan`` is pure Python on purpose - no pygame, no numpy - so the
+``terrain.plan`` and ``terrain.design`` are pure Python on purpose - no pygame, no numpy - so the
 whole dependency chain (ridges -> drainage -> roads -> parcels -> houses ->
-cover) can be checked headlessly and cheaply. The painter in ``terrain.features``
+cover) can be checked headlessly and cheaply. The painter in ``terrain.paint``
 just draws whatever this decides, so these are the tests that protect the
 landscape: a map that fails here is unrecognisable no matter how it is shaded.
 """
@@ -15,19 +15,12 @@ import time
 import pytest
 
 from terrain.compose import PLANNED
-from terrain.siteplan import (
-    CELL,
-    CH,
-    COLS,
-    CW,
-    ROWS,
-    SPEC,
-    Geom,
-    SitePlan,
-    _in_poly,
-    _y_extent,
-    plan_site,
-)
+from terrain.design.geometry import _in_poly
+from terrain.design.site import plan_site
+from terrain.design.spec_table import SPEC
+from terrain.plan.geom import CELL, COLS, ROWS, Geom
+from terrain.plan.site_plan import SitePlan, _y_extent
+from terrain.tilekit import CH, CW
 
 SEEDS = (1, 2, 3, 7, 11)
 
@@ -129,7 +122,7 @@ def test_every_house_is_reached_by_a_road(theme, seed):
 @pytest.mark.parametrize("theme", sorted(PLANNED - {"city"}))
 @pytest.mark.parametrize("seed", SEEDS)
 def test_fields_do_not_swallow_the_road(theme, seed):
-    from terrain.field_table import SOFT_FIELDS
+    from terrain.design.field_table import SOFT_FIELDS
     p = _plan(theme, seed)
     for f in p.fields:
         if f.kind in SOFT_FIELDS:
@@ -429,7 +422,7 @@ def test_the_segment_index_agrees_with_brute_force():
     """
     import random
 
-    from terrain import siteplan as sp
+    from terrain.design.geometry import _dist_path, _near_path, _seg_dist
 
     g = Geom(h=1120 * 6, cyclic=False)
     rng = random.Random(11)
@@ -444,13 +437,13 @@ def test_the_segment_index_agrees_with_brute_force():
             path.append((x, y))
         for px, py in [(p[0] + rng.uniform(-150, 150),
                         p[1] + rng.uniform(-150, 150)) for p in path[::3]]:
-            want = min(sp._seg_dist(px, py, path[i], path[i + 1])
+            want = min(_seg_dist(px, py, path[i], path[i + 1])
                        for i in range(len(path) - 1))
-            got = sp._dist_path(g, px, py, path)
+            got = _dist_path(g, px, py, path)
             probes += 1
             if abs(got - want) > 1e-6:
                 mismatches += 1
-            elif not sp._near_path(g, px, py, path, want + 0.01):
+            elif not _near_path(g, px, py, path, want + 0.01):
                 mismatches += 1
     assert probes > 300, f"only {probes} probes ran - the test is not probing"
     assert mismatches == 0, (

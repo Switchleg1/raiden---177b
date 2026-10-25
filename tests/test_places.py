@@ -19,7 +19,11 @@ import math
 import pygame
 
 import config as C
-from terrain.siteplan import INK, SPEC, Geom, _ink_rect, ink_size, plan_site, prop_art
+from terrain.design.art import _ink_rect, ink_size, prop_art
+from terrain.design.art_table import INK
+from terrain.design.site import plan_site
+from terrain.design.spec_table import SPEC
+from terrain.plan.geom import Geom
 
 STRIP = Geom(h=C.STRIP_ROWS, cyclic=False) if hasattr(C, "STRIP_ROWS") \
     else Geom(h=1120 * 6, cyclic=False)
@@ -77,7 +81,7 @@ def test_declared_ink_matches_the_art():
         w = float(xs.max() - xs.min() + 1)
         h = float(ys.max() - ys.min() + 1)
         assert abs(w - dw) <= 4.0 and abs(h - dh) <= 4.0, (
-            f"{name}: art ink is {w:.0f}x{h:.0f} but siteplan.INK says "
+            f"{name}: art ink is {w:.0f}x{h:.0f} but art_table.INK says "
             f"{dw:.0f}x{dh:.0f} - the spacing rules are derived from these "
             "numbers, so one of them is now a guess")
 
@@ -118,7 +122,7 @@ def test_a_neighborhood_is_a_row_of_houses_on_a_lane():
 
 
 def _near(a, b, path, tol):
-    from terrain.siteplan import _near_path
+    from terrain.design.geometry import _near_path
     return _near_path(Geom(h=1120 * 6, cyclic=False), b[0], b[1], path, tol)
 
 
@@ -159,7 +163,7 @@ def test_a_highway_keeps_its_corridor_clear():
             for b in plan.buildings:
                 if b.group == "highway":
                     continue          # the rest stop belongs to the road
-                from terrain.siteplan import _dist_path
+                from terrain.design.geometry import _dist_path
                 d = _dist_path(plan.geom, b.x, b.y, r.path)
                 edge = d - r.width * 0.5      # px from the carriageway's edge
                 assert edge >= 30.0, (
@@ -213,7 +217,9 @@ def test_a_lake_is_water_in_the_middle():
     import pygame
 
     from level.strip import STRIP_MARGIN, STRIP_SLICE, TerrainStrip
-    from terrain.siteplan import Geom, _in_poly, plan_site
+    from terrain.design.geometry import _in_poly
+    from terrain.design.site import plan_site
+    from terrain.plan.geom import Geom
 
     rows = STRIP_SLICE * 4
     checked = 0

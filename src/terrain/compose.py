@@ -5,17 +5,10 @@ import math
 import random
 from typing import Any
 
-from .features import paint_far, paint_site
-from .siteplan import plan_site
+from .design.site import plan_site
+from .paint.site import paint_far, paint_site
 from .theme_table import FAR_PAIR, NEAR_MATS, NEAR_MEAN, THEME_MEAN
-from .tilekit import (
-    CH,
-    CW,
-    TILE,
-    TileKit,
-    kit,
-    kit_available,
-)
+from .tilekit import CH, CW, TILE, TileKit, kit, kit_available
 
 # ---------------------------------------------------------------------------
 # helpers (periodic in y over CH; x is canvas-wide, not wrapped)
@@ -33,7 +26,7 @@ def _blit_wrap(c: Any, img: Any, x: float, y: float) -> None:
 
     ``c`` is either a pygame surface or a features.Plane (whose sprite layer is
     what a stamp actually lands on)."""
-    from .features import Plane
+    from .paint.plane import Plane
     surf = c.stamp if isinstance(c, Plane) else c
     xi, yi = int(round(x)), int(round(y % CH))
     surf.blit(img, (xi, yi))
@@ -88,7 +81,7 @@ def _grid(canvas: Any, k: TileKit, mats: list[tuple[str, float]],
     names, wts = zip(*mats, strict=True)
     base = names[0]
     base_tile = k.material(base)
-    from .features import _at
+    from .paint.sampling import _at
     # Two rules, both learned the hard way:
     #
     # 1. The lattice is anchored to the WORLD, not to the canvas. A window starting
@@ -484,7 +477,7 @@ def _near_for(theme: str, k: TileKit, rng: random.Random,
               plan: Any = None) -> Any:
     import pygame
     if plan is not None:
-        from .features import Plane
+        from .paint.plane import Plane
         p = Plane(CW, CH, wrap=plan.geom.h if plan.geom.cyclic else 0.0)
         _grid(p.stamp, k, list(NEAR_MATS[theme]), rng)
         p.sync()                      # the base ground goes under the plan
@@ -503,7 +496,7 @@ def _far_for(theme: str, k: TileKit, rng: random.Random,
     player is flying along goes on behind them."""
     import pygame
     if plan is not None:
-        from .features import Plane
+        from .paint.plane import Plane
         c: Any = Plane(CW, CH, wrap=plan.geom.h if plan.geom.cyclic else 0.0)
     else:
         c = pygame.Surface((CW, CH), pygame.SRCALPHA)

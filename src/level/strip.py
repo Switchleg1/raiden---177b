@@ -18,7 +18,7 @@ import threading
 from typing import Any
 
 from terrain.common import SS, TILE2, W2
-from terrain.siteplan import SitePlan
+from terrain.plan.site_plan import SitePlan
 
 __all__ = ["TerrainStrip", "STRIP_SLICE", "STRIP_MARGIN", "kit_for"]
 
@@ -140,7 +140,8 @@ class TerrainStrip:
         """
         import pygame
 
-        from terrain.features import Plane, paint_far, paint_site
+        from terrain.paint.plane import Plane
+        from terrain.paint.site import paint_far, paint_site
 
         kit = kit_for()
         y0, h = self.window(i)

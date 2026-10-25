@@ -24,7 +24,8 @@ import config as C
 from level.level import Level, strip_length
 from level.strip import STRIP_MARGIN, STRIP_SLICE, TerrainStrip
 from terrain.common import NEAR_SPEED, SS, TILE2
-from terrain.siteplan import CELL, Geom, plan_site
+from terrain.design.site import plan_site
+from terrain.plan.geom import CELL, Geom
 
 TAIL = 6.0                    # seconds of boss tail for a behaviour test
 WAVE = 6.0                    # and a wave short enough to plan in a breath

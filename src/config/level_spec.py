@@ -25,6 +25,6 @@ class LevelSpec:
     # plus the wave, which is why it belongs to the sector and not to a constant.
     boss_tail_seconds: float = 60.0
     # How fought-over the sector's ground is, 0..1: craters, burned ground,
-    # houses left as shells (terrain.war). Sector 1 is the approach - nothing has
+    # houses left as shells (terrain.design.war). Sector 1 is the approach - nothing has
     # happened there yet.
     scars: float = 0.0

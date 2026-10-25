@@ -572,7 +572,8 @@ def test_readiness_asks_about_every_slice_the_camera_draws():
     import config as C
     from level.strip import TerrainStrip
     from terrain.common import TILE2
-    from terrain.siteplan import CELL, Geom, plan_site
+    from terrain.design.site import plan_site
+    from terrain.plan.geom import CELL, Geom
 
     plan = plan_site("countryside", 3, Geom(h=TILE2 * 2, cell=CELL, cyclic=False))
     st = TerrainStrip(plan, "near")
@@ -660,7 +661,8 @@ def test_the_painter_works_from_the_camera_outward():
     read an index.
     """
     from level.strip import TerrainStrip
-    from terrain.siteplan import CELL, Geom, plan_site
+    from terrain.design.site import plan_site
+    from terrain.plan.geom import CELL, Geom
 
     plan = plan_site("countryside", 11, Geom(h=CELL * 300, cell=CELL,
                                              cyclic=False))

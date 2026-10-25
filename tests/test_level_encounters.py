@@ -18,7 +18,8 @@ import config as C
 from config.enemy_kind import EnemyKind
 from level.encounters import LEAD_IN, LEAD_OUT, SEARCH, Encounter, affordance_of, plan_encounters
 from terrain.common import NEAR_SPEED, SS
-from terrain.siteplan import CELL, Geom, plan_site
+from terrain.design.site import plan_site
+from terrain.plan.geom import CELL, Geom
 
 H = 12_000          # bake px of ground to design: ~36 s of scroll
 

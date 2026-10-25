@@ -28,7 +28,7 @@ from typing import Any
 import config as C
 from config.enemy_kind import EnemyKind
 from terrain.common import NEAR_SPEED, SS
-from terrain.siteplan import SitePlan
+from terrain.plan.site_plan import SitePlan
 
 __all__ = ["Encounter", "plan_encounters", "affordance_of"]
 
