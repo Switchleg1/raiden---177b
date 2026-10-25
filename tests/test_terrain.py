@@ -94,17 +94,30 @@ def test_plane_masks_stay_inside_the_canvas():
 
     p = plan_site("countryside", 1)
     plane = features.Plane(CW, CH, wrap=CH)
-    for path in [w.path for w in p.water] + [r.path for r in p.roads]:
-        m = features._path_mask(path, 24.0, plane)
+    masks = ([features._path_mask(w.path, w.half * 2.0, plane) for w in p.water]
+             + [features._path_mask(r.path, 24.0, plane) for r in p.roads]
+             + [features._poly_mask(f.poly, plane) for f in p.fields])
+    for m in masks:
         x0, y0, x1, y1 = m.box
-        assert 0 <= x0 <= x1 <= CW and 0 <= y0 <= y1 <= CH
+        # The box is the GEOMETRY's, so it may lean over the edge - by a bounded
+        # amount, and it is that bound which keeps a pathological path from asking
+        # for a canvas-sized surface. What must never leave the canvas is a PIXEL,
+        # and `clip` is the only way anything writes, two tests below.
+        assert -features._PAD <= x0 <= x1 <= CW + features._PAD, m.box
+        assert -features._PAD <= y0 <= y1 <= CH + features._PAD, m.box
         # pygame's arrays are (x, y): the box is (width, height)
         assert m.arr.shape == (x1 - x0, y1 - y0)
-    for f in p.fields:
-        m = features._poly_mask(f.poly, plane)
-        x0, y0, x1, y1 = m.box
-        assert m.arr.shape == (x1 - x0, y1 - y0)
         assert m.arr.max() <= 1.0 and m.arr.min() >= 0.0
+        # The clip agrees with itself: box and array always describe one thing.
+        cbox, carr = m.clip(CW, CH)
+        if carr is not None:
+            cx0, cy0, cx1, cy1 = cbox
+            assert 0 <= cx0 <= cx1 <= CW and 0 <= cy0 <= cy1 <= CH, cbox
+            assert carr.shape == (cx1 - cx0, cy1 - cy0), (cbox, carr.shape)
+        # A mask entirely outside the canvas must clip to nothing rather than
+        # write a wrapped slice with negative indices.
+        if x1 <= 0 or y1 <= 0 or x0 >= CW or y0 >= CH:
+            assert m.clip(CW, CH)[1] is None, m.box
 
 
 def test_a_window_paints_its_own_local_geometry():
@@ -122,8 +135,17 @@ def test_a_window_paints_its_own_local_geometry():
     for w in strip.water:
         m = features._path_mask(w.path, w.half * 2.0, win)
         x0, y0, x1, y1 = m.box
-        assert 0 <= x0 <= x1 <= CW and 0 <= y0 <= y1 <= win.h
+        # A window's mask may reach `_PAD` beyond it - the shape of a river cannot
+        # depend on where the window ends, which is what used to make a feature
+        # change shape at a slice boundary. Only writes are clipped.
+        assert -features._PAD <= x0 <= x1 <= CW + features._PAD, m.box
+        assert -features._PAD <= y0 <= y1 <= win.h + features._PAD, m.box
         assert m.arr.shape == (x1 - x0, y1 - y0)
+        cbox, carr = m.clip(CW, win.h)
+        if carr is not None:
+            cx0, cy0, cx1, cy1 = cbox
+            assert 0 <= cx0 <= cx1 <= CW and 0 <= cy0 <= cy1 <= win.h, cbox
+            assert carr.shape == (cx1 - cx0, cy1 - cy0), (cbox, carr.shape)
         # geometry far above the window must not paint into it at all
         if all(p[1] < 2 * CH - 200.0 for p in w.path):
             assert (x1 - x0) * (y1 - y0) == 0 or m.arr.max() == 0.0

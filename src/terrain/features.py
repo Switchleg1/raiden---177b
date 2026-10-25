@@ -30,6 +30,12 @@ from .tilekit import TILE, TileKit
 _TILED: dict[str, Any] = {}          # material tiled to canvas size, cached
 _ARR: dict[str, Any] = {}            # the same, as float32 numpy (W,H,3)
 _TILE3: dict[str, Any] = {}          # one material tile as uint8 (TILE,TILE,3)
+
+# How far a mask may reach beyond the window it was painted for, in painted pixels.
+# It has to be at least a feather's width plus a brush radius, and finite, so that a
+# feature's shape stops depending on the window while a pathological piece of geometry
+# cannot ask for a canvas-sized surface.
+_PAD = 48
 _VIEWS: dict[tuple, Any] = {}        # material as it lies under one window
 _SOFT: list[Any] = []                # one soft shadow blob, built once
 
@@ -50,23 +56,35 @@ class Plane:
     """
 
     def __init__(self, w: int, h: int, x0: int = 0, y0: int = 0,
-                 wrap: float = 0.0) -> None:
+                 wrap: float = 0.0, scale: int = 1) -> None:
         import pygame
         np = _numpy()
-        self.w, self.h = w, h
         # where this window sits in plan coordinates. A strip is painted as a
         # run of windows; the world position is what keeps materials, masks and
         # props in the same place in every window that touches them.
         self.x0, self.y0 = int(x0), int(y0)
         # a plan that loops in y paints its seam copies; a strip does not
         self.wrap = float(wrap)
-        # Pixels per planning unit. One, because the plan is designed in the same
-        # units the plane is painted in; nothing divides by this any more. Kept so a
-        # future supersampling change has one place to say it.
-        self.scale = 1
-        self.rgb = np.zeros((w, h, 3), dtype=np.float32)
-        self.a = np.zeros((w, h), dtype=np.float32)     # 0..1
-        self._layer = pygame.Surface((w, h), pygame.SRCALPHA)
+        # Plan (bake) pixels per PAINTED pixel. One is the historic default: the
+        # plan is designed in the same units the plane is painted in, which is what
+        # a baked one-screen map wants.
+        #
+        # Two is what a strip on screen wants. The ground is designed at 2x because
+        # the baked PNG pipeline was authored that way - "baked PNGs live at 2x for
+        # extra detail; runtime loads them once and downscales" - and the strip
+        # inherited it, painting a 2x window and filtering it down per slice.
+        # Following one material's texel through that: 256 -> 160 (the bake pitch)
+        # -> 80 (the per-slice halving) -> 156 on the screen at a 1.95x window.
+        # The supersample therefore ends with FEWER pixels than the material
+        # already had before it was halved, and what it definitely buys is a filter
+        # pass on every slice. Painting at 2 pixels per painted pixel makes the
+        # painted plane the size the game blits, so there is nothing left to filter
+        # and four times fewer pixels to paint.
+        self.scale = max(1, int(scale))
+        self.w, self.h = max(1, w // self.scale), max(1, h // self.scale)
+        self.rgb = np.zeros((self.w, self.h, 3), dtype=np.float32)
+        self.a = np.zeros((self.w, self.h), dtype=np.float32)   # 0..1
+        self._layer = pygame.Surface((self.w, self.h), pygame.SRCALPHA)
         self._dirty = False
         self._box: tuple[int, int, int, int] | None = None
 
@@ -78,7 +96,8 @@ class Plane:
         return (0.0, -self.wrap, self.wrap)
 
     def local(self, x: float, y: float) -> tuple[int, int]:
-        return int(round(x - self.x0)), int(round(y - self.y0))
+        s = self.scale
+        return int(round((x - self.x0) / s)), int(round((y - self.y0) / s))
 
     @property
     def stamp(self) -> Any:
@@ -175,15 +194,24 @@ def _tiled(kit: TileKit, mat: str) -> Any:
     return _TILED[key]
 
 
-def _tile3(kit: TileKit, mat: str) -> Any:
-    """One 160 px material tile as uint8 (x, y, 3), cached."""
+def _tile3(kit: TileKit, mat: str, pitch: int = 0) -> Any:
+    """One material tile as uint8 (x, y, 3), cached. Pitch 0 means the bake pitch.
+
+    A plane painted at 2 plan pixels per painted pixel needs the same tile at half
+    the pitch, and scaling it once per (material, pitch) is the ONLY resample the
+    material ever goes through - where the supersampled path sent every tile through
+    a full-plane filter once per slice.
+    """
     import pygame
     np = _numpy()
-    if mat not in _TILE3:
+    pitch = pitch or TILE
+    if (mat, pitch) not in _TILE3:
         t = kit.material(mat)
-        _TILE3[mat] = np.ascontiguousarray(
+        if t.get_width() != pitch:
+            t = pygame.transform.smoothscale(t, (pitch, pitch))
+        _TILE3[(mat, pitch)] = np.ascontiguousarray(
             np.asarray(pygame.surfarray.array3d(t)))
-    return _TILE3[mat]
+    return _TILE3[(mat, pitch)]
 
 
 def _view(kit: TileKit, mat: str, plane: Plane) -> Any:
@@ -194,16 +222,21 @@ def _view(kit: TileKit, mat: str, plane: Plane) -> Any:
     at a chunk boundary. That is the seam a player would actually see.
     """
     np = _numpy()
-    key = (mat, plane.x0, plane.y0, plane.w, plane.h)
+    key = (mat, plane.x0, plane.y0, plane.w, plane.h, plane.scale)
     v = _VIEWS.get(key)
     if v is None:
         if len(_VIEWS) > 24:                    # windows come and go; do not
             _VIEWS.clear()                      # grow with the sector
-        tile = _tile3(kit, mat)
-        reps_x = plane.w // TILE + 2
-        reps_y = plane.h // TILE + 2
+        pitch = max(1, TILE // plane.scale)
+        tile = _tile3(kit, mat, pitch)
+        reps_x = plane.w // pitch + 2
+        reps_y = plane.h // pitch + 2
         big = np.tile(tile, (reps_x, reps_y, 1))
-        ox, oy = plane.x0 % TILE, plane.y0 % TILE
+        # The phase is the world position measured in PAINTED pixels, which is what
+        # the grid below is counted in. Taking it in plan pixels against a half-size
+        # tile is the same unit error that halved every query once, in reverse.
+        ox = (plane.x0 // plane.scale) % pitch
+        oy = (plane.y0 // plane.scale) % pitch
         v = np.ascontiguousarray(big[ox:ox + plane.w, oy:oy + plane.h, :])
         _VIEWS[key] = v
     return v
@@ -255,12 +288,28 @@ def _shadow_on(canvas: Any, x: float, y: float, rx: float, ry: float,
 
 
 def _blit_wrap(canvas: Any, img: Any, x: float, y: float) -> None:
-    """Stamp a sprite, in window coordinates, plus its seam copies."""
+    """Stamp a sprite, in window coordinates, plus its seam copies.
+
+    A plane painted at less than plan resolution is given the stamp at its own
+    resolution, about the same centre. Doing it HERE rather than in each caller is
+    what keeps `_prop`, `_splat`, `_shadow_on` and the bridge deck honest: they all
+    build their surface in plan pixels and centre it on a plan anchor, and the anchor
+    is the thing that must not move. Filtering the stamp alone also costs a fraction
+    of the pixels the old whole-plane downscale filtered, and touches none of the
+    ground between props - which is the seam this removes.
+    """
     surf = _target(canvas)
     if not isinstance(canvas, Plane):                # bare surface (legacy)
         xi, yi = int(round(x)), int(round(y % CH))
         span = CH
     else:
+        s = canvas.scale
+        if s > 1 and img.get_width() > s and img.get_height() > s:
+            cx, cy = x + img.get_width() / 2.0, y + img.get_height() / 2.0
+            import pygame
+            img = pygame.transform.smoothscale(
+                img, (max(1, img.get_width() // s), max(1, img.get_height() // s)))
+            x, y = cx - img.get_width() / 2.0, cy - img.get_height() / 2.0
         xi, yi = canvas.local(x, y)
         span = int(canvas.wrap)
     surf.blit(img, (xi, yi))
@@ -288,6 +337,24 @@ class Mask:
         self.arr = arr
         self.box = box
 
+    def clip(self, w: int, h: int):
+        """This mask's box and array, limited to a `w` x `h` canvas.
+
+        A mask is rasterised over its **own geometry**, not over the window it is
+        being painted for. Clipping the box to the plane made a feature's shape
+        depend on where the window happened to end, and the pixels that then
+        disagreed with a one-window reference were the outer rows of the kept band -
+        the rows at a slice boundary, magnitude ~10/255 on a tenth of the band. A
+        box may therefore reach past the plane by `_PAD`; everything that writes
+        pixels clips here instead.
+        """
+        x0, y0, x1, y1 = self.box
+        cx0, cy0 = max(0, x0), max(0, y0)
+        cx1, cy1 = min(w, x1), min(h, y1)
+        if cx1 <= cx0 or cy1 <= cy0:
+            return (0, 0, 0, 0), None
+        return (cx0, cy0, cx1, cy1), self.arr[cx0 - x0: cx1 - x0, cy0 - y0: cy1 - y0]
+
     def full(self) -> Any:
         """A canvas-sized copy, for the few callers that shade the whole map."""
         np = _numpy()
@@ -298,8 +365,11 @@ class Mask:
     def paste(self, dst: Any) -> None:
         """Union this mask into a canvas-sized one."""
         np = _numpy()
-        x0, y0, x1, y1 = self.box
-        dst[x0:x1, y0:y1] = np.maximum(dst[x0:x1, y0:y1], self.arr)
+        box, arr = self.clip(dst.shape[0], dst.shape[1])
+        if arr is None:
+            return
+        x0, y0, x1, y1 = box
+        dst[x0:x1, y0:y1] = np.maximum(dst[x0:x1, y0:y1], arr)
 
 
 def _path_mask(path: list[tuple[float, float]], width: float,
@@ -344,16 +414,35 @@ def _raster(path: list[tuple[float, float]], r: float, plane: Plane,
     hi_x = max(p[0] for p in path) + r
     ys = [p[1] + sh for p in path for sh in plane.shifts()]
     lo_y, hi_y = min(ys) - r, max(ys) + r
-    x0 = max(0, int(lo_x - plane.x0) - 4)
-    y0 = max(0, int(lo_y - plane.y0) - 4)
-    x1 = min(plane.w, int(hi_x - plane.x0) + 5)
-    y1 = min(plane.h, int(hi_y - plane.y0) + 5)
+    s = plane.scale
+    # geometry arrives in plan pixels; the raster works in painted pixels. The 4 px
+    # margin is in PAINTED pixels - it is room for a feather pass, which happens
+    # here, not in the world.
+    #
+    # The box is the GEOMETRY's, clamped only to `_PAD` beyond the window - never to
+    # the window itself. Clipping it to the plane is what made a feature change shape
+    # depending on which slice's window happened to be painting it, and the rows that
+    # changed were the outer rows of the kept band: a line at every boundary.
+    pad = _PAD
+    # The box is the GEOMETRY's, clamped to the canvas plus a feather's allowance -
+    # never to the canvas itself. Clipping to the plane is what made a feature change
+    # shape depending on which slice's window happened to be painting it, and the rows
+    # that changed were the outer rows of the kept band: a line at every boundary. The
+    # clamp is what keeps a wrapped road, whose geometry runs the whole map plus its
+    # seam copies, from asking for a surface three canvases tall.
+    x0 = max(-pad, int((lo_x - plane.x0) / s) - 4)
+    y0 = max(-pad, int((lo_y - plane.y0) / s) - 4)
+    x1 = min(plane.w + pad, int((hi_x - plane.x0) / s) + 5)
+    y1 = min(plane.h + pad, int((hi_y - plane.y0) / s) + 5)
+    # Rejected only when the geometry misses the window by more than a feather's
+    # width. (Writing `x1 - x0 <= pad` here, as if a small box were a suspicious one,
+    # deletes every disc on the map - a tree crown is 20 px, the pad is 48.)
     if x1 - x0 < 2 or y1 - y0 < 2:
         return None
     surf = pygame.Surface((x1 - x0, y1 - y0))
     surf.fill((0, 0, 0))
     for shift in plane.shifts():
-        pts = [(x - plane.x0 - x0, y + shift - plane.y0 - y0)
+        pts = [((x - plane.x0) / s - x0, (y + shift - plane.y0) / s - y0)
                for x, y in path]
         if max(p[1] for p in pts) < -60 \
                 or min(p[1] for p in pts) > surf.get_height() + 60:
@@ -362,15 +451,20 @@ def _raster(path: list[tuple[float, float]], r: float, plane: Plane,
             pygame.draw.polygon(surf, (255, 255, 255),
                                 [(int(px), int(py)) for px, py in pts])
             continue
+        # The brush is as wide as the road, and the road is measured in plan pixels:
+        # on a half-resolution plane it covers half as many of them. `k` rather than
+        # `s` for the sample index because `s` is the scale, and shadowing it here
+        # silently made every disc after the first one a different width.
+        brush = max(1.0, r / s)
         for i in range(len(pts) - 1):
             (ax, ay), (bx, by) = pts[i], pts[i + 1]
             ln = math.hypot(bx - ax, by - ay)
             n = max(1, int(ln / max(2.0, r * 0.35)))
-            for s in range(n + 1):
-                t = s / n
+            for k in range(n + 1):
+                t = k / n
                 pygame.draw.circle(surf, (255, 255, 255),
                                    (int(ax + (bx - ax) * t),
-                                    int(ay + (by - ay) * t)), int(r))
+                                    int(ay + (by - ay) * t)), int(brush))
     return (x0, y0, x1, y1), surf
 
 
@@ -426,11 +520,13 @@ def _fill_mask(canvas: Any, kit: TileKit, mat: str, mask: Any,
     np = _numpy()
     if np is None or not isinstance(canvas, Plane):   # pragma: no cover
         return
-    box = mask.box if isinstance(mask, Mask) else (0, 0, canvas.w, canvas.h)
-    if box[2] <= box[0] or box[3] <= box[1]:
-        return
-    arr = mask.arr if isinstance(mask, Mask) else mask
-    m = np.clip(np.asarray(arr, dtype=np.float32) * strength, 0.0, 1.0)
+    if isinstance(mask, Mask):
+        box, raw = mask.clip(canvas.w, canvas.h)
+        if raw is None:
+            return
+    else:
+        box, raw = (0, 0, canvas.w, canvas.h), mask
+    m = np.clip(np.asarray(raw, dtype=np.float32) * strength, 0.0, 1.0)
     if m.ndim == 3:
         m = m[:, :, 0]
     canvas.sync()
@@ -449,11 +545,13 @@ def _darken_band(canvas: Any, mask: Any, factor: float) -> None:
     np = _numpy()
     if np is None or not isinstance(canvas, Plane):   # pragma: no cover
         return
-    box = mask.box if isinstance(mask, Mask) else (0, 0, canvas.w, canvas.h)
-    if box[2] <= box[0] or box[3] <= box[1]:
-        return
-    arr = mask.arr if isinstance(mask, Mask) else mask
-    m = np.clip(np.asarray(arr, dtype=np.float32), 0.0, 1.0)
+    if isinstance(mask, Mask):
+        box, raw = mask.clip(canvas.w, canvas.h)
+        if raw is None:
+            return
+    else:
+        box, raw = (0, 0, canvas.w, canvas.h), mask
+    m = np.clip(np.asarray(raw, dtype=np.float32), 0.0, 1.0)
     if m.ndim == 3:
         m = m[:, :, 0]
     canvas.sync()
@@ -471,17 +569,19 @@ def _tint_lines(canvas: Any, pts: list[tuple[float, float]], col: Any,
         shifts = canvas.shifts() if shift_wraps else (0.0,)
         ox, oy = canvas.x0, canvas.y0
         lo, hi = 0, canvas.h
+        s = canvas.scale
     else:                                            # bare surface (legacy)
         shifts = (0, -CH, CH) if shift_wraps else (0,)
         ox, oy = 0, 0
         lo, hi = 0, CH
+        s = 1
     for shift in shifts:
-        seg = [(x - ox, y + shift - oy) for x, y in pts]
+        seg = [((x - ox) / s, (y + shift - oy) / s) for x, y in pts]
         if max(p[1] for p in seg) < lo - 20 or min(p[1] for p in seg) > hi + 20:
             continue
         pygame.draw.lines(surf, col, False,
                           [(int(x), int(y)) for x, y in seg],
-                          max(1, int(width)))
+                          max(1, int(width / s)))
         if isinstance(canvas, Plane):
             canvas.touch_box(min(p[0] for p in seg) - width,
                              min(p[1] for p in seg) - width,
@@ -576,9 +676,9 @@ def _upsample(grid: Any, plane: Plane, gw: int, gh: int) -> Any:
     # and identical to the neighbour wherever two windows overlap. Clamping is per
     # sample, so a window that reaches past the end of the plan reads the last grid
     # row (flat ground, the honest answer) rather than rescaling its own relief.
-    rxs = np.clip((plane.y0 + np.arange(h, dtype=np.float64))
+    rxs = np.clip((plane.y0 + np.arange(h, dtype=np.float64) * plane.scale)
                   * ((rows - 1) / max(1, gh)), 0.0, rows - 1)
-    cxs = np.clip((plane.x0 + np.arange(w, dtype=np.float64))
+    cxs = np.clip((plane.x0 + np.arange(w, dtype=np.float64) * plane.scale)
                   * ((cols - 1) / max(1, gw)), 0.0, cols - 1)
     a0, a1, a2, a3, q0, q1, q2, q3 = cr(rows, rxs)
     tmp = (g[a0] * q0[:, None] + g[a1] * q1[:, None]
@@ -599,14 +699,15 @@ def _band(canvas: Any, plan: SitePlan, kind: str) -> list[int]:
     """
     y0 = getattr(canvas, "y0", 0.0)
     h = getattr(canvas, "h", 0) or getattr(canvas, "get_height", lambda: 0)()
-    # One unit, everywhere: the plan is designed in the same bake pixels the plane
-    # is built in (`plan_sector` sizes `Geom(h=...)` from TILE2, and the baked maps
-    # use the same plane size), so the window's y-range is already the right thing
-    # to ask about. Dividing by SS here - which an earlier commit in this line of
-    # work did, to fix a half-drawn house - halved every query instead, and was a
-    # unit error masquerading as a unit fix. If features go missing at a slice
-    # boundary, the reach is too small, not the units.
-    return plan.band(kind, y0, y0 + h)
+    # A plane's `h` is PAINTED pixels, and the plan is counted in PLAN pixels, so the
+    # window's world range is `h * scale`. Both directions of this have now been
+    # wrong once: dividing `h` by SS (an earlier commit, chasing a half-drawn house)
+    # halved every query when plane and plan were the same resolution, and NOT
+    # multiplying by the plane's scale halves it now that they differ. The rule is
+    # neither divide nor multiply by a constant - it is that a query is made in plan
+    # units, so a painted extent has to be converted by the plane's own scale.
+    reach = h * getattr(canvas, "scale", 1)
+    return plan.band(kind, y0, y0 + reach)
 
 
 def _bytes(v: int) -> bytes:
@@ -950,9 +1051,12 @@ def paint_water(canvas: Any, kit: TileKit, plan: SitePlan,
 def _bridge_cut(surf: Mask, wet: Any, deck: Any) -> Mask:
     """Cut the water out of a road mask and put the bridge decks back."""
     np = _numpy()
-    x0, y0, x1, y1 = surf.box
-    kept = surf.arr * (1.0 - wet[x0:x1, y0:y1])
-    return Mask(np.maximum(kept, deck[x0:x1, y0:y1]), surf.box)
+    box, arr = surf.clip(wet.shape[0], wet.shape[1])
+    if arr is None:
+        return surf
+    x0, y0, x1, y1 = box
+    kept = arr * (1.0 - wet[x0:x1, y0:y1])
+    return Mask(np.maximum(kept, deck[x0:x1, y0:y1]), box)
 
 
 def paint_roads(canvas: Any, kit: TileKit, plan: SitePlan,

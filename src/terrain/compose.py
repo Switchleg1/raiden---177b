@@ -42,8 +42,36 @@ def _blit_wrap(c: Any, img: Any, x: float, y: float) -> None:
         surf.blit(img, (xi, yi + CH))
 
 
+# Cached pitch tiles: (id(tile surface), pitch, fade) -> surface. The source tile is
+# stored beside the result so its id cannot be recycled by a freed object while the
+# cache still answers for it.
+_PITCH: dict[Any, tuple[Any, Any]] = {}
+
+
+def _pitch_tile(src: Any, pitch: int, fade: float = 1.0) -> Any:
+    """A material tile at the pitch a plane is painted on, faded once, cached.
+
+    A plane painted at 2 plan pixels per painted pixel tiles the same material at
+    half the pitch. Scaling and fading happen here, once per (tile, pitch), because
+    doing it per cell would cost more than the fill it feeds - and because the whole
+    point of this change is that a material is resampled once for its size, not once
+    per slice of ground.
+    """
+    key = (id(src), pitch, fade)
+    hit = _PITCH.get(key)
+    if hit is None:
+        surf = src if src.get_width() == pitch else \
+            __import__("pygame").transform.smoothscale(src, (pitch, pitch))
+        if fade != 1.0:
+            surf = _fade(surf, fade)
+        _PITCH[key] = (surf, src)            # keep src alive: id() must stay unique
+        return surf
+    return hit[0]
+
+
 def _grid(canvas: Any, k: TileKit, mats: list[tuple[str, float]],
-          rng: random.Random, origin: tuple[int, int] = (0, 0)) -> None:
+          rng: random.Random, origin: tuple[int, int] = (0, 0),
+          scale: int = 1) -> None:
     """Base material + soft masked patches.  The dominant material fills
     every cell; alternates are radially feathered so cell boundaries read
     as natural patches, and the canvas stays wrap-continuous."""
@@ -71,14 +99,16 @@ def _grid(canvas: Any, k: TileKit, mats: list[tuple[str, float]],
     # same ground. NO flips/rotations: seam matching only holds unflipped.
     gx0 = origin[0] // TILE
     gy0 = origin[1] // TILE
-    off_x = origin[0] - gx0 * TILE
-    off_y = origin[1] - gy0 * TILE
+    pitch = max(1, TILE // max(1, scale))
+    off_x = (origin[0] // max(1, scale)) % pitch
+    off_y = (origin[1] // max(1, scale)) % pitch
     w, h = canvas.get_size()
-    n_i = -(-(w + off_x) // TILE) + 1        # cells to reach the far edge, +1 for
-    n_j = -(-(h + off_y) // TILE) + 1        # the half cell the offset exposes
+    n_i = -(-(w + off_x) // pitch) + 1       # cells to reach the far edge, +1 for
+    n_j = -(-(h + off_y) // pitch) + 1       # the half cell the offset exposes
+    base_tile = _pitch_tile(base_tile, pitch)
     for j in range(n_j):
         for i in range(n_i):
-            canvas.blit(base_tile, (i * TILE - off_x, j * TILE - off_y))
+            canvas.blit(base_tile, (i * pitch - off_x, j * pitch - off_y))
     for j in range(n_j):
         for i in range(n_i):
             name = _at("grid", (gx0 + i) * TILE, (gy0 + j)
@@ -88,8 +118,8 @@ def _grid(canvas: Any, k: TileKit, mats: list[tuple[str, float]],
                 # strength every cell carries a soft stain, and the reviewers
                 # kept calling those stains "ambiguous patches" that compete
                 # with the actual landforms
-                canvas.blit(_fade(k.patch(name), 0.34),
-                            (i * TILE - off_x, j * TILE - off_y))
+                canvas.blit(_pitch_tile(k.patch(name), pitch, 0.34),
+                            (i * pitch - off_x, j * pitch - off_y))
 
 
 def _fade(src: Any, f: float) -> Any:

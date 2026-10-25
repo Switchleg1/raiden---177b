@@ -639,3 +639,56 @@ updates and draws in ~11.6 ms median per frame, mid-sweep with two live sectors
   0.5, PAUSED 0.0 (see `App._update`).
 - `draw_field` draws terrain + 1 px field outline instead of
   flat fill + starfield when terrain is active.
+
+## One bake scale: painting the size that is blitted
+
+The ground used to be painted at 2x and filtered down per slice, because the baked
+PNG pipeline was authored that way (`SS = 2`: "baked PNGs live at 2x for extra
+detail; runtime loads them once and downscales"). The streamed path inherited the
+resolution and therefore inherited a filter pass on every slice. Follow one
+material's texel through it:
+
+    256 (material PNG)  ->  160 (the bake pitch `TILE`)
+                        ->   80 (the per-slice halving)
+                        ->  156 (on screen, window at 1.95x)
+
+The supersample ended with **fewer** pixels than the material had before it was
+halved, and what it definitely bought was a resample between painting and blitting.
+
+Now: `Plane(..., scale=SS)` means two plan pixels per painted pixel, so the painted
+plane arrives the size the game blits, and `TerrainStrip` no longer filters it.
+`supersample=True` keeps the old route for comparison. Measured: **0.55 s -> 0.16 s
+per slice (3.4x)** for the same 800x278 band. The scroll, the plan and the encounter
+positions stay in bake pixels - only the paint resolution changed, so the speed the
+player sees is untouched.
+
+Four boundaries had to follow the plane's scale, and three of them had previously
+been "fixed" in the opposite direction, so each carries a comment: `_band` (a
+feature query is in plan units, so a painted extent is multiplied by the scale - the
+earlier bug *divided*), `_upsample` (relief sample positions), `_view`/`_grid` (tile
+pitch and phase), and `_raster` (positions and brush radius).
+
+## Masks are the geometry's, not the window's
+
+`_raster` used to clamp a mask's box to the plane. That makes a feature's **shape**
+depend on which window happened to paint it, and the pixels that moved were the outer
+rows of the kept band - a line at every boundary, magnitude ~10/255. A box may now
+reach `_PAD` beyond the window (clamped there, so a wrapped road cannot ask for a
+three-canvas surface), and `Mask.clip()` is the only way anything writes.
+
+The slice-vs-one-window comparison - the only test that separates "consistent" from
+"complete" - has never read zero before this and now reads **0.000% on every slice,
+including the last** (was 0.068% there, 37% at its worst).
+
+Two traps found on the way, both worth not repeating: `x1 - x0 <= _PAD` looks like a
+sanity check and silently deletes every disc on the map (a tree crown is 20 px, the
+pad is 48); and `TerrainStrip(downscale=False)` used to mean "paint at plan size and
+blit it unscaled", which is why the flag is now `supersample` and the draw guard
+checks the band's actual height instead of a boolean.
+
+`scripts/study_slice_seams.py` compares two neighbouring windows over their overlap
+and now reports the outer `_PAD` rows separately. Exact agreement over the whole
+overlap is not the right gate and is not achievable: a world row is only ever *shown*
+from the window for which it is interior, and the outer rows are where each window's
+feather has just finished being clipped. `test_a_slice_shows_the_same_ground_as_the_truth`
+in `tests/test_level_paint.py` is the gate.

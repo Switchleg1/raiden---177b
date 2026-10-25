@@ -73,7 +73,7 @@ class TerrainStrip:
 
     def __init__(self, plan: SitePlan, layer: str = "near",
                  slice_h: int = STRIP_SLICE, margin: int = STRIP_MARGIN,
-                 downscale: bool = True) -> None:
+                 supersample: bool = False) -> None:
         if layer not in ("near", "far"):
             raise ValueError(f"unknown strip layer {layer!r}")
         if slice_h <= 0 or margin < 0:
@@ -82,7 +82,7 @@ class TerrainStrip:
         self.layer = layer
         self.slice_h = int(slice_h)
         self.margin = int(margin)
-        self.downscale = downscale
+        self.supersample = supersample
         self.height = int(plan.geom.h)
         # The bake rows a camera can see at one time: one field-height of ground,
         # and the definition `window_at` measures a slice range against.
@@ -160,7 +160,19 @@ class TerrainStrip:
         # A window, not a canvas: the plane knows where it sits in the world, so
         # materials land on the same tile grid and props land on the same ground
         # as they would in any other window. `wrap=0` - a strip does not loop.
-        plane = Plane(W2, h, x0=0, y0=y0)
+        #
+        # `scale` says how many plan pixels one painted pixel covers. Painting at the
+        # size the game blits (scale = SS) means the plane comes out the size of the
+        # band, so nothing is filtered afterwards: the per-slice downscale this used
+        # to end in is gone, along with three quarters of the pixels it painted.
+        # `Plane.scale` counts PLAN pixels per PAINTED pixel, so the two routes are
+        # the opposite of what they look like: painting one pixel per pixel shown
+        # means two plan pixels per painted one (scale = SS) and needs no filter,
+        # while the historic supersampled route paints at plan resolution (scale =
+        # 1) and filters the plane down afterwards. `supersample=True` keeps that
+        # route so the two can be compared in the same afternoon.
+        scale = 1 if self.supersample else SS
+        plane = Plane(W2, h, x0=0, y0=y0, scale=scale)
         if self.layer == "near":
             # The ground the craft flies over is opaque, and it is opaque
             # because the material grid is laid down *under* the plan - the same
@@ -174,7 +186,7 @@ class TerrainStrip:
             # do not depend on which slice it is: `i` used to be in the seed here,
             # which re-rolled the whole material grid at every boundary.
             _grid(plane.stamp, kit, list(NEAR_MATS[self.plan.theme]),
-                  Random(self.plan.seed * 7717), origin=(0, y0))
+                  Random(self.plan.seed * 7717), origin=(0, y0), scale=scale)
             plane.sync()
         # The pass-level stream only picks things the plan did not already pin
         # down; per-feature jitter comes from the plan itself, which is why
@@ -196,10 +208,13 @@ class TerrainStrip:
         # "remove every second tile and it lines up" report described. Measured: with
         # the sign wrong, a best-fit shift of exactly one margin removed 99.97% of the
         # difference; slice 0 showed none at all.
-        top = i * self.slice_h - y0
-        keep = surf.subsurface((0, top, W2, min(h - top, self.slice_h)))
+        top = (i * self.slice_h - y0) // scale
+        rows = min(h - (top * scale), self.slice_h) // scale
+        keep = surf.subsurface((0, top, surf.get_width(), rows))
         keep = keep.copy()
-        if self.downscale:
+        if self.supersample:
+            # Only the supersampled route has anything to filter, and it filters the
+            # whole plane - which is the pass that put a line on every boundary.
             keep = (pygame.transform.scale if TerrainStrip.NEAREST_BANDS
                     else pygame.transform.smoothscale)(
                 keep, (keep.get_width() // SS, keep.get_height() // SS))
@@ -311,14 +326,22 @@ class TerrainStrip:
         Returns the number of slices drawn, so a caller can tell a hole in the
         ground from the whole picture.
         """
-        if not self.downscale:
-            raise RuntimeError("a strip drawn unscaled would cover the field 4x")
         lo, hi = self.window_at(y)
         drawn = 0
         for i in range(max(0, lo), min(self.count, hi)):
             surf = self.surface(i)
             if surf is None:
                 continue
+            # What this blit actually needs is not "was `downscale` on" but "is a
+            # band exactly one slice of DISPLAY rows": the placement below divides
+            # slice_h by SS, and the bands tile only if that is their height. Painting
+            # at the size shown satisfies it as well as painting at 2x and filtering
+            # did, and this says so directly instead of assuming the old route.
+            want = self.slice_h // SS
+            if surf.get_height() != want or surf.get_width() > band.width * SS:
+                raise RuntimeError(
+                    f"slice {i} is {surf.get_size()} and would not tile the field: "
+                    f"a band must be {want} display rows tall")
             # the slice's *far* row is the one nearest the top edge
             top = band.top + (y - (i + 1) * self.slice_h) / SS
             # The clip is a rect *in the slice*, not the band it lands on. An

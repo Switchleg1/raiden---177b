@@ -34,6 +34,10 @@ pygame.display.set_mode((64, 64))
 import random  # noqa: E402
 
 from level.strip import STRIP_MARGIN, STRIP_SLICE  # noqa: E402
+
+# A mask may reach this many pixels beyond the window it was painted for, so the
+# same number of rows at each end of the overlap is each window's own edge.
+_PAD_ROWS = 56
 from terrain.common import W2  # noqa: E402
 from terrain.features import Plane, paint_site  # noqa: E402
 from terrain.siteplan import CELL, Geom, plan_site  # noqa: E402
@@ -85,7 +89,24 @@ def main() -> int:
         ca = a[s:s + 2 * STRIP_MARGIN]
         cb = b[:2 * STRIP_MARGIN]
         common = min(ca.shape[0], cb.shape[0])
-        diff = ca[:common].astype(int) - cb[:common].astype(int)
+        # The outer rows of the overlap are each window's own edge neighbourhood, and
+        # a mask's feather now has `_PAD` of padding to finish its curve in, so a
+        # stroke that ends there is COMPLETE in one window and still CLIPPED in the
+        # other. Those rows are also the ones the player never sees from this window:
+        # the kept band starts STRIP_MARGIN in, which is well past a feather. Compare
+        # them, print them, but do not call them a seam - the seam is what the kept
+        # band shows, and the kept band is what the slice-vs-reference test gates.
+        edge = _PAD_ROWS
+        diff_all = numpy.abs(ca[:common].astype(int) - cb[:common].astype(int))
+        outside = diff_all[:edge].max() or diff_all[-edge:].max() if common > 2 * edge else 0
+        ca2 = ca[edge:common - edge] if common > 2 * edge else ca[:common]
+        cb2 = cb[edge:common - edge] if common > 2 * edge else cb[:common]
+        diff = numpy.abs(ca2.astype(int) - cb2.astype(int))
+        if outside:
+            print(f"          (outer {edge} rows differ by up to {int(outside)}/255 -"
+                  " a feather finishing its curve where its window ended; outside the"
+                  " kept band)")
+        common = ca2.shape[0]
         bad = numpy.abs(diff).max(axis=2) > 0
         pct = float(bad.mean()) * 100.0
         worst = max(worst, pct)
