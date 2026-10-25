@@ -272,6 +272,25 @@ class SitePlan:
                     reach = max(f.flood, f.half * 2.0) + 60.0
                 elif kind == "roads":
                     reach = f.width * 2.0 + 90.0
+                elif kind == "buildings":
+                    # A building is not its footprint. It stamps a prop sprite
+                    # (256 px of art at `scale`, so it overhangs 128*scale either
+                    # way) and splats a yard (art scaled by radius/60, so about
+                    # 2.1 radii beyond the yard's own edge). The constant 130 was a
+                    # guess at the sprite and covered neither, so a neighbour's yard
+                    # appeared in the window that happened to include it and not in
+                    # the one painting the ground under it - measured as one compact
+                    # 100x100 px blob of differently-shaded ground at a slice
+                    # boundary, present in a one-window reference and absent from the
+                    # slice. Reach is what the feature DRAWS, not what it IS.
+                    spread = 128.0 * float(getattr(f, "scale", 1.0)) + 40.0
+                    if getattr(f, "yard", None):
+                        spread = max(spread, 2.2 * float(f.yard[2]) + 40.0)
+                    reach = max(reach, spread)
+                elif kind == "woods":
+                    # The stand's trees are its own props, up to 256*scale wide,
+                    # and its edge is the outermost crown, not the stand's points.
+                    reach = max(reach, 128.0 + 40.0)
                 ranges.append((lo - reach, hi + reach, i))
             self._bands[kind] = ranges
         return [i for lo, hi, i in ranges if hi >= y0 and lo <= y1]

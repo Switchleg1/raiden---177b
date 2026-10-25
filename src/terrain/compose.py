@@ -42,31 +42,40 @@ def _blit_wrap(c: Any, img: Any, x: float, y: float) -> None:
         surf.blit(img, (xi, yi + CH))
 
 
-# Cached pitch tiles: (id(tile surface), pitch, fade) -> surface. The source tile is
-# stored beside the result so its id cannot be recycled by a freed object while the
-# cache still answers for it.
-_PITCH: dict[Any, tuple[Any, Any]] = {}
+# Cached pitch tiles, keyed by (name, pitch, fade, patch).
+_PITCH: dict[Any, Any] = {}
 
 
-def _pitch_tile(src: Any, pitch: int, fade: float = 1.0) -> Any:
-    """A material tile at the pitch a plane is painted on, faded once, cached.
+def _pitch_tile(k: TileKit, name: str, pitch: int, fade: float = 1.0,
+                patch: bool = False) -> Any:
+    """A material, or a feathered patch, at the pitch a plane is painted on; faded
+    once and cached.
 
     A plane painted at 2 plan pixels per painted pixel tiles the same material at
-    half the pitch. Scaling and fading happen here, once per (tile, pitch), because
-    doing it per cell would cost more than the fill it feeds - and because the whole
-    point of this change is that a material is resampled once for its size, not once
-    per slice of ground.
+    half the pitch. Scaling and fading happen here, once per (name, pitch, fade),
+    because doing it per cell would cost more than the fill it feeds - and because the
+    whole point of painting at display resolution is that a material is resampled once
+    for its size, not once per slice of ground.
+
+    Keyed by NAME, never by `id(surface)`. The first version keyed by id() and pinned
+    the source surface in the value; when a second TileKit was built, a fresh surface
+    took an address that had been freed and the cache answered with the material that
+    used to live there - so which ground appeared depended on what had been painted
+    earlier in the run. Measured: the same test's pixel residue jumped from 6/255 to
+    15/255 depending only on which other tests had run first. A cache that answers
+    about an address is not a cache, it is a leak with opinions.
     """
-    key = (id(src), pitch, fade)
+    key = (name, pitch, fade, patch)
     hit = _PITCH.get(key)
     if hit is None:
+        import pygame
+        src = k.patch(name) if patch else k.material(name)
         surf = src if src.get_width() == pitch else \
-            __import__("pygame").transform.smoothscale(src, (pitch, pitch))
+            pygame.transform.smoothscale(src, (pitch, pitch))
         if fade != 1.0:
             surf = _fade(surf, fade)
-        _PITCH[key] = (surf, src)            # keep src alive: id() must stay unique
-        return surf
-    return hit[0]
+        _PITCH[key] = hit = surf
+    return hit
 
 
 def _grid(canvas: Any, k: TileKit, mats: list[tuple[str, float]],
@@ -105,7 +114,7 @@ def _grid(canvas: Any, k: TileKit, mats: list[tuple[str, float]],
     w, h = canvas.get_size()
     n_i = -(-(w + off_x) // pitch) + 1       # cells to reach the far edge, +1 for
     n_j = -(-(h + off_y) // pitch) + 1       # the half cell the offset exposes
-    base_tile = _pitch_tile(base_tile, pitch)
+    base_tile = _pitch_tile(k, base, pitch)
     for j in range(n_j):
         for i in range(n_i):
             canvas.blit(base_tile, (i * pitch - off_x, j * pitch - off_y))
@@ -118,7 +127,7 @@ def _grid(canvas: Any, k: TileKit, mats: list[tuple[str, float]],
                 # strength every cell carries a soft stain, and the reviewers
                 # kept calling those stains "ambiguous patches" that compete
                 # with the actual landforms
-                canvas.blit(_pitch_tile(k.patch(name), pitch, 0.34),
+                canvas.blit(_pitch_tile(k, name, pitch, 0.34, patch=True),
                             (i * pitch - off_x, j * pitch - off_y))
 
 

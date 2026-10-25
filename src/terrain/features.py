@@ -1258,7 +1258,14 @@ def paint_far(canvas: Any, kit: TileKit, plan: SitePlan,
     # which is what made the far layer disagree with itself across a slice
     # boundary: same patch name, different places, a seam of tone.
     y0 = int(getattr(canvas, "y0", 0))
-    tall = int(getattr(canvas, "h", 0) or canvas.get_height())
+    # `h` is PAINTED pixels and the lattice is counted in PLAN pixels, so a plane at
+    # 2 plan pixels per painted one covers only HALF its world range if this is taken
+    # at face value - which put no distant range at all in the lower half of every
+    # strip window: slices 4-7 of eight disagreed with a one-window reference on
+    # 21%-54% of their pixels, scattered, and looked like "some tiles just wrong".
+    # The same unit boundary `_band` documents, arriving from the other side.
+    tall = int(getattr(canvas, "h", 0) or canvas.get_height()) \
+        * getattr(canvas, "scale", 1)
     y_from = y0 // SPAN * SPAN - SPAN
     y_to = y0 + tall + SPAN
     for name in FAR_PAIR[plan.theme]:

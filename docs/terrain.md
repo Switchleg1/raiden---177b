@@ -692,3 +692,49 @@ overlap is not the right gate and is not achievable: a world row is only ever *s
 from the window for which it is interior, and the outer rows are where each window's
 feather has just finished being clipped. `test_a_slice_shows_the_same_ground_as_the_truth`
 in `tests/test_level_paint.py` is the gate.
+
+## The far layer's lattice only covered half the window
+
+`paint_far` scatters its distant range on a 280 px world lattice, and walked that
+lattice over `canvas.h` - which since the resolution change is PAINTED pixels, not
+world rows. Result: no distant range at all in the lower half of every strip window.
+Measured against a one-window reference, slices 4-7 of eight disagreed on
+**21% to 54% of their pixels**, scattered rather than at edges - which is what "some
+tiles are fine, others ok, some are just wrong" looks like from the cockpit. Fixed by
+multiplying the extent by the plane's scale; those slices now read **0.000%**.
+
+The reason this survived the suite is that the slice-vs-reference test only ever
+painted the **near** layer. It is parametrised over both now, and over eight slices
+instead of four: with a short reference, the lattice is walked over nearly the whole
+window in every slice and the bug hides below the crop.
+
+## Cache by name, never by address
+
+`_pitch_tile` cached scaled material tiles under `id(surface)`. When a second
+`TileKit` was built, a fresh surface took a freed address and the cache answered with
+the material that used to live there, so which ground appeared depended on what had
+been painted earlier in the run. Keyed by `(name, pitch, fade, patch)` now.
+
+## Open: painting a slice is not fully order-independent
+
+The first slice's window is clamped at the world start, and it disagrees with a
+one-window reference on ~0.7% of pixels (mean 2, max 6 per 255) in an isolated run and
+more in a full-suite run - and in a full run an interior slice has shown 0.3%. Ruled
+out by measurement, not by argument:
+
+ - every individual pass (relief, fields, water, roads, greens, buildings, cover) and
+   the material underlay agree **bit-for-bit** between a 652-row and a 4640-row window
+   over the same world rows;
+ - widening the strip margin 96 -> 160 -> 256 changes **no pixels**;
+ - painting the same slice before and after the window is recreated at a different
+   size differs on **0.000%** of pixels, so cached surfaces surviving a mode change is
+   not it either.
+
+So the residue is in the composition and depends on what ran before, in ways not yet
+pinned. The test does not pretend otherwise: it bounds total disagreement and gates
+the **structure** of a line - a row disagreeing on >25% of its pixels at >=5/255 -
+because a line is 1-3 rows of 278, i.e. 0.4-1.1% of a band, small enough to slip under
+any threshold loose enough to absorb scattered rounding. That gate was checked against
+invented cases: it fails a 2-row line at 9/255 and at 5/255, passes residue at <=3
+across half the pixels, and passes a compact 100x100 blob (a blob is not a line, and
+the volume bound catches it).
