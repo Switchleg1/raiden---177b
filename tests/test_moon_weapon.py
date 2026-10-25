@@ -29,7 +29,7 @@ import ui  # noqa: E402
 from entities import Enemy  # noqa: E402
 from entities.bullet import Bullet  # noqa: E402
 from game import Game  # noqa: E402
-from items import Item, roll_item  # noqa: E402
+from game.items import Item, roll_item  # noqa: E402
 
 DT = C.SIM_DT
 

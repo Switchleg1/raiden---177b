@@ -12,9 +12,9 @@ import math
 import pytest
 
 import config as C
-import instruments
-import music
-from music_content import (
+from music import engine as music
+from music import instruments
+from music.content_table import (
     BASS,
     BASS_LINES,
     BOSS_THEMES,

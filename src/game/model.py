@@ -23,9 +23,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import config as C
-import physics as P
 from entities import Bullet, Enemy, FlameThrower, Player, Whip
-from items import Item, roll_item
+from entities import physics as P
+
+from .items import Item, roll_item
 
 # High-level outcome signals (shared names with Breakout Classic's model).
 SIG_LIFE_LOST = "life_lost"

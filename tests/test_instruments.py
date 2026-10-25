@@ -17,7 +17,7 @@ import math
 
 import pytest
 
-import instruments as I
+from music import instruments as I
 
 RATE = 22050
 F = 440.0

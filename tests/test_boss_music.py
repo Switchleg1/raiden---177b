@@ -6,8 +6,8 @@ import math
 
 import pytest
 
-import music
 from audio import BOSS_KEY, LEVEL_KEY, MENU_KEY, AudioManager
+from music import engine as music
 
 FAST_RATE = 8000        # test renders: proof of life, not shipping quality
 
@@ -117,11 +117,11 @@ def test_boss_cue_renders_to_audible_audio(index):
 def mgr(monkeypatch):
     m = AudioManager(__import__("config").Settings())
     m._ntracks = 5
-    monkeypatch.setattr("music.MENU_THEMES",
+    monkeypatch.setattr("music.engine.MENU_THEMES",
                         tuple({"name": f"m{i}"} for i in range(3)))
-    monkeypatch.setattr("music.THEMES",
+    monkeypatch.setattr("music.engine.THEMES",
                         tuple({"name": f"c{i}"} for i in range(5)))
-    monkeypatch.setattr("music.LEVEL_CUES",
+    monkeypatch.setattr("music.engine.LEVEL_CUES",
                         {0: ("c0", "c1"), 1: ("c2",), 2: ("c3", "c4")},
                         raising=False)
     return m
@@ -139,7 +139,7 @@ def test_boss_pool_rides_early_in_the_build_plan(mgr):
 
 
 def test_worker_publishes_boss_keys(mgr, monkeypatch):
-    monkeypatch.setattr("music.render_track", lambda theme, rate: b"x")
+    monkeypatch.setattr("music.engine.render_track", lambda theme, rate: b"x")
     mgr._build_music_bytes()
     assert len(mgr._boss_keys) == len(music.BOSS_THEMES)
     assert all(k.startswith(BOSS_KEY) for k in mgr._boss_keys)

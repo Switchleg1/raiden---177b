@@ -29,8 +29,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 
-import music  # noqa: E402
 from audio import MIXER_RATE as RATE  # noqa: E402
+from music import engine as music  # noqa: E402
 
 OUT_DIR = ROOT / "assets" / "music" / "cues"
 

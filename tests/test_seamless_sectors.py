@@ -20,8 +20,8 @@ import pytest
 import config as C
 import terrain
 from app import App
+from app.prefetch import Prefetch, sector_key, sector_phases
 from game import SIG_LIFE_LOST, Game
-from prefetch import Prefetch, sector_key, sector_phases
 from state import State
 from terrain.handoff import HANDOFF_SECONDS, SectorHandoff
 

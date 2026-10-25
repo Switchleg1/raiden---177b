@@ -21,7 +21,8 @@ import time
 from typing import Any
 
 import config as C
-from audio_effects import (
+
+from .effect_table import (
     BOMB,
     BOSS_EXPLOSION,
     BOSS_WARN,
@@ -216,7 +217,7 @@ class AudioManager:
             self.available = False
             return False
         try:
-            import music as _music_mod
+            from music import engine as _music_mod
             self._music_ch = pygame.mixer.Channel(MUSIC_CHANNEL)
             self._ntracks = len(self._music_build_plan(_music_mod))
             self._render_in_child = True
@@ -312,7 +313,7 @@ class AudioManager:
         retry loop had nothing to play and gameplay ran silent).
         """
         try:
-            import music as _music_mod
+            from music import engine as _music_mod
             steps = self._music_build_plan(_music_mod)
             # not strict: the renderer stops yielding early on shutdown
             for (pool, key, _theme), buf in zip(
@@ -497,7 +498,7 @@ class AudioManager:
             return
         cue: str | None = None
         try:
-            import music as _music_mod
+            from music import engine as _music_mod
             ready = [k[len(LEVEL_KEY):] for k in self._level_keys]
             last = (self._last_level_key[len(LEVEL_KEY):]
                     if self._last_level_key else None)

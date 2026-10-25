@@ -21,7 +21,7 @@ import sprites  # noqa: E402
 import ui  # noqa: E402
 from entities import Enemy, Whip  # noqa: E402
 from game import Game  # noqa: E402
-from items import Item  # noqa: E402
+from game.items import Item  # noqa: E402
 
 # ---- manifest --------------------------------------------------------------
 
@@ -508,7 +508,7 @@ def test_death_clears_whip():
 
 
 def test_item_weights_include_whip():
-    from items import build_weights
+    from game.items import build_weights
     kinds, weights = build_weights()
     assert C.ItemKind.WHIP in kinds
     assert all(w > 0 for w in weights)

@@ -4,7 +4,7 @@ import random
 
 import config as C
 from game import Game
-from items import Item, build_weights, roll_item
+from game.items import Item, build_weights, roll_item
 
 
 def test_build_weights_filters_bad_entries():

@@ -9,7 +9,8 @@ from __future__ import annotations
 from typing import Any
 
 import config as C
-import physics as P
+
+from . import physics as P
 
 
 class Bullet:

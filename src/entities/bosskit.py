@@ -29,7 +29,8 @@ from collections.abc import Callable
 from typing import Any
 
 import config as C
-import physics as P
+
+from . import physics as P
 
 # Structural typing keeps this module free of an import cycle: it reads and
 # writes Enemy slots (``x, y, vx, vy, r, t, hp, max_hp, boss_shot, boss_step,

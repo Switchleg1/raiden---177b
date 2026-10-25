@@ -84,7 +84,7 @@ def _items_panel(pygame, ui, sprites, C, bank: Any, level_index: int,
     pod only proves it frames the icon when there is terrain showing through.
     """
     from game import Game
-    from items import Item
+    from game.items import Item
 
     canvas = pygame.Surface((C.LOGICAL_W, C.LOGICAL_H))
     rend = ui.Renderer(canvas, C.Settings())

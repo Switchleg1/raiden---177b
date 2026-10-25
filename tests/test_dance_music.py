@@ -10,8 +10,8 @@ silences fall on the beat.
 import array
 import math
 
-import music
-from music_content import (
+from music import engine as music
+from music.content_table import (
     BASS_LINES,
     BOSS_THEMES,
     GROOVES,
@@ -207,7 +207,7 @@ def test_the_pump_is_still_ducked_when_the_next_kick_arrives():
 
 def test_the_pump_leaves_the_drum_bus_alone():
     """A pump that ducks the kick too is a tremolo, not a sidechain."""
-    import drum_kit
+    from music import drum_kit
     mix = music._Mix(RATE, rate=RATE,
                      drums=drum_kit.kit_samples("trance", KITS["trance"], RATE))
     mix.drum("kick", 0, 1.0)

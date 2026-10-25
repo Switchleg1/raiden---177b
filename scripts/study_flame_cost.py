@@ -32,7 +32,7 @@ os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 
 import config as C  # noqa: E402
 from app import App  # noqa: E402
-from items import Item  # noqa: E402
+from game.items import Item  # noqa: E402
 from state import State  # noqa: E402
 
 

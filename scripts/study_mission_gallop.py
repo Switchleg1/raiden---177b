@@ -38,8 +38,9 @@ sys.path.insert(0, str(ROOT / "src"))
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 
 import instruments  # noqa: E402
-from drum_kit import kit_samples  # noqa: E402
-from music import KITS, _Mix  # noqa: E402
+
+from music.drum_kit import kit_samples  # noqa: E402
+from music.engine import KITS, _Mix  # noqa: E402
 
 RATE = 44100
 BPM = 150.0

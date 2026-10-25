@@ -20,11 +20,11 @@ from audio import MIXER_RATE, MUSIC_CHANNEL, AudioManager
 def mgr(monkeypatch):
     """A manager with small synthetic tables (no mixer, no rendering)."""
     m = AudioManager(C.Settings())
-    monkeypatch.setattr("music.MENU_THEMES",
+    monkeypatch.setattr("music.engine.MENU_THEMES",
                         tuple({"name": f"m{i}"} for i in range(3)))
-    monkeypatch.setattr("music.THEMES",
+    monkeypatch.setattr("music.engine.THEMES",
                         tuple({"name": f"c{i}"} for i in range(5)))
-    monkeypatch.setattr("music.LEVEL_CUES",
+    monkeypatch.setattr("music.engine.LEVEL_CUES",
                         {0: ("c0", "c1", "c2"), 1: ("c2", "c3"), 2: ("c4",)},
                         raising=False)
     return m
@@ -75,7 +75,7 @@ def converter(mgr, monkeypatch):
 
 # ------------------------------------------------------------------ planning
 def test_plan_leads_with_one_track_from_each_pool(mgr):
-    import music
+    from music import engine as music
     plan = mgr._music_build_plan(music)
     assert [p for p, _, _ in plan[:3]] == ["menu", "level", "boss"]
     pools = [p for p, _, _ in plan]
@@ -84,7 +84,7 @@ def test_plan_leads_with_one_track_from_each_pool(mgr):
 
 
 def test_plan_covers_every_cue_exactly_once(mgr):
-    import music
+    from music import engine as music
     names = _level_names(mgr._music_build_plan(music))
     assert len(names) == len(set(names)), "a cue renders twice"
     assert set(names) == {t["name"] for t in music.THEMES}
@@ -96,7 +96,7 @@ def test_plan_gives_every_sector_its_own_cue_early(mgr):
     Sector 9 must not wait behind sector 1's whole pool: the first step for
     every sector comes before any sector gets a second cue.
     """
-    import music
+    from music import engine as music
     pools = music.LEVEL_CUES
     names = _level_names(mgr._music_build_plan(music))[:len(pools)]
     # The plan shuffles each sector's pool before scheduling, so WHICH cue a sector
@@ -111,8 +111,8 @@ def test_plan_gives_every_sector_its_own_cue_early(mgr):
 
 def test_plan_survives_a_cue_name_that_does_not_resolve(mgr, monkeypatch):
     """A typo in the table costs one cue, never the soundtrack."""
-    import music
-    monkeypatch.setattr("music.LEVEL_CUES",
+    from music import engine as music
+    monkeypatch.setattr("music.engine.LEVEL_CUES",
                         {0: ("c0", "no such cue", "c1")}, raising=False)
     names = _level_names(mgr._music_build_plan(music))
     assert "no such cue" not in names
@@ -128,7 +128,7 @@ def test_worker_publishes_each_track_incrementally(no_converter, monkeypatch):
                           len(no_converter._level_keys)))
         return b"x"
 
-    monkeypatch.setattr("music.render_track", watch_render)
+    monkeypatch.setattr("music.engine.render_track", watch_render)
     no_converter._build_music_bytes()
     assert (len(no_converter._menu_keys),
             len(no_converter._level_keys)) == (3, 5)
@@ -140,7 +140,7 @@ def test_worker_publishes_each_track_incrementally(no_converter, monkeypatch):
 
 def test_level_buffers_are_keyed_by_cue_name(no_converter, monkeypatch):
     """Keys carry names, because a sector's pool is looked up by name."""
-    monkeypatch.setattr("music.render_track", lambda theme, rate: b"x")
+    monkeypatch.setattr("music.engine.render_track", lambda theme, rate: b"x")
     no_converter._build_music_bytes()
     assert "levelc0" in no_converter._level_keys
     assert "levelm0" not in no_converter._level_keys
@@ -149,7 +149,7 @@ def test_level_buffers_are_keyed_by_cue_name(no_converter, monkeypatch):
 def test_the_worker_hands_over_sounds_not_bytes(converter, monkeypatch):
     """The whole point of the worker: by the time a cue is eligible to play, the
     mixer object for it already exists and no PCM is kept alongside it."""
-    monkeypatch.setattr("music.render_track", lambda theme, rate: b"x" * 8)
+    monkeypatch.setattr("music.engine.render_track", lambda theme, rate: b"x" * 8)
     converter._build_music_bytes()
     assert converter._menu_keys and converter._level_keys
     assert converter._track_bytes == {}, "a converted cue kept its PCM too"
@@ -161,7 +161,7 @@ def test_the_worker_hands_over_sounds_not_bytes(converter, monkeypatch):
 def test_the_frame_thread_does_not_convert_a_ready_cue(converter, monkeypatch):
     """A track change must not build anything. If it does, the judder is back:
     a WAV wrap plus a decode on the thread that is drawing the frame."""
-    monkeypatch.setattr("music.render_track", lambda theme, rate: b"x")
+    monkeypatch.setattr("music.engine.render_track", lambda theme, rate: b"x")
     converter._build_music_bytes()
     key = converter._level_keys[0]
     built_before = len(converter.built)
@@ -177,7 +177,7 @@ def test_the_frame_thread_does_not_convert_a_ready_cue(converter, monkeypatch):
 def test_pcm_left_by_a_failed_conversion_is_still_playable(mgr, monkeypatch):
     """The retry path, kept on purpose: a cue the worker could not convert is
     published as PCM and converted on demand rather than lost."""
-    monkeypatch.setattr("music.render_track", lambda theme, rate: b"x")
+    monkeypatch.setattr("music.engine.render_track", lambda theme, rate: b"x")
     monkeypatch.setattr(mgr, "_make_sound",
                         lambda buf: FakeSound(buf + b"!"))
     mgr._music_stop = True
@@ -199,7 +199,7 @@ def test_one_broken_track_does_not_kill_the_playlist(no_converter, monkeypatch):
             raise RuntimeError("synth boom")
         return b"x"
 
-    monkeypatch.setattr("music.render_track", flaky)
+    monkeypatch.setattr("music.engine.render_track", flaky)
     no_converter._build_music_bytes()
     assert len(no_converter._menu_keys) == 3
     assert len(no_converter._level_keys) == 4     # only the flaky one is missing
@@ -211,11 +211,11 @@ def test_a_level_pool_may_draw_a_cue_written_for_the_menu(no_converter,
     """Cross-table pools are a feature: the planner must render the cue under
     its own sector, not skip it because it was authored for the attract loop.
     """
-    import music
-    monkeypatch.setattr("music.LEVEL_CUES", {0: ("c0", "m1")})
+    from music import engine as music
+    monkeypatch.setattr("music.engine.LEVEL_CUES", {0: ("c0", "m1")})
     assert "m1" in _level_names(
         no_converter._music_build_plan(music)), "cue dropped"
-    monkeypatch.setattr("music.render_track", lambda theme, rate: b"x")
+    monkeypatch.setattr("music.engine.render_track", lambda theme, rate: b"x")
     no_converter._music_stop = False
     no_converter._build_music_bytes()
     assert "levelm1" in no_converter._level_keys
@@ -325,7 +325,7 @@ def test_which_cue_a_run_opens_with_is_not_fixed(mgr):
     varies per process. Music is presentation: no replay depends on it, and a
     player booting the game for the hundredth time should not hear the same bar.
     """
-    import music
+    from music import engine as music
 
     firsts = set()
     for _ in range(12):

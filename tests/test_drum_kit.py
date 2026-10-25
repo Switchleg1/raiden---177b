@@ -11,9 +11,9 @@ import math
 
 import pytest
 
-import drum_kit
-import music
-from music_content import (
+from music import drum_kit
+from music import engine as music
+from music.content_table import (
     GROOVE_BOSS,
     GROOVE_BY_TEMPO,
     GROOVES,

@@ -12,6 +12,7 @@ import config as C
 import persistence as Pers
 import ui
 from audio import BOSS_KEY, LEVEL_KEY, MENU_KEY
+from audio import effect_table as sfx
 from game import (
     SIG_BOMB,
     SIG_BOSS,
@@ -144,7 +145,7 @@ class App:
         self._create_window()
         self.canvas = pygame.Surface((C.LOGICAL_W, C.LOGICAL_H))
         self.renderer = ui.Renderer(self.canvas, self.settings)
-        from prefetch import Prefetch
+        from .prefetch import Prefetch
         self.prefetch = Prefetch(bank=self.renderer.bank())
         self.renderer.set_prefetch(self.prefetch)
         self.effects.configure(shake=self.settings.screen_shake,
@@ -1116,29 +1117,29 @@ class App:
             self._set_boss_music()
         elif et == "shoot":
             if self.audio:
-                self.audio.play(_audio_mod.SHOOT)
+                self.audio.play(sfx.SHOOT)
         elif et == "missile":
             if self.audio:
-                self.audio.play(_audio_mod.MISSILE)
+                self.audio.play(sfx.MISSILE)
         elif et == "moon":
             if self.audio:
-                self.audio.play(_audio_mod.MOON)
+                self.audio.play(sfx.MOON)
         elif et == "whip_hit":
             if self.audio:
-                self.audio.play(_audio_mod.WHIP_HIT)
+                self.audio.play(sfx.WHIP_HIT)
             self.effects.add_burst(ev.get("x", 0.0), ev.get("y", 0.0),
                                    (235, 130, 255), 3)
         elif et == "flame_hit":
             if self.audio:
-                self.audio.play(_audio_mod.FLAME_HIT)
+                self.audio.play(sfx.FLAME_HIT)
             self.effects.add_burst(ev.get("x", 0.0), ev.get("y", 0.0),
                                    (255, 150, 62), 3)
         elif et == "medal":
             if self.audio:
-                self.audio.play(_audio_mod.MEDAL)
+                self.audio.play(sfx.MEDAL)
         elif et == "enemy_killed":
             if self.audio:
-                self.audio.play(_audio_mod.EXPLOSION)
+                self.audio.play(sfx.EXPLOSION)
             col = tuple(ev.get("color", (200, 200, 200)))[:3]
             x, y = ev.get("x", 0.0), ev.get("y", 0.0)
             tier = ui.EXPLOSION_TIER.get(ev.get("kind", "grunt"),
@@ -1147,11 +1148,11 @@ class App:
             self.effects.add_burst(x, y, col, 6)
         elif et == "boss_spawn":
             if self.audio:
-                self.audio.play(_audio_mod.BOSS_WARN)
+                self.audio.play(sfx.BOSS_WARN)
             self.effects.do_shake(4.0)
         elif et == "boss_down":
             if self.audio:
-                self.audio.play(_audio_mod.BOSS_EXPLOSION)
+                self.audio.play(sfx.BOSS_EXPLOSION)
             self.effects.do_shake(8.0)
             self.effects.do_screen_flash(0.5)
             bx = ev.get("x", C.LOGICAL_W / 2)
@@ -1160,12 +1161,12 @@ class App:
             self.effects.add_burst(bx, by, (255, 220, 140), 40)
         elif et == SIG_BOMB:
             if self.audio:
-                self.audio.play(_audio_mod.BOMB)
+                self.audio.play(sfx.BOMB)
             self.effects.do_screen_flash(0.85)
             self.effects.do_shake(6.0)
         elif et == SIG_LIFE_LOST:
             if self.audio:
-                self.audio.play(_audio_mod.LIFE_LOST)
+                self.audio.play(sfx.LIFE_LOST)
             self.effects.do_shake(7.0)
             self.effects.add_explosion(self.game.player.x,
                                        self.game.player.y, "explosion_mid")
@@ -1175,7 +1176,7 @@ class App:
                                    1.2, "ready")
         elif et == SIG_LEVEL_CLEAR:
             if self.audio:
-                self.audio.play(_audio_mod.LEVEL_COMPLETE)
+                self.audio.play(sfx.LEVEL_COMPLETE)
             if self.game.is_final_level():
                 self._begin_transition("SECTOR CLEAR", "All sectors down!",
                                        1.4, "victory")
@@ -1185,7 +1186,7 @@ class App:
                                        1.2, "next_level")
         elif et == SIG_GAME_OVER:
             if self.audio:
-                self.audio.play(_audio_mod.GAME_OVER)
+                self.audio.play(sfx.GAME_OVER)
             self.effects.add_explosion(self.game.player.x,
                                        self.game.player.y, "explosion_big")
             self.effects.add_burst(self.game.player.x, self.game.player.y,
@@ -1199,10 +1200,10 @@ class App:
                 # hear the reward.
                 self.prefetch.request_art("shot_moon")
             if self.audio:
-                self.audio.play(_audio_mod.POWERUP)
+                self.audio.play(sfx.POWERUP)
         elif et == SIG_HAZARD:
             if self.audio:
-                self.audio.play(_audio_mod.HAZARD)
+                self.audio.play(sfx.HAZARD)
             self.effects.do_shake(5.0)
         return et in (SIG_LIFE_LOST, SIG_LEVEL_CLEAR, SIG_GAME_OVER)
 
@@ -1373,7 +1374,7 @@ class App:
     def _sfx(self, *, nav: bool = False) -> None:
         if not self.audio:
             return
-        self.audio.play(_audio_mod.MENU_NAV if nav else _audio_mod.MENU_ACTIVATE)
+        self.audio.play(sfx.MENU_NAV if nav else sfx.MENU_ACTIVATE)
 
     # ------------------------------------------------------------- main loop
     def _write_seam_debug(self) -> None:
@@ -1698,14 +1699,6 @@ class App:
         except Exception:
             pass
         log.info("shutdown clean")
-
-
-def _load_audio_mod():
-    import audio
-    return audio
-
-
-_audio_mod = _load_audio_mod()
 
 
 def main(argv: list[str] | None = None) -> int:

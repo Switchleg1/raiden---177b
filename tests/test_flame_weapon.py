@@ -32,7 +32,7 @@ import terrain  # noqa: E402
 import ui  # noqa: E402
 from entities import Enemy, Flame, FlameThrower  # noqa: E402
 from game import Game  # noqa: E402
-from items import Item  # noqa: E402
+from game.items import Item  # noqa: E402
 
 DT = C.SIM_DT
 

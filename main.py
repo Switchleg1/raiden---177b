@@ -15,6 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
+
 def _run(argv: list[str]) -> int:
     from app import main  # imports pygame, so it can fail with a missing dep
 

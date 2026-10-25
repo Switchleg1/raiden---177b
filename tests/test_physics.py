@@ -3,7 +3,7 @@
 import math
 
 import config as C
-import physics as P
+from entities import physics as P
 
 
 class Obj:

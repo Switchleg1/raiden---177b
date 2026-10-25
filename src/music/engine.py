@@ -23,10 +23,10 @@ import random
 from collections.abc import Sequence
 from typing import Any
 
-import drum_kit
-import instruments
 from audio import MIXER_RATE as RATE
-from music_content import (
+
+from . import drum_kit, instruments
+from .content_table import (
     BASS,
     BASS_LINES,
     BOSS_THEMES,

@@ -5,9 +5,9 @@ import math
 import random
 
 import config as C
-import physics as P
 
 from . import bosskit
+from . import physics as P
 
 
 class Enemy:

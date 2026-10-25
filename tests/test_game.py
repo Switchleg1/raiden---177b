@@ -12,7 +12,7 @@ from game import (
     SIG_LIFE_LOST,
     Game,
 )
-from items import Item
+from game.items import Item
 
 DT = C.SIM_DT
 
@@ -84,7 +84,7 @@ def test_ground_spawns_stop_the_clock():
 
 
 def test_a_release_waits_when_the_field_is_already_busy():
-    from game import FIELD_SOFT_CAP
+    from game.model import FIELD_SOFT_CAP
     g = make_game()
     for _ in range(FIELD_SOFT_CAP):
         g.release("grunt", 300.0 + (_ % 6) * 30.0, 1, "single")

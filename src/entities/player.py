@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import config as C
-import physics as P
+
+from . import physics as P
 
 
 class Player:

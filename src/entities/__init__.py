@@ -8,7 +8,8 @@ from __future__ import annotations
 
 from .bullet import Bullet
 from .enemy import Enemy
-from .flame import Flame, FlameThrower
+from .flame import Flame
+from .flame_thrower import FlameThrower
 from .player import Player
 from .whip import Whip
 
