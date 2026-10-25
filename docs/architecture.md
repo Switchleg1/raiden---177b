@@ -87,7 +87,8 @@ Every package below keeps one class (or one topic) per file; its
 
 ```
 src/
-  app/         app.py · settings_rows.py
+  app/         app.py · settings_rows.py · prefetch.py · signal_fx.py ·
+               signal_table.py · control_table.py · howto_table.py
   config/      app_info · screen · sim · scroll · player · weapons · enemy_kind ·
                enemy_spec · enemy_stats · item_kind · item_rules ·
                stage_theme · theme_phase · level_spec · levels · palette ·
