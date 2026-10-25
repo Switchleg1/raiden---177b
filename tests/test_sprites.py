@@ -25,6 +25,7 @@ from items import Item  # noqa: E402
 
 # ---- manifest --------------------------------------------------------------
 
+
 def test_manifest_wellformed():
     for name, meta in sprites.SPRITES.items():
         cw, ch = meta["cell"]

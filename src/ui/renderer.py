@@ -106,9 +106,6 @@ class Renderer:
         if level_obj is not None:
             level_obj.start()
 
-    def level_progress(self) -> float:
-        return 0.0 if self._level is None else self._level.progress()
-
     # ---- terrain (sector backdrop; replaces the starfield in-game) --------
     def set_terrain(self, level: Any, seed: int = 1,
                     track: Any = None) -> None:
@@ -146,7 +143,6 @@ class Renderer:
     def _key_of(level: Any, seed: int) -> Any:
         import terrain
         return terrain.sector_key(terrain.sector_phases(level), seed)
-
 
     def handoff_terrain(self, level: Any, seed: int = 1,
                         dur: float | None = None, track: Any = None) -> bool:

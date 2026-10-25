@@ -338,6 +338,7 @@ def test_a_neighborhood_lane_holds_houses_on_both_sides():
                 # vertices - drives end at a point along the lane). The 90 px slack
                 # this used to allow counted the houses of a crossing street at every
                 # junction as this street's frontage.
+
                 def on_path(path: list, px: float, py: float) -> float:
                     out = 1e9
                     for i in range(len(path) - 1):

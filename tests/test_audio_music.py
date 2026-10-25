@@ -199,7 +199,6 @@ def test_one_broken_track_does_not_kill_the_playlist(no_converter, monkeypatch):
             raise RuntimeError("synth boom")
         return b"x"
 
-
     monkeypatch.setattr("music.render_track", flaky)
     no_converter._build_music_bytes()
     assert len(no_converter._menu_keys) == 3

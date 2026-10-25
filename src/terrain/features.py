@@ -30,8 +30,6 @@ from .siteplan import CH, CW, SitePlan, _in_poly
 from .theme_table import ROCK
 from .tilekit import TILE, TileKit
 
-_TILED: dict[str, Any] = {}          # material tiled to canvas size, cached
-_ARR: dict[str, Any] = {}            # the same, as float32 numpy (W,H,3)
 _TILE3: dict[str, Any] = {}          # one material tile as uint8 (TILE,TILE,3)
 
 # How far a mask may reach beyond the window it was painted for, in painted pixels.
@@ -108,9 +106,6 @@ class Plane:
         self._dirty = True
         return self._layer
 
-    def touch(self) -> None:
-        self._dirty = True
-
     def touch_box(self, x0: float, y0: float, x1: float, y1: float) -> None:
         """Register where a stamp or stroke landed, so the fold-in only has to
         read that part of the sprite layer."""
@@ -183,20 +178,6 @@ def _numpy() -> Any:
         return None
 
 
-def _tiled(kit: TileKit, mat: str) -> Any:
-    """A canvas-sized surface of one material, cached by name."""
-    import pygame
-    key = mat
-    if key not in _TILED:
-        surf = pygame.Surface((CW, CH))
-        tile = kit.material(mat)
-        for y in range(0, CH, TILE):
-            for x in range(0, CW, TILE):
-                surf.blit(tile, (x, y))
-        _TILED[key] = surf
-    return _TILED[key]
-
-
 def _tile3(kit: TileKit, mat: str, pitch: int = 0) -> Any:
     """One material tile as uint8 (x, y, 3), cached. Pitch 0 means the bake pitch.
 
@@ -243,18 +224,6 @@ def _view(kit: TileKit, mat: str, plane: Plane) -> Any:
         v = np.ascontiguousarray(big[ox:ox + plane.w, oy:oy + plane.h, :])
         _VIEWS[key] = v
     return v
-
-
-def _mat_array(kit: TileKit, mat: str) -> Any:
-    """The canvas-sized material as float32 numpy (W,H,3), cached. Filling a
-    mask and shading a relief field both need the same material as numbers, and
-    tiling it once per material is why a map bakes in a second, not a minute."""
-    import pygame
-    np = _numpy()
-    if mat not in _ARR:
-        _ARR[mat] = np.asarray(pygame.surfarray.array3d(
-            _tiled(kit, mat)), dtype=np.float32)
-    return _ARR[mat]
 
 
 def _blur(a: Any, passes: int) -> Any:
@@ -514,16 +483,6 @@ def _softness(plane: Any, passes: int) -> int:
     which is an appearance regression wearing the costume of a performance change.
     """
     return max(1, int(round(passes / max(1, getattr(plane, "scale", 1)))))
-
-
-def _paste(mask: Any, painted: Any, feather: int) -> Any:
-    import pygame
-    np = _numpy()
-    (x0, y0, x1, y1), surf = painted
-    m = np.asarray(pygame.surfarray.array3d(surf))[:, :, 0].astype(np.float32)
-    m = _feather(m * (1.0 / 255.0), feather)
-    mask[x0:x1, y0:y1] = np.maximum(mask[x0:x1, y0:y1], m)
-    return mask
 
 
 def _poly_mask(poly: list[tuple[float, float]], plane: Plane,
@@ -794,6 +753,7 @@ def _frand(plan: SitePlan, index: int, salt: int) -> random.Random:
     jitter, every time, in every window that shows the feature.
     """
     return random.Random(plan.seed * 1_000_003 + index * 4093 + salt)
+
 
 def _hash01(ix: Any, iy: Any, seed: int) -> Any:
     """A value in 0..1 for each integer lattice point, from its coordinates alone.

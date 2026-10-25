@@ -36,7 +36,6 @@ pygame.display.init()
 pygame.display.set_mode((64, 64))
 
 
-
 def main(seconds: float) -> int:
     from app import App
 

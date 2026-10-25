@@ -112,7 +112,7 @@ def plan_sector(theme: str, seed: int, length: int,
         # Polled for the same reason painting is: a Level can be stopped while its
         # sector is still being thought about, and a design nobody will draw is not
         # worth a thread that outlives `Level.stop()`. Returning None tells the
-        # caller the sector was taken down mid-design; `Level.ensure` treats it as
+        # caller the sector was taken down mid-design; `Level.build` treats it as
         # "not designed yet", which is exactly what it is.
         while True:
             try:

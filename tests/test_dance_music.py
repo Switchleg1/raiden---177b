@@ -327,7 +327,6 @@ def test_the_dance_cues_are_upbeat_by_table_not_by_wish():
 def test_dance_cues_are_deterministic():
     for name in DANCE_CUES[:3]:
         first = _pcm(_by_name(name)).tobytes()
-        music._TRACKS_CACHE.clear()
         assert _pcm(_by_name(name)).tobytes() == first, f"{name} moved"
 
 

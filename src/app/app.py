@@ -818,7 +818,7 @@ class App:
             # contiguous-from-zero count can sit at nought while the screen is
             # completely covered, and a hold reading it would give up on ground
             # that was arriving perfectly well.
-            done = sum(int(getattr(s, "painted_count", s.frontier)())
+            done = sum(int(s.painted_count())
                        for s in strips.values())
         except (AttributeError, RuntimeError, ValueError):
             return False

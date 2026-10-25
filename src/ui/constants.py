@@ -10,8 +10,6 @@ from sprites.manifest import SPRITES
 MAX_PARTICLES = 160
 
 
-
-
 MAX_EXPLOSIONS = 14
 
 

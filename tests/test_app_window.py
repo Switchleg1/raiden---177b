@@ -45,6 +45,7 @@ def _patched(app, monkeypatch):
     monkeypatch.setattr(app, "_resize_window_px",
                         lambda size: calls["resize"].append(size) or True)
     real = pygame.display.set_mode
+
     def fake_set_mode(size=(0, 0), flags=0, *a, **k):
         calls["set_mode"].append((size, flags))
         return real(size, flags, *a, **k)
@@ -66,6 +67,7 @@ def test_toggle_error_reverts_mode_never_recreates(app, monkeypatch):
     """A failed toggle must roll the setting back; recreating the display
     via set_mode is forbidden at runtime (frozen-screen regression)."""
     calls = _patched(app, monkeypatch)
+
     def boom():
         raise pygame.error("no toggle here")
     monkeypatch.setattr(pygame.display, "toggle_fullscreen", boom)

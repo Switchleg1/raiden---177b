@@ -21,6 +21,7 @@ from .tilekit import (
 # helpers (periodic in y over CH; x is canvas-wide, not wrapped)
 # ---------------------------------------------------------------------------
 
+
 def _wave_y(y: float, terms: list[tuple[int, float, float]]) -> float:
     """Periodic offset: INTEGER-frequency sine terms over the CH period."""
     f = y / CH
@@ -144,6 +145,7 @@ def _fade(src: Any, f: float) -> Any:
     arr = np.dstack([arr, (alpha * f).astype(np.uint8)])
     out = pygame.image.fromstring(arr.tobytes(), src.get_size(), "RGBA")
     return out.convert_alpha()
+
 
 def _road_v(canvas: Any, k: TileKit, mat: str, center_x: float,
             terms: list[tuple[int, float, float]], rng: random.Random,

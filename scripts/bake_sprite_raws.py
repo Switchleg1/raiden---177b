@@ -56,8 +56,6 @@ def load(path: Path) -> np.ndarray:
     return np.asarray(im.convert("RGBA"), dtype=np.int16)
 
 
-
-
 def split(path: Path) -> list[tuple[str, np.ndarray]]:
     """One raw file -> [(stem, pixels), ...].
 

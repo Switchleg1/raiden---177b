@@ -74,10 +74,6 @@ class Encounter:
     count: int = 1
     form: str = "single"
 
-    def to_logical(self, scale: int = SS) -> tuple[float, float]:
-        """Position in the playfield's own units."""
-        return (self.x / scale, self.y / scale)
-
 
 def _pick(spec: Any, rng: random.Random) -> EnemyKind:
     """A kind from the sector's roster, at its sector's weights.

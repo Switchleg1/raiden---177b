@@ -375,6 +375,7 @@ def test_the_stab_holds_full_level_until_it_is_cut():
     """No fade in the body: the level at four fifths in is the level at the top."""
     sig = I.renderers()["stab"](F, 1.0, RATE)
     n = len(sig)
+
     def at(a, b):
         seg = sig[int(a * n):int(b * n)]
         return _rms(seg)

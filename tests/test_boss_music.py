@@ -112,14 +112,6 @@ def test_boss_cue_renders_to_audible_audio(index):
     assert rms(pcm) > 0.02, "boss cue is inaudible"
 
 
-def test_build_bosses_is_cached_and_complete():
-    first = music.build_bosses(FAST_RATE)
-    assert len(first) == len(music.BOSS_THEMES)
-    assert all(first), "every boss cue must render"
-    assert music.build_bosses(FAST_RATE) is first, "cache miss on second call"
-    assert music.build_boss(FAST_RATE) == first[0]
-
-
 # ---------------------------------------------------------------- pool plan
 @pytest.fixture()
 def mgr(monkeypatch):

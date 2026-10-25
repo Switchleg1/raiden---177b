@@ -52,6 +52,11 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "C4"]
+# Blank-line rules (E30x) are preview-only in ruff; they are enabled explicitly so
+# removing a definition cannot leave a hole of four blank lines behind it.
+extend-select = ["E301", "E302", "E303", "E305", "E306"]
+preview = true
+explicit-preview-rules = true
 ignore = ["B008"]
 
 [tool.mypy]

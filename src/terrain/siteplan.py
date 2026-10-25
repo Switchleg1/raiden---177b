@@ -202,7 +202,6 @@ class Green:
 # ---------------------------------------------------------------------------
 
 
-
 def prop_art(kind: str) -> str:
     """The prop art a plan kind is drawn with."""
     return PROP_OF.get(kind, kind)
@@ -613,11 +612,6 @@ def _seg_buckets_range(path: list[Point]) -> tuple[dict[int, list[int]], int, in
 
 _SEG_BAND = 160.0            # bake px of y per segment bucket
 _SEG_INDEX: dict[int, tuple] = {}
-
-
-def _seg_index(path: list[Point]) -> list[tuple[float, float, list[int]]]:
-    """The path's segments as (y_lo, y_hi, indices), ordered by y_lo."""
-    return _seg_cache(path)[1]
 
 
 def _seg_buckets(path: list[Point]) -> dict[int, list[int]]:
@@ -1601,10 +1595,6 @@ def _near_hit(road: Road) -> float:
     return best_s
 
 
-def _dist_path_max(path: list[Point], water: list[Water]) -> float:
-    return 1.0
-
-
 def _city_grid(g: Geom, water: list[Water], rng: random.Random) -> list[Road]:
     """City: a street grid, because that is what a city is. Two main streets and
     their cross streets, with a bridge if the grid meets water."""
@@ -1821,6 +1811,8 @@ def _shore_clear(plan: SitePlan, x: float, y: float, scale: float) -> bool:
         if _in_poly(x, y, w.path) or _near_path(plan.geom, x, y, w.path, reach):
             return False
     return True
+
+
 def _near_building(plan: SitePlan, x: float, y: float, dist: float) -> bool:
     """Foliage within arm's reach of a house reads as scrub swallowing the
     village, which is exactly what the old maps did."""
@@ -1972,14 +1964,6 @@ def place_building(plan: SitePlan, kind: str, x: float, y: float,
     lift_vegetation(plan, rect)
     _claim_rect(plan, rect)
     return b
-
-
-def along_road(road: Road, s: float) -> tuple[Point, float]:
-    """A point and tangent part-way along a road, `s` in ARC px from its start."""
-    total = sum(math.hypot(road.path[i + 1][0] - road.path[i][0],
-                           road.path[i + 1][1] - road.path[i][1])
-                for i in range(len(road.path) - 1))
-    return _along(road.path, (s / total) if total else 0.0)
 
 
 def _fields(spec: SiteSpec, plan: SitePlan, rng: random.Random) -> None:

@@ -76,10 +76,6 @@ def point_in_box(px: float, py: float,
 # ---------------------------------------------------------------------------
 # Field helpers
 # ---------------------------------------------------------------------------
-def in_playfield(x: float, y: float, margin: float) -> bool:
-    """True while an entity centre is within the play area plus ``margin``."""
-    return (C.FIELD_LEFT - margin <= x <= C.FIELD_RIGHT + margin
-            and C.FIELD_TOP - margin <= y <= C.FIELD_BOTTOM + margin)
 
 
 def offscreen_below(y: float, margin: float) -> bool:
@@ -92,5 +88,5 @@ def offscreen_above(y: float, margin: float) -> bool:
 
 __all__ = [
     "advance", "clamp", "to_deg", "from_deg", "circle_hit", "point_in_box",
-    "in_playfield", "offscreen_below", "offscreen_above",
+    "offscreen_below", "offscreen_above",
 ]

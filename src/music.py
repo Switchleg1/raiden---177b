@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import math
 import random
-import threading
 from collections.abc import Sequence
 from typing import Any
 
@@ -284,14 +283,6 @@ class _Mix:
             iv = int(max(-1.0, min(1.0, v * g)) * 32767)
             out += (iv & 0xFFFF).to_bytes(2, "little", signed=False)
         return bytes(out)
-
-
-
-
-
-
-
-
 
 
 # --- drum bar rendering ----------------------------------------------------
@@ -644,9 +635,6 @@ def render_track(theme: dict, rate: int = RATE) -> bytes:
 # is a multi-second loop) and the values are immutable, so every App instance
 # and every test reuses the same buffers instead of re-rendering. The App's
 # background thread reads through these, so only the first caller pays.
-_TRACKS_CACHE: dict[int, dict[str, bytes]] = {}
-_MENU_PL_CACHE: dict[int, tuple[bytes, ...]] = {}
-_BUILD_LOCK = threading.Lock()
 
 
 # --------------------------------------------------------------------------
@@ -711,68 +699,6 @@ def pick_level_cue(level_index: int, ready: Sequence[str],
     return rng.choice(choices)
 
 
-def build_cues(rate: int = RATE) -> dict[str, bytes]:
-    """Build (or return cached) every level cue, keyed by cue name."""
-    cached = _TRACKS_CACHE.get(rate)
-    if cached is not None:
-        return cached
-    with _BUILD_LOCK:
-        cached = _TRACKS_CACHE.get(rate)
-        if cached is None:
-            cached = {str(t["name"]): render_track(t, rate) for t in THEMES}
-            _TRACKS_CACHE[rate] = cached
-    return cached
-
-
-def build_menu_playlist(rate: int = RATE) -> tuple[bytes, ...]:
-    """Build (or return cached) every calm, drumless menu track (the playlist)."""
-    cached = _MENU_PL_CACHE.get(rate)
-    if cached is not None:
-        return cached
-    with _BUILD_LOCK:
-        cached = _MENU_PL_CACHE.get(rate)
-        if cached is None:
-            cached = tuple(render_track(t, rate) for t in MENU_THEMES)
-            _MENU_PL_CACHE[rate] = cached
-    return cached
-
-
-def build_menu(rate: int = RATE) -> bytes:
-    """Build the calm, drumless menu / attract loop (playlist[0])."""
-    return build_menu_playlist(rate)[0]
-
-
-_BOSS_CACHE: dict[int, tuple[bytes, ...]] = {}
-
-
-def build_bosses(rate: int = RATE) -> tuple[bytes, ...]:
-    """Build every boss cue once per sample rate (thread-safe, cached).
-
-    The App renders these lazily on a background thread and picks a random one
-    per boss, so a sector's fight does not always sound the same.
-    """
-    cached = _BOSS_CACHE.get(rate)
-    if cached is not None:
-        return cached
-    with _BUILD_LOCK:
-        cached = _BOSS_CACHE.get(rate)
-        if cached is not None:
-            return cached
-        try:
-            tracks = tuple(render_track(t, rate=rate) for t in BOSS_THEMES)
-        except Exception:
-            tracks = ()
-        _BOSS_CACHE[rate] = tracks
-        return tracks
-
-
-def build_boss(rate: int = RATE) -> bytes:
-    """Build the first boss cue (single-track callers / tests)."""
-    tracks = build_bosses(rate)
-    return tracks[0] if tracks else b""
-
-
 __all__ = ["THEMES", "BOSS_THEMES", "MENU_THEMES", "MENU_THEME", "LEVEL_CUES",
-           "render_track", "build_cues", "build_menu", "build_menu_playlist",
-           "build_bosses", "build_boss", "cue_names", "theme_by_name",
+           "render_track", "cue_names", "theme_by_name",
            "level_cues", "levels_for_cue", "pick_level_cue"]

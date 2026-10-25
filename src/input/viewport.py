@@ -18,7 +18,6 @@ class Viewport:
     h: int
 
 
-
 def map_mouse_to_logical(win_x: int, win_y: int, view: Viewport,
                          log_w: int = C.LOGICAL_W,
                          log_h: int = C.LOGICAL_H) -> tuple[int, int]:

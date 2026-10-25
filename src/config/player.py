@@ -26,7 +26,6 @@ PLAYER_BANK_HARD = 200.0      # |vx| above this banks it fully
 
 PLAYER_SPRITE_SCALE = 0.8     # display scale of the 64x72 craft art (hitbox
 
-
                               # unchanged; keeps it next to 32-52 px enemies)
 PLAYER_INVULN = 2.0           # invulnerable seconds after (re)spawn
 

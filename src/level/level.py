@@ -332,26 +332,6 @@ class Level:
                     return False
         return True
 
-    def ensure(self, y_logical: float) -> int:
-        """Paint synchronously whatever the camera at `y` can still see.
-
-        The safety net, not the normal path: the first frames of the first
-        sector, and any sector that somehow starts behind its painters. Returns
-        how many slices it had to draw.
-        """
-        y = y_logical * 2
-        done = 0
-        if not self.strips:
-            self.build()                    # nothing else can answer this ask
-        for strip in self.strips.values():
-            while True:
-                i = strip.missing_at(y)
-                if i < 0 or self._stop.is_set():
-                    break
-                strip.paint(i, self._stop)
-                done += 1
-        return done
-
     # ---------------------------------------------------------------- scroll
     def update(self, dt: float, scale: float = 1.0) -> None:
         from terrain.common import FAR_SPEED
