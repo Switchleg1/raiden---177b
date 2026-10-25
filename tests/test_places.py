@@ -171,12 +171,19 @@ def test_a_highway_keeps_its_corridor_clear():
 
 
 def test_ink_size_follows_scale_and_facing():
-    """The footprint helper must be the art at that scale, turned."""
-    w, h = ink_size("house", 1.0, 0)
+    """The footprint helper must be the art at that scale, turned.
+
+    "Turned" means turned so its FRONT faces the facing: the house art is drawn
+    with its door at the bottom, so facing 90 (down, the plan's y-down degrees) is
+    the art as drawn, and facing 0 or 180 is a quarter turn. (This test used to
+    assert facing 0 was the art as drawn, which encoded the bug that turned every
+    long building sideways to its street.)
+    """
+    w, h = ink_size("house", 1.0, 90)
     assert (w, h) == INK["house_top"], "the plan kind does not resolve to its art"
-    w90, h90 = ink_size("house", 1.0, 90)
+    w90, h90 = ink_size("house", 1.0, 0)
     assert (w90, h90) == (h, w), "a quarter turn does not swap the footprint"
-    ws, hs = ink_size("house", 0.5, 0)
+    ws, hs = ink_size("house", 0.5, 90)
     assert abs(ws - w * 0.5) < 1e-6 and abs(hs - h * 0.5) < 1e-6
     assert prop_art("barn") == "barn_red", (
         "a plan kind with no art alias is drawn as the fallback sprite, which is "

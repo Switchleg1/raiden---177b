@@ -105,6 +105,11 @@ class PlaceSpec:
     kinds: tuple[str, ...] = ()
     #: how many candidate anchors to score before giving up on one
     tries: int = 24
+    #: kinds of place this one keeps away from, and by how far beyond their own
+    #: ground (bake px). A lake does not belong in a subdivision: the estate is
+    #: houses facing streets, and still water inside it read as a park pond at
+    #: best and as a flooded estate at worst.
+    shun: tuple[tuple[str, float], ...] = ()
     #: who lays first. A neighborhood needs the roadside more than a campground
     #: needs a clearing, so it asks first; sorted (order, name) keeps that
     #: deterministic instead of dependent on dict or theme-tuple order.
@@ -117,25 +122,30 @@ VOCABULARY: dict[str, PlaceSpec] = {
         name="neighborhood", per=(2.0, 3.0), reach=430.0, keep=210.0, order=0,
         against="road",
         against_max=260.0,
-        kinds=("house", "house", "house", "cabin")),
+        kinds=("house_suburb", "house_suburb_tan", "house_suburb_brown",
+               "house_suburb_slate")),
     "highway": PlaceSpec(
         # order -1: a highway forbids more ground than anything else in the
         # vocabulary, so it asks first. Laid after a neighborhood it drove through
         # the houses that were already standing there - the corridor test guards
         # NEW buildings, not old ones - and a building ended up 14 px inside the
         # carriageway.
-        name="highway", per=(1.0, 1.5), reach=240.0, keep=150.0, order=-1,
+        # one every twelve-plus screens: a highway is a through-route, and at one
+        # per screen three of them criss-crossed a four-screen city and took most of
+        # its blocks
+        name="highway", per=(12.0, 16.0), reach=240.0, keep=150.0, order=-1,
         needs=("flat", "offroad"),
         kinds=("depot", "container", "pylon")),
     "lake": PlaceSpec(
         name="lake", per=(2.5, 4.0), reach=330.0, keep=210.0,
         needs=("flat", "offroad"),
-        kinds=("shed",)),
+        kinds=("shed",), shun=(("neighborhood", 520.0), ("downtown", 600.0))),
     "woodland": PlaceSpec(
         # reach 760 and keep 340: a forest has an EDGE, and the edge is what makes
         # it a forest rather than a density setting applied to the whole map
         name="woodland", per=(2.5, 4.0), reach=760.0, keep=340.0, order=2,
-        needs=("offroad",), kinds=("deer_stand",)),
+        needs=("offroad",), kinds=("deer_stand",),
+        shun=(("neighborhood", 700.0), ("downtown", 800.0))),
     "campground": PlaceSpec(
         name="campground", per=(3.0, 4.5), reach=250.0, keep=140.0, order=3,
         needs=("flat", "dry"),
@@ -164,6 +174,7 @@ class _Claim:
     x: float
     y: float
     keep: float = 0.0
+    name: str = ""
 
 
 @dataclass
@@ -293,6 +304,8 @@ def _choose(plan: SitePlan, claims: list[_Claim], ps: PlaceSpec,
         # farmed: the reservation still applies afterwards.
         if not _free(plan, claims, x, y, min(ps.reach * 0.5, 150.0)):
             continue
+        if _shunned(claims, ps, x, y, ps.keep):
+            continue
         site = _Site(x, y)
         score = 0.0
         if ps.against == "road":
@@ -360,10 +373,20 @@ def _site_from_road(plan: SitePlan, claims: list[_Claim], ps: PlaceSpec,
     return None
 
 
+def _shunned(claims: list[_Claim], ps: PlaceSpec, x: float, y: float,
+             r: float) -> bool:
+    """Would a place of this kind stand too near a kind it keeps away from?"""
+    for name, gap in ps.shun:
+        for c in claims:
+            if c.name == name and math.hypot(c.x - x, c.y - y) < c.keep + gap + r:
+                return True
+    return False
+
+
 def _claim(claims: list[_Claim], plan: SitePlan, site: _Site, ps: PlaceSpec,
            name: str) -> None:
     """Reserve a place's ground so the passes after it keep out."""
-    claims.append(_Claim(site.x, site.y, ps.keep))
+    claims.append(_Claim(site.x, site.y, ps.keep, name))
     g = plan.geom
     if plan.place is None:
         plan.place = [[False] * g.cols for _ in range(g.rows)]
@@ -664,6 +687,29 @@ def _ellipse(x: float, y: float, rx: float, ry: float, n: int = 9,
     return pts
 
 
+def _shore(x: float, y: float, rx: float, ry: float, rng: random.Random,
+           n: int = 44) -> list[Point]:
+    """A natural shoreline: an ellipse whose radius wanders in a few long
+    harmonics - bays and points - plus a little short-scale ragging.
+
+    `_ellipse` with ten vertices and per-vertex wobble is a decagon with dents in
+    it, and that is what every lake looked like from the air: straight sides and
+    corners. A real shore is smooth at the scale you see it and irregular at the
+    scale of the whole lake.
+    """
+    harm = [(2, rng.uniform(0.05, 0.11), rng.uniform(0, math.tau)),
+            (3, rng.uniform(0.03, 0.08), rng.uniform(0, math.tau)),
+            (5, rng.uniform(0.01, 0.04), rng.uniform(0, math.tau)),
+            (9, rng.uniform(0.005, 0.015), rng.uniform(0, math.tau))]
+    pts = []
+    for i in range(n):
+        a = (i / n) * math.tau
+        k = 1.0 + sum(amp * math.sin(f * a + ph) for f, amp, ph in harm)
+        pts.append((x + math.cos(a) * rx * k, y + math.sin(a) * ry * k))
+    pts.append(pts[0])
+    return pts
+
+
 def _lane_from(plan: SitePlan, at: Point, tang: float, side: float,
                length: float, rng: random.Random, wind: float = 0.0) -> list[Point]:
     """A lane leaving a road at `at`, bending gently away from it.
@@ -867,10 +913,23 @@ def _row_candidates(plan: SitePlan, rng: random.Random, lane: list[Point],
                 "y": py + ny_ * (front + depth * 0.5),
                 "px": px, "py": py,
                 "w": w, "h": h, "along": along, "depth": depth,
-                "nx": nx_, "ny": ny_, "tang": tang,
+                "nx": nx_, "ny": ny_, "tang": tang, "side": side,
             })
             s += along + AIR + rng.uniform(6.0, 26.0)
     return out
+
+
+def _near_other_road(plan: SitePlan, x: float, y: float, lane: list[Point]) -> bool:
+    """Is this house on (or at the edge of) a road other than its own lane?
+
+    A lane hanging off a highway must not put a front door on the carriageway:
+    a neighborhood house once stood 14 px inside a 29 px highway, which a corridor
+    test that only ever looked at the lane being built could not see. Asked at
+    PROBE time as well as at build time, so what a street is scored on is what
+    gets built on it.
+    """
+    return any(_near_path(plan.geom, x, y, other.path, other.width * 0.5 + 30.0)
+               for other in plan.roads if other.path is not lane)
 
 
 def _row_place(plan: SitePlan, rng: random.Random, sp: Road, lane: list[Point],
@@ -885,9 +944,7 @@ def _row_place(plan: SitePlan, rng: random.Random, sp: Road, lane: list[Point],
         # front door on the carriageway. Measured: a neighborhood house stood 14 px
         # inside a 29 px highway, which the corridor test could not see because it
         # only ever looked at the lane being built.
-        if any(_near_path(plan.geom, hx, hy, other.path,
-                         other.width * 0.5 + 30.0)
-               for other in plan.roads if other.path is not lane):
+        if _near_other_road(plan, hx, hy, lane):
             continue
         b = place_building(plan, c["kind"], hx, hy, (c["px"], c["py"]),
                            c["scale"], group,
@@ -931,7 +988,8 @@ def _row_place(plan: SitePlan, rng: random.Random, sp: Road, lane: list[Point],
 def _build_street(plan: SitePlan, rng: random.Random, lane: list[Point],
                   kinds: tuple[str, ...], scale: tuple[float, float],
                   front: float, group: str, lots: str | None,
-                  road_kind: str, head: bool, fits_min: int = 2) -> int:
+                  road_kind: str, head: bool, fits_min: int = 2,
+                  both_sides: bool = True) -> int:
     """One street: pave it if it holds a street, and put houses on both sides.
 
     `front` (the setback) and `scale` are chosen ONCE for the whole neighborhood,
@@ -949,13 +1007,20 @@ def _build_street(plan: SitePlan, rng: random.Random, lane: list[Point],
     CORRIDOR = 13.0 * 0.5 + 6.0
     marked = _mark_corridor(plan, lane, CORRIDOR)
     fits = [c for c in cands
-            if place_building(plan, c["kind"], c["x"], c["y"],
-                              (c["px"], c["py"]), c["scale"], group,
-                              drive=[(c["x"], c["y"]), (c["px"], c["py"])],
-                              air=AIR, commit=False) is not None]
+            if not _near_other_road(plan, c["x"], c["y"], lane)
+            and place_building(plan, c["kind"], c["x"], c["y"],
+                               (c["px"], c["py"]), c["scale"], group,
+                               drive=[(c["x"], c["y"]), (c["px"], c["py"])],
+                               air=AIR, commit=False) is not None]
     for (j, i) in marked:
         plan.built[j][i] = False        # `add_road` below re-claims them for real
     if len(fits) < fits_min:
+        return 0
+    # A street has houses on BOTH sides. Three or more on one side and none on the
+    # other is a frontage strip along a river or a road the estate happened to
+    # brush - the opposite of "houses facing each other across a street". A loop is
+    # exempt (its houses face the middle of it, which is why a loop is built).
+    if both_sides and len(fits) >= 3 and len({c["side"] for c in fits}) < 2:
         return 0
     sp = add_road(plan, road_kind, lane, 13.0)
     if sp is None:
@@ -1064,7 +1129,12 @@ def build_neighborhood(plan: SitePlan, site: _Site, ps: PlaceSpec,
     road, (ax0, ay0), tang0, dist = hit
     group = "neighborhood"
     lots = "grass_lush" if plan.theme != "city" else "concrete_apron"
-    kinds = ps.kinds or ("house",)
+    # One builder, one estate: a subdivision is a handful of house types in one or
+    # two roof colours, not one of every house in the catalogue. Two colours drawn
+    # from the vocabulary, alternated down each street.
+    pool = list(ps.kinds or ("house",))
+    rng.shuffle(pool)
+    kinds = tuple(pool[:2]) if len(pool) > 1 else tuple(pool)
     def score_street(lane: list[Point], kinds: tuple[str, ...],
                      scale: tuple[float, float], front: float) -> int:
         """How many houses this lane would hold, without committing to anything.
@@ -1153,7 +1223,7 @@ def build_neighborhood(plan: SitePlan, site: _Site, ps: PlaceSpec,
         if len(loop) >= 12:
             loop = [(jx, jy)] + loop
             m = _build_street(plan, rng, loop, kinds, scale, front, group, lots,
-                              "spur", head=False, fits_min=3)
+                              "spur", head=False, fits_min=3, both_sides=False)
             if m:
                 total += m
                 built.append(loop)
@@ -1170,34 +1240,13 @@ def build_neighborhood(plan: SitePlan, site: _Site, ps: PlaceSpec,
         # ground because a loop plus culs-de-sac needs room, and the sectors that
         # could not fit it came out with no neighborhood at all.
         if total >= 4:
-            # the pond in the middle of the estate, if the ground inside the loop
-            # will hold water and no house stands in it
-            _pond(plan, rng, loop or built[0])
+            # No pond. Still water inside the loop was a feature of the first estate
+            # design, and the user's word on it is the rule: lakes don't belong in a
+            # neighbourhood. The middle of a loop is back gardens.
             _estate_trees(plan, built, rng, budget=rng.randint(4, 7))
             return total
     return 0
 
-
-def _pond(plan: SitePlan, rng: random.Random, street: list[Point]) -> int:
-    """A small lake inside the estate: still water between the houses, which is
-    what a loop road is usually built around."""
-    cx, cy = street[len(street) // 2]
-    for _ in range(4):
-        rx = rng.uniform(90.0, 190.0)
-        ry = rx * rng.uniform(0.6, 0.95)
-        off = rng.uniform(150.0, 320.0)
-        a = rng.uniform(0, math.tau)
-        x, y = cx + math.cos(a) * off, cy + math.sin(a) * off
-        poly = _ellipse(x, y, rx, ry, n=12, wob=0.12, rng=rng)
-        if any(_in_poly(b.x, b.y, poly) for b in plan.buildings):
-            continue
-        body = Water(kind="pond", path=poly, half=ry * 0.95,
-                     flood=rx * 0.22, closed=True, inside=(x, y))
-        if not add_water(plan, body):
-            continue
-        _claim_cells(plan, poly)
-        return 1
-    return 0
 
 def build_highway(plan: SitePlan, site: _Site, ps: PlaceSpec,
                   rng: random.Random) -> int:
@@ -1209,9 +1258,14 @@ def build_highway(plan: SitePlan, site: _Site, ps: PlaceSpec,
     """
     g = plan.geom
     # a highway goes the way the ground goes: mostly along the strip's length
-    vert = rng.random() < 0.75
+    # On a strip, always along it: a highway across a strip is a few hundred px of
+    # road that starts and ends at the map edge, which is a bridge to nowhere.
+    vert = (not g.cyclic) or rng.random() < 0.75
     y0 = max(40.0, site.y - rng.uniform(0.6, 1.3) * g.h * 0.5)
     y1 = min(g.h - 40.0, site.y + rng.uniform(0.6, 1.3) * g.h * 0.5)
+    if not g.cyclic:
+        # a through-route runs through: from one end of the sector to the other
+        y0, y1 = -40.0, g.h + 40.0
     if y1 - y0 < 500.0:
         return 0
     terms = [(1, rng.uniform(0.005, 0.02), rng.uniform(0, 6.28))]
@@ -1257,12 +1311,16 @@ def build_highway(plan: SitePlan, site: _Site, ps: PlaceSpec,
             continue
         pad = (cand[0], cand[1], tang, px, py)
         break
+    # From here the highway EXISTS, so every return counts it. Returning the rest
+    # stop's building count instead (0 when the stop did not fit) told `lay_places`
+    # nothing had been built, and it laid another highway: four of them criss-
+    # crossed one four-screen city.
     if pad is None:
-        return 0
+        return 1
     px, py, tang = pad[3], pad[4], pad[2]
     apron = _quad(pad[0], pad[1], 210.0, 150.0, tang)
     if add_parcel(plan, apron, "concrete_apron", "lot") is None:
-        return 0
+        return 1
     _claim_cells(plan, apron)
     add_road(plan, "track", [(px, py), (pad[0], pad[1])], 11.0)
     built = 0
@@ -1278,7 +1336,7 @@ def build_highway(plan: SitePlan, site: _Site, ps: PlaceSpec,
             if place_building(plan, "container", cx, cy, (px, py),
                               rng.uniform(0.16, 0.22), "highway", air=12.0):
                 built += 1
-    return built
+    return 1 + built
 
 
 def build_lake(plan: SitePlan, site: _Site, ps: PlaceSpec,
@@ -1300,7 +1358,7 @@ def build_lake(plan: SitePlan, site: _Site, ps: PlaceSpec,
           "mere": rng.uniform(240.0, 420.0),
           "lake": rng.uniform(480.0, 760.0)}[cls]
     ry = rx * rng.uniform(0.62, 0.95)
-    poly = _ellipse(site.x, site.y, rx, ry, n=10, wob=0.1, rng=rng)
+    poly = _shore(site.x, site.y, rx, ry, rng)
     # A lake is a REGION, not a channel: `closed` and `inside` say so, and the
     # painter fills the polygon and banks it on the outside only. Stroked like a
     # river it came out as a ring of water with a bank line on each side of the ring
@@ -1328,7 +1386,9 @@ def build_lake(plan: SitePlan, site: _Site, ps: PlaceSpec,
         if place_building(plan, "shed", sx, sy, (site.x, site.y),
                           rng.uniform(0.16, 0.22), "lake", air=AIR):
             built += 1
-    return built
+    # the water is the place; the shed is a bonus. Returning only the shed made a
+    # lake without one read as "nothing built", and the sector got another lake.
+    return 1 + built
 
 
 def build_woodland(plan: SitePlan, site: _Site, ps: PlaceSpec,
@@ -1355,7 +1415,7 @@ def build_woodland(plan: SitePlan, site: _Site, ps: PlaceSpec,
         # the forest asks for a big lake and takes what the sector can spare: the
         # water budget in `add_water` refuses a body that would drown too much of the
         # ground, and a woodland around a mere is still a woodland
-        poly = _ellipse(site.x, site.y, rx, ry, n=16, wob=0.14, rng=rng)
+        poly = _shore(site.x, site.y, rx, ry, rng)
         body = Water(kind="lake", path=poly, half=ry * 0.95, flood=rx * 0.2,
                      closed=True, inside=(site.x, site.y))
         if add_water(plan, body):
@@ -1409,7 +1469,7 @@ def build_woodland(plan: SitePlan, site: _Site, ps: PlaceSpec,
     # shore are, which is the part another pass would actually contradict.
     shore = _ellipse(site.x, site.y, rx * 1.22, ry * 1.22, n=14, wob=0.1, rng=rng)
     _claim_cells(plan, shore)
-    return trees
+    return made + trees
 
 
 def build_campground(plan: SitePlan, site: _Site, ps: PlaceSpec,
@@ -1575,7 +1635,10 @@ def lay_places(plan: SitePlan, names: tuple[str, ...],
             # same anchor over and over.
             made_here = BUILDERS[name](plan, site, ps, rng)
             _claim(claims, plan, site, ps, name)
-            made += made_here
+            # a PLACE was made if its builder put anything down. Adding the builder's
+            # count of buildings here let one twenty-house estate stand in for the
+            # two estates the sector asked for.
+            made += 1 if made_here > 0 else 0
         out[name] = made
     return out
 

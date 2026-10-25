@@ -8,6 +8,12 @@
    "px": 256,
    "sha1": "cb1c180ed286"
   },
+  "apartment_block": {
+   "coverage": 0.47,
+   "kind": "prop",
+   "px": 256,
+   "sha1": "e2bf9bf2d7c4"
+  },
   "ash_ground": {
    "kind": "material",
    "mean": 42.5,
@@ -27,6 +33,36 @@
    "kind": "prop",
    "px": 256,
    "sha1": "085d2cb2f283"
+  },
+  "campfire": {
+   "coverage": 0.549,
+   "kind": "prop",
+   "px": 256,
+   "sha1": "0c49cbc5c06b"
+  },
+  "car_blue": {
+   "coverage": 0.347,
+   "kind": "prop",
+   "px": 256,
+   "sha1": "3a171facd744"
+  },
+  "car_grey": {
+   "coverage": 0.347,
+   "kind": "prop",
+   "px": 256,
+   "sha1": "79b142b5f387"
+  },
+  "car_red": {
+   "coverage": 0.347,
+   "kind": "prop",
+   "px": 256,
+   "sha1": "46f5fae79830"
+  },
+  "car_white": {
+   "coverage": 0.347,
+   "kind": "prop",
+   "px": 256,
+   "sha1": "8aece57c1832"
   },
   "cargo_container": {
    "coverage": 0.513,
@@ -55,6 +91,12 @@
    "kind": "prop",
    "px": 256,
    "sha1": "66ef33416dcb"
+  },
+  "crater": {
+   "coverage": 0.303,
+   "kind": "prop",
+   "px": 256,
+   "sha1": "b9bc0e63fc81"
   },
   "cypress_clump": {
    "coverage": 0.539,
@@ -107,6 +149,30 @@
    "seam_after": 0.88,
    "seam_before": 1.51,
    "sha1": "cbbcf4ebd9c0"
+  },
+  "house_suburb": {
+   "coverage": 0.514,
+   "kind": "prop",
+   "px": 256,
+   "sha1": "cd823ba9a5fa"
+  },
+  "house_suburb_brown": {
+   "coverage": 0.514,
+   "kind": "prop",
+   "px": 256,
+   "sha1": "bcd6fc1eee60"
+  },
+  "house_suburb_slate": {
+   "coverage": 0.513,
+   "kind": "prop",
+   "px": 256,
+   "sha1": "4485615dcf35"
+  },
+  "house_suburb_tan": {
+   "coverage": 0.513,
+   "kind": "prop",
+   "px": 256,
+   "sha1": "40add4d7d72b"
   },
   "house_top": {
    "coverage": 0.629,
@@ -178,6 +244,12 @@
    "seam_before": 2.13,
    "sha1": "0221fab215e2"
   },
+  "office_tower": {
+   "coverage": 0.815,
+   "kind": "prop",
+   "px": 256,
+   "sha1": "adb54683d8ba"
+  },
   "pine_clump": {
    "coverage": 0.49,
    "kind": "prop",
@@ -235,6 +307,12 @@
    "seam_after": 1.16,
    "seam_before": 1.42,
    "sha1": "aad82cf639d7"
+  },
+  "shop_row": {
+   "coverage": 0.309,
+   "kind": "prop",
+   "px": 256,
+   "sha1": "8d2d3dcd2989"
   },
   "snow_field": {
    "kind": "material",
@@ -302,11 +380,35 @@
    "seam_before": 1.38,
    "sha1": "8e32750cdc26"
   },
+  "tent_green": {
+   "coverage": 0.474,
+   "kind": "prop",
+   "px": 256,
+   "sha1": "aa5b7b6be3a9"
+  },
+  "tent_orange": {
+   "coverage": 0.474,
+   "kind": "prop",
+   "px": 256,
+   "sha1": "845d856aa8c9"
+  },
+  "tree_charred": {
+   "coverage": 0.178,
+   "kind": "prop",
+   "px": 256,
+   "sha1": "b891fc19422b"
+  },
   "tree_clump": {
    "coverage": 0.572,
    "kind": "prop",
    "px": 256,
    "sha1": "e407c58b688d"
+  },
+  "truck_semi": {
+   "coverage": 0.221,
+   "kind": "prop",
+   "px": 256,
+   "sha1": "9cf816d298fa"
   },
   "tundra_moss": {
    "kind": "material",
@@ -345,6 +447,12 @@
    "seam_after": 1.12,
    "seam_before": 3.05,
    "sha1": "4ed7467453e8"
+  },
+  "wreck_burnt": {
+   "coverage": 0.445,
+   "kind": "prop",
+   "px": 256,
+   "sha1": "26d0255493c7"
   }
  }
 }

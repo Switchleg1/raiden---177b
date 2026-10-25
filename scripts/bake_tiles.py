@@ -58,6 +58,13 @@ PROPS = [
     "basalt_spire", "lava_vent",
     # industrial
     "storage_tank", "warehouse_long", "cargo_container", "antenna_dish",
+    # drawn from geometry by scripts/paint_props.py rather than generated:
+    # suburbs, a downtown, a campground, and what a war leaves behind
+    "house_suburb", "house_suburb_tan", "house_suburb_brown", "house_suburb_slate",
+    "apartment_block", "office_tower", "shop_row",
+    "tent_orange", "tent_green", "campfire",
+    "crater", "wreck_burnt", "tree_charred",
+    "car_red", "car_white", "car_blue", "car_grey", "truck_semi",
 ]
 
 MAT_SIZE = 256

@@ -158,5 +158,17 @@ FIELD_MAT = {
 #: ...except in a city, where a "lot" is a paved yard.
 FIELD_MAT_CITY = {"lot": "concrete_apron"}
 
-__all__ = ["FAR_PAIR", "NEAR_MEAN", "NEAR_MATS", "THEME_MEAN", "WATER_MAT",
+#: What a river bank is made of, per theme. Earth and sand: grey gravel either side
+#: of a dark band is what a road's verge looks like from the air.
+WATER_BANK = {
+    "glacier": "snow_field", "canyon": "sand_canyon", "wasteland": "sand_canyon",
+    "airbase": "sand_canyon", "volcanic": "obsidian", "swamp": "mud_flat",
+    "industrial": "mud_flat", "city": "gravel_rubble",
+}
+
+#: Themes whose water is fringed with rougher, wetter grass.
+WATER_EDGE_GREEN = frozenset({"countryside", "farmland", "forest", "ruins", "swamp"})
+
+__all__ = ["WATER_BANK", "WATER_EDGE_GREEN", "FAR_PAIR", "NEAR_MEAN", "NEAR_MATS",
+           "THEME_MEAN", "WATER_MAT",
            "ROAD_MAT", "ROCK", "FIELD_MAT", "FIELD_MAT_CITY"]

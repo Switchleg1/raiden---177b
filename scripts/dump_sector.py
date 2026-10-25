@@ -70,14 +70,15 @@ def main(argv: list[str]) -> int:
 
     seed = take("--seed", 1)
     slices_ = take("--slices", 8)
+    rows_ = take("--rows", 0)          # an exact strip height, as a test plans it
     themes = [a for a in argv if not a.startswith("--")]
     OUT.mkdir(parents=True, exist_ok=True)
 
     for theme in themes or [str(getattr(LEVELS[0], "theme", "countryside"))]:
         spec = next((s for s in LEVELS
                      if str(getattr(s, "theme", "")).endswith(theme)), None)
-        rows = (STRIP_SLICE * slices_ if slices_ else
-                strip_length(spec or LEVELS[0]))
+        rows = (rows_ or (STRIP_SLICE * slices_ if slices_ else
+                          strip_length(spec or LEVELS[0])))
         t0 = time.perf_counter()
         plan = plan_site(theme, seed, Geom(h=rows, cell=CELL, cyclic=False))
         strip = TerrainStrip(plan, "near", slice_h=rows, margin=STRIP_MARGIN)

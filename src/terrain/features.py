@@ -23,6 +23,7 @@ import math
 import random
 from typing import Any
 
+from .relief_table import HILL, HILL_LIGHT, HILL_OCTAVES, RELIEF_LOOK
 from .siteplan import CH, CW, SitePlan
 from .theme_table import ROCK
 from .tilekit import TILE, TileKit
@@ -401,8 +402,22 @@ def _path_mask(path: list[tuple[float, float]], width: float,
     return Mask(m, (x0, y0, x1, y1))
 
 
+def _width_mask(path: list[tuple[float, float]], radii: list[float],
+                plane: Plane, feather: int = 2) -> Mask:
+    """A stroke whose half-width is given per vertex (plan px)."""
+    import pygame
+    np = _numpy()
+    painted = _raster(path, max(radii), plane, radii=radii)
+    if painted is None:
+        return Mask(np.zeros((1, 1), dtype=np.float32), (0, 0, 1, 1))
+    (x0, y0, x1, y1), surf = painted
+    m = np.asarray(pygame.surfarray.array3d(surf))[:, :, 0].astype(np.float32)
+    return Mask(_feather(m * (1.0 / 255.0), _softness(plane, feather)),
+                (x0, y0, x1, y1))
+
+
 def _raster(path: list[tuple[float, float]], r: float, plane: Plane,
-            poly: bool = False) -> Any:
+            poly: bool = False, radii: list[float] | None = None) -> Any:
     """Rasterize a brushstroke (or a polygon) over just the box it covers.
 
     Returns ``((x0, y0, x1, y1), surface)`` in PLANE coordinates, or None when
@@ -410,6 +425,9 @@ def _raster(path: list[tuple[float, float]], r: float, plane: Plane,
     strip in chunks is cheap: a window skips every feature that is not in it.
     The 4 px margin is the room a feather pass needs."""
     import pygame
+    if radii is not None:
+        # a varying brush: the box must hold the WIDEST point of it
+        r = max(r, max(radii))
     lo_x = min(p[0] for p in path) - r
     hi_x = max(p[0] for p in path) + r
     ys = [p[1] + sh for p in path for sh in plane.shifts()]
@@ -459,12 +477,18 @@ def _raster(path: list[tuple[float, float]], r: float, plane: Plane,
         for i in range(len(pts) - 1):
             (ax, ay), (bx, by) = pts[i], pts[i + 1]
             ln = math.hypot(bx - ax, by - ay)
-            n = max(1, int(ln / max(2.0, r * 0.35)))
+            ra = rb = brush
+            if radii is not None:
+                # interpolated between the plan's own vertices, so the width at a
+                # world point is the same whichever window is painting it
+                ra, rb = max(1.0, radii[i] / s), max(1.0, radii[i + 1] / s)
+            n = max(1, int(ln / max(2.0, min(ra, rb) * 0.35)))
             for k in range(n + 1):
                 t = k / n
                 pygame.draw.circle(surf, (255, 255, 255),
                                    (int(ax + (bx - ax) * t),
-                                    int(ay + (by - ay) * t)), int(brush))
+                                    int(ay + (by - ay) * t)),
+                                   int(ra + (rb - ra) * t))
     return (x0, y0, x1, y1), surf
 
 
@@ -769,6 +793,110 @@ def _frand(plan: SitePlan, index: int, salt: int) -> random.Random:
     """
     return random.Random(plan.seed * 1_000_003 + index * 4093 + salt)
 
+def _hash01(ix: Any, iy: Any, seed: int) -> Any:
+    """A value in 0..1 for each integer lattice point, from its coordinates alone.
+
+    uint32 arithmetic that wraps on purpose: the same lattice point gives the same
+    value in every window, every process and every run, which is what lets terrain
+    detail be painted in slices that agree at their seams.
+    """
+    np = _numpy()
+    with np.errstate(over="ignore"):
+        h = (ix.astype(np.uint32) * np.uint32(374761393)
+             + iy.astype(np.uint32) * np.uint32(668265263)
+             + np.uint32(seed & 0xFFFFFFFF))
+        h = (h ^ (h >> np.uint32(13))) * np.uint32(1274126177)
+        h = h ^ (h >> np.uint32(16))
+    return h.astype(np.float32) * (1.0 / 4294967296.0)
+
+
+def _world_noise(xs: Any, ys: Any, cell: float, seed: int) -> Any:
+    """Smooth value noise over WORLD coordinates, shape (len(xs), len(ys))."""
+    np = _numpy()
+    fx = xs / cell
+    fy = ys / cell
+    ix = np.floor(fx).astype(np.int64)
+    iy = np.floor(fy).astype(np.int64)
+    tx = (fx - ix).astype(np.float32)
+    ty = (fy - iy).astype(np.float32)
+    tx = tx * tx * (3.0 - 2.0 * tx)
+    ty = ty * ty * (3.0 - 2.0 * ty)
+    X0, Y0 = ix[:, None], iy[None, :]
+    v00 = _hash01(X0, Y0, seed)
+    v10 = _hash01(X0 + 1, Y0, seed)
+    v01 = _hash01(X0, Y0 + 1, seed)
+    v11 = _hash01(X0 + 1, Y0 + 1, seed)
+    a = v00 + (v10 - v00) * tx[:, None]
+    b = v01 + (v11 - v01) * tx[:, None]
+    return a + (b - a) * ty[None, :]
+
+
+def _ridged(xs: Any, ys: Any, seed: int) -> Any:
+    """Ridged multifractal: sharp crests and the gullies between them - what a
+    mountainside looks like from the air, and what a smooth relief blob is not."""
+    np = _numpy()
+    out = np.zeros((len(xs), len(ys)), dtype=np.float32)
+    amp, tot = 1.0, 0.0
+    for k, cell in enumerate(HILL_OCTAVES):
+        n = _world_noise(xs, ys, cell, seed + 7919 * k)
+        r = 1.0 - np.abs(2.0 * n - 1.0)
+        out += r * r * amp
+        tot += amp
+        amp *= 0.5
+    return out / tot
+
+
+class _Window:
+    """A plane's sampling frame, widened: `_upsample` reads only these fields."""
+
+    def __init__(self, plane: Any, pad: int) -> None:
+        self.w = plane.w + 2 * pad
+        self.h = plane.h + 2 * pad
+        self.x0 = plane.x0 - pad * plane.scale
+        self.y0 = plane.y0 - pad * plane.scale
+        self.scale = plane.scale
+
+
+def _hillshade(canvas: Any, plan: SitePlan, field: Any) -> None:
+    """Light the WHOLE ground by its slope, with erosion detail on the high ground.
+
+    The relief used to colour a mountain by its height and light it weakly from a
+    64 px grid: a smooth blob with no crest, which from the air is a grey stain - the
+    "mountains" in every sector read as smears across the fields. Real ground is
+    read by its shading: one flank lit, the other in shadow, and on anything steep
+    the ridges and gullies erosion cuts into it. This builds a height field at the
+    painted resolution - the planned relief, plus ridged detail where the relief is
+    high - and multiplies the ground by how much each pixel faces the light.
+
+    Window-safe by construction: the detail is a function of WORLD position, and the
+    gradient is taken over the window plus a one-pixel margin, so no pixel's slope
+    depends on where the window ends.
+    """
+    np = _numpy()
+    spec = HILL.get(plan.theme)
+    if spec is None or not isinstance(canvas, Plane):
+        return
+    elev, detail, strength = spec
+    win = _Window(canvas, 1)
+    base = _upsample(field, win, plan.geom.w, plan.geom.h)       # (x, y)
+    xs = win.x0 + np.arange(win.w, dtype=np.float64) * win.scale
+    ys = win.y0 + np.arange(win.h, dtype=np.float64) * win.scale
+    seed = (plan.seed * 2654435761 + sum(map(ord, plan.theme))) & 0xFFFFFFFF
+    mount = np.clip((base - 0.22) / 0.45, 0.0, 1.0)
+    mount = mount * mount * (3.0 - 2.0 * mount)
+    z = base * elev + _ridged(xs, ys, seed) * detail * mount
+    step = 2.0 * win.scale
+    dzdx = (z[2:, 1:-1] - z[:-2, 1:-1]) / step
+    dzdy = (z[1:-1, 2:] - z[1:-1, :-2]) / step
+    lx, ly, lz = HILL_LIGHT
+    inv = 1.0 / np.sqrt(dzdx * dzdx + dzdy * dzdy + 1.0)
+    lam = (-dzdx * lx - dzdy * ly + lz) * inv
+    k = np.clip(lam / lz, 0.5, 1.4)                  # 1.0 on flat ground
+    k = 1.0 + (k - 1.0) * strength
+    canvas.sync()
+    canvas.rgb *= k[:, :, None]
+
+
 def paint_relief(canvas: Any, kit: TileKit, plan: SitePlan,
                  rng: random.Random, far: bool = False) -> bool:
     """Shade the relief field: colour ramps with height, light from the top
@@ -791,6 +919,7 @@ def paint_relief(canvas: Any, kit: TileKit, plan: SitePlan,
     # terrain, and the seams would show up as bands of different contrast.
     field = np.asarray(plan.relief, dtype=np.float32)
     hs_grid = _blur(field, 2 if not far else 4)
+    hs_raw = hs_grid if not far else None
     h_grid = 0.24 + 0.76 * field                     # away from the floor: a
     hs_grid = 0.24 + 0.76 * hs_grid                  # hollow that dips a little
     if far:                                          # is shallow ground, not
@@ -851,8 +980,13 @@ def paint_relief(canvas: Any, kit: TileKit, plan: SitePlan,
     # coverage over a broad area is a pale band with dark margins, which is how
     # "blurred fog / unfinished texture strip" got written twice. 0.72 lets the
     # ground's own material keep showing through the mass.
-    cover = np.clip((h - 0.22) / 0.40, 0.0, 1.0) * (0.5 if far else 0.72)
-    mask = np.clip(cover * rock_m * 3.0, 0.0, 1.0)
+    # How much of that a theme wants is the theme's: green country has green hills
+    # (a grey ramp over a grassy rise reads as a quarry or a dry riverbed, now that
+    # the hillshade carries the form), rugged country has bare rock on its heights.
+    look_cover, look_rock, look_rim = RELIEF_LOOK.get(plan.theme, (1.0, 1.0, 1.0))
+    cover = np.clip((h - 0.22) / 0.40, 0.0, 1.0) * (0.5 if far else 0.72) \
+        * look_cover
+    mask = np.clip(cover * rock_m * 3.0, 0.0, 1.0) * look_rock
     # contour lines: see below
     # contour lines: one heavy RIM at the foot of the mass, one thinner level
     # partway up. More levels than that read as tracks and cables, not
@@ -876,7 +1010,7 @@ def paint_relief(canvas: Any, kit: TileKit, plan: SitePlan,
         ridge = plan.ridges[si]
         frng = _frand(plan, si, 41)
         _path_mask(ridge.spine, ridge.width * 3.4, canvas).paste(flank)
-    line = line * np.clip(flank * 1.7, 0.0, 1.0)
+    line = line * np.clip(flank * 1.7, 0.0, 1.0) * look_rim
     cover = np.maximum(cover, line * 0.6)
     mask = np.maximum(mask, line * 0.2)
     # fold first: the far painter stamps its distant patches before it asks for
@@ -908,6 +1042,8 @@ def paint_relief(canvas: Any, kit: TileKit, plan: SitePlan,
             .transpose(1, 0, 2)
         canvas.blit(pygame.image.fromstring(
             np.ascontiguousarray(rgba).tobytes(), (CW, CH), "RGBA"), (0, 0))
+    if hs_raw is not None:
+        _hillshade(canvas, plan, hs_raw)
     # scree and slumps at the foot: debris where the slope lets go. Small and
     # dark, and in the theme's own rock tone - a bright grey belt across the
     # middle of a green valley is a landslide of decoration, not a landform.
@@ -957,6 +1093,11 @@ def paint_fields(canvas: Any, kit: TileKit, plan: SitePlan,
         if f.hedge:
             edge = list(f.poly) + [f.poly[0]]
             _tint_lines(canvas, edge, (12, 16, 12), 2.2)
+        if f.furrows and f.kind == "parking":
+            # stall lines: thin, pale, and the reason a gravel rectangle with cars
+            # on it reads as a car park
+            for a, b in f.furrows:
+                _tint_lines(canvas, [a, b], (196, 192, 178), 1.4)
         if f.furrows and f.kind in ("crop", "paddy"):
             # plough: a dark rut with a lit ridge beside it. On tilled earth the
             # rows are the whole reason the parcel reads as farmed.
@@ -984,159 +1125,168 @@ def paint_fields(canvas: Any, kit: TileKit, plan: SitePlan,
                               frng.uniform(0.22, 0.34), frng, shadow=3.0)
 
 
+def _river_profile(w: Any) -> tuple[list[float], list[float]]:
+    """Half-widths of a channel's water and of its bank, per path vertex.
+
+    A river of one width is a road: constant width with a parallel edge either
+    side is exactly what a carriageway looks like from the air, and that - plus a
+    kerb line on each bank and white dashes down the middle - is why every river in
+    the game read as a highway. Real channels breathe: wider in the pools, narrower
+    over the riffles, the bank wider where the water has cut it back.
+
+    Keyed to arc length along the PLAN's path and to the path's own start point, so
+    the width at a world point is the same in every window that paints it.
+    """
+    import zlib
+    x0, y0 = w.path[0]
+    h = zlib.crc32(f"{round(x0)}:{round(y0)}:{w.kind}".encode())
+    p1 = (h % 628) / 100.0
+    p2 = (h // 628 % 628) / 100.0
+    p3 = (h // 394384 % 628) / 100.0
+    rw: list[float] = []
+    rb: list[float] = []
+    arc = 0.0
+    prev = w.path[0]
+    for pt in w.path:
+        arc += math.hypot(pt[0] - prev[0], pt[1] - prev[1])
+        prev = pt
+        m = 1.0 + 0.22 * math.sin(arc / 280.0 + p1) + 0.10 * math.sin(arc / 90.0 + p2)
+        r = w.half * max(0.62, m)
+        rw.append(r)
+        rb.append(r + 10.0 + 8.0 * (0.5 + 0.5 * math.sin(arc / 130.0 + p3)))
+    return rw, rb
+
+
+def _offset_path(path: list[tuple[float, float]], offs: list[float]
+                 ) -> list[tuple[float, float]]:
+    """The path displaced along its own normal by a per-vertex distance."""
+    out = []
+    n = len(path)
+    for i, (x, y) in enumerate(path):
+        ax, ay = path[max(0, i - 1)]
+        bx, by = path[min(n - 1, i + 1)]
+        ln = math.hypot(bx - ax, by - ay) or 1.0
+        nx, ny = -(by - ay) / ln, (bx - ax) / ln
+        out.append((x + nx * offs[i], y + ny * offs[i]))
+    return out
+
+
 def paint_water(canvas: Any, kit: TileKit, plan: SitePlan,
                 rng: random.Random) -> None:
-    from .theme_table import ROCK, WATER_MAT
-    pal = ROCK.get(plan.theme, ((40, 40, 36), (120, 120, 110),
-                                (80, 80, 70), "gravel_rubble"))
-    # the tones come from the theme's own rock palette: the near-black shore
-    # line that reads as a bank in a green valley is a hole in the ground on
-    # tan sand
-    bank = tuple(int(c * 0.55) for c in pal[0])
-    bank_mat = {"glacier": "ice_sheet", "canyon": "sand_canyon",
-                "wasteland": "sand_canyon", "volcanic": "obsidian",
-                "swamp": "mud_flat"}.get(plan.theme, "gravel_rubble")
-    # Every body's masks first, then the passes in ORDER: banks of every body, then
-    # the water of every body, then the detailing. Doing each body start to finish is
-    # what put one lake's pale shore band on top of its neighbour's water - two blue-
-    # print lakes close together and one of them came out light in the middle (a bank
-    # material at luminance 99 over water at 18), which is what the lake test caught.
-    # Water has to be the last thing laid on its own surface, whatever else is nearby.
+    """Rivers and lakes that read as WATER from the air.
+
+    The order is the order real water is seen in: the riparian edge, the bank, the
+    water, then depth (shallows light, the channel dark), then what the current
+    leaves - sand on the inside of bends, a sheen on the side facing the light.
+    Every pass runs over every body before the next pass starts, so one body's bank
+    never lands on its neighbour's water.
+    """
+    from .theme_table import WATER_BANK, WATER_EDGE_GREEN, WATER_MAT
+    green = plan.theme in WATER_EDGE_GREEN
+    bank_mat = WATER_BANK.get(plan.theme, "sand_canyon")
     feats = []
     for wi in _band(canvas, plan, "water"):
         w = plan.water[wi]
         frng = _frand(plan, wi, 17)
-        # A CLOSED water body with an `inside` point is a REGION, not a channel.
-        # Stroking its shoreline like a river painted a ring of water `half` deep on
-        # both sides of the outline, then drew a bank line on each side of that ring
-        # and ran flow glints down the middle of it - so a lake appeared to be a
-        # circular roadway with centre lines. It is filled, banked on the outside
-        # only, and given still-water margin marks instead of a current.
+        # A CLOSED water body with an `inside` point is a REGION, not a channel: it
+        # is filled, banked on the outside only, and has no current. Stroked like a
+        # river it was a ring of water with a kerb either side and dashes down its
+        # middle - "a circular roadway with the centre lines still inside".
         region = bool(w.closed) and w.inside is not None
-        # A closed body's bank is a SHORE BAND of a fixed width, not the channel
-        # formula scaled up: `half * 2 + 22` with `half` being the lake's minor radius
-        # painted a shore as wide as the lake itself (470 px of pale gravel around a
-        # 600-px lake), and it made the widest soft mask in the plan - soft masks are
-        # what disagree between windows, since a raster box and the feather and darken
-        # at its edge belong to the window. The shore is a shore at any size.
-        bank_mask = (_path_mask(w.path, min(w.half * 2.0 + 22.0, 110.0), canvas)
-                     if region else _path_mask(w.path, w.half * 2.0 + 10.0, canvas))
-        water_mask = (_poly_mask(w.path, canvas) if region
-                      else _path_mask(w.path, w.half * 2.0, canvas))
-        feats.append((w, frng, region, bank_mask, water_mask))
-    # A bank of material first, water on top of it. Water_river is lum 35 on
-    # a lum 42 grass base - almost no value separation - and a *stroke* along the
-    # shore reads as a drawn outline. A real band of pale gravel, sand or snow around
-    # the channel gives the dark/light adjacency the eye uses to find water, without
-    # looking drawn.
-    # Standing water wins over a channel's furniture and over its floodplain. A river
-    # that flows THROUGH a lake otherwise paints its whole vocabulary inside the lake:
-    # a bank line either side of its channel, mud splats at its margins, white flow
-    # glints along its flow, a pale floodplain band along its whole length. Down the
-    # middle of a lake that is the "roadway with centre lines" the user reported,
-    # arriving from a third direction. The test is pure geometry - a point inside a
-    # closed body's outline - so it cannot depend on which window is painting, which
-    # is what painting the lake last did instead (a mask's raster box, and the feather
-    # and darken at its edge, belong to the window: it put a one-row line at a slice
-    # boundary in the seam test).
+        if region:
+            # The shore band is a fixed band, not one scaled by the lake's own minor
+            # radius: that painted 470 px of gravel around a 600-px lake, and it was
+            # the widest soft mask in the plan, which is what put a line at a slice
+            # boundary (a raster box and the feather at its edge belong to the window).
+            rw = None
+            bank_mask = _path_mask(w.path, min(w.half * 2.0 + 22.0, 70.0), canvas)
+            edge_mask = _path_mask(w.path, 150.0, canvas) if green else None
+            water_mask = _poly_mask(w.path, canvas)
+        else:
+            rw, rb = _river_profile(w)
+            bank_mask = _width_mask(w.path, rb, canvas)
+            edge_mask = (_width_mask(w.path, [r + 34.0 for r in rb], canvas, 4)
+                         if green else None)
+            water_mask = _width_mask(w.path, rw, canvas)
+        feats.append((w, frng, region, bank_mask, water_mask, edge_mask, rw))
+    # Standing water wins over a channel's furniture: a river flowing THROUGH a lake
+    # must not lay its sand bars and sheen on the lake. Pure geometry (a point inside
+    # a closed outline), so it cannot depend on which window is painting.
     bodies = [x for x in plan.water if x.closed]
 
     def in_standing(px: float, py: float) -> bool:
         from .siteplan import _in_poly
         return any(_in_poly(px, py, b.path) for b in bodies)
 
-    for _w, _frng, _region, bm, _wm in feats:
-        _fill_mask(canvas, kit, bank_mat, bm, 0.55)
-    # Floodplain before any water, for the same reason the banks are first: it is a
-    # mask fill, and ground beside a river being muddy must not be laid on top of a
-    # lake the river runs into.
-    # One mask per SEGMENT, and none of it inside standing water. The floodplain is
-    # the widest soft mask a channel lays (`flood * 0.45`, so a hundred-px-wide band
-    # along a river for thousands of px): as one stroke its raster box straddles every
-    # window it crosses, a box clamped at a window edge feathers and darkens
-    # differently from the same box in a taller window, and the pixel-level difference
-    # lands as a one-row line at a slice boundary - measured at 257 differing pixels on
-    # a single band row, amplified by the later passes into a line visible at 48/255.
-    # Short masks fall inside a window or outside it, and `in_standing` keeps the mud
-    # out of the lake the river runs into, which is what making this fill happen
-    # before the water was trying to buy.
-    for w, _frng, region, _bm, _wm in feats:
-        if w.half < 34.0 or region:
-            continue                        # only a wide channel earns a floodplain
-        mud = "mud_flat" if plan.theme != "glacier" else "ice_sheet"
-        for i in range(len(w.path) - 1):
-            qa, qb = w.path[i], w.path[i + 1]
-            if in_standing((qa[0] + qb[0]) * 0.5, (qa[1] + qb[1]) * 0.5):
-                continue
-            _fill_mask(canvas, kit, mud,
-                       _path_mask([qa, qb], w.flood * 0.45, canvas), 0.10)
-    for _w, _frng, _region, _bm, wm in feats:
-        _fill_mask(canvas, kit, WATER_MAT.get(plan.theme, "water_river"), wm, 1.0)
-    for w, _frng, _region, _bm, wm in feats:
-        dry = w.kind in ("wash", "arroyo")
-        # a wet channel is darkened - water reads by value. A DRY wash is lightened
-        # instead: a desert arroyo is pale bare sand between darker desert pavement,
-        # and darkening one turns it into a black scratch
-        _darken_band(canvas, wm, 1.12 if dry else 0.62)
-    for w, frng, region, _bm, _wm in feats:
-        # floodplain: ground beside a river is not ground away from it - but at
-        # under half the width, or it becomes one more pale smear
-        # The floodplain is a *hint*: at the old width and alpha it was a band of
-        # pale mud three times wider than the river itself, and reviewers read the
-        # whole corridor as "ambiguous pale strip - stream or track?". The dark river
-        # material is the feature; the mud only softens its edge.
-        edge = ("splat_mud" if plan.theme not in ("glacier", "volcanic")
-                else "splat_snow")
-        for i in range(0, len(w.path) - 1, 3):
-            if frng.random() < 0.34:
-                (ax, ay), (bx, by) = w.path[i], w.path[i + 1]
-                side = 1.0 if frng.random() < 0.5 else -1.0
-                ang = math.atan2(by - ay, bx - ax) + side * math.pi / 2
-                d = w.half + frng.uniform(4.0, 16.0)
-                sx2, sy2 = ax + math.cos(ang) * d, ay + math.sin(ang) * d
-                if in_standing(sx2, sy2):
-                    continue  # a mud splat floating on a lake is not a margin
-                _splat(kit, canvas, edge, sx2, sy2, frng.uniform(0.18, 0.34),
-                       frng)
-        # a bank line on each side: water needs an edge to be read against, or a
-        # river is just a dark smear with rocks in it. A closed body gets ONE line,
-        # on its outer edge: the second line would sit inside the water and read as
-        # a marking.
-        for side in ((0.0,) if region else (-1.0, 1.0)):
-            # stroked ONE SEGMENT AT A TIME: a single polyline through points that
-            # skip a lake would draw a chord straight across it
-            for i in range(len(w.path) - 1):
-                (ax, ay), (bx, by) = w.path[i], w.path[i + 1]
-                ln = math.hypot(bx - ax, by - ay) or 1.0
-                nx, ny = -(by - ay) / ln, (bx - ax) / ln
-                d = w.half * side
-                qa = (ax + nx * d, ay + ny * d)
-                qb = (bx + nx * d, by + ny * d)
-                if in_standing((qa[0] + qb[0]) * 0.5, (qa[1] + qb[1]) * 0.5):
-                    continue
-                _tint_lines(canvas, [qa, qb], bank, 3.0)
-            # no bright inner lip: it reads as a drawn outline - "its thin bright
-            # banks look drawn on" - which is the opposite of a bank
-        if region:
-            # A closed body stops here. It got a fill, a bank band and one shoreline
-            # line. It does NOT get the marks channels get - no flow glints (still
-            # water has no direction) and no margin splats: the first version put mud
-            # splats just inside the shore and the lake test caught it as texture
-            # inside the water (std 16/255 where a filled body sits near 0). Mud
-            # floating on water is not shallows, it is a bug wearing a nature name.
+    # 1. the riparian edge: the grass by water is rougher and wetter than a field
+    for f in feats:
+        if f[5] is not None:
+            _fill_mask(canvas, kit, "grass_patchy", f[5], 0.45)
+    # 2. the bank: earth and sand, not grey gravel - gravel either side of a dark
+    #    band is a road's verge
+    for f in feats:
+        _fill_mask(canvas, kit, bank_mat, f[3], 0.6)
+    # 3. the water
+    for f in feats:
+        _fill_mask(canvas, kit, WATER_MAT.get(plan.theme, "water_river"), f[4], 1.0)
+    # 4. depth. A DRY wash is lightened instead: a desert arroyo is pale sand
+    #    between darker desert pavement, and darkening one turns it into a scratch.
+    for w, _frng, region, _bm, wm, _em, rw in feats:
+        if w.kind in ("wash", "arroyo"):
+            _darken_band(canvas, wm, 1.12)
             continue
-        # glints along the flow, so water reads as moving
-        for i in range(2, len(w.path) - 2, 3):
-            (ax, ay), (bx, by) = w.path[i], w.path[i + 1]
-            ln = math.hypot(bx - ax, by - ay)
-            if ln > 1:
-                nx, ny = -(by - ay) / ln, (bx - ax) / ln
-                off = frng.uniform(0.0, w.half * 0.7)
-                a = (ax + nx * off, ay + ny * off)
-                b = (bx + nx * off, by + ny * off)
-                if in_standing((a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5):
-                    continue   # a standing body has no current to glint along
-                _tint_lines(canvas, [a, b], (255, 255, 255), 1)
+        _darken_band(canvas, wm, 0.84)
+        if region:
+            cx, cy = w.inside
+            core = [(cx + (x - cx) * 0.7, cy + (y - cy) * 0.7) for x, y in w.path]
+            _darken_band(canvas, _raster_mask(core, 0.0, 7, canvas, poly=True), 0.8)
+        else:
+            _darken_band(canvas, _width_mask(w.path, [r * 0.5 for r in rw], canvas,
+                                             4), 0.82)
+    # 5. what the current leaves
+    for w, frng, region, _bm, _wm, _em, rw in feats:
+        if region or w.kind in ("wash", "arroyo"):
+            continue
+        n = len(w.path)
+        # point bars: sand deposited on the INSIDE of a bend, half in the water
+        for i in range(3, n - 3, 4):
+            (ax, ay), (bx, by), (qx, qy) = w.path[i - 3], w.path[i], w.path[i + 3]
+            turn = (bx - ax) * (qy - by) - (by - ay) * (qx - bx)
+            la = math.hypot(bx - ax, by - ay) * math.hypot(qx - bx, qy - by) or 1.0
+            if abs(turn / la) < 0.18:
+                continue
+            ln = math.hypot(qx - ax, qy - ay) or 1.0
+            nx, ny = -(qy - ay) / ln, (qx - ax) / ln
+            side = 1.0 if turn > 0 else -1.0
+            px, py = bx + nx * side * rw[i] * 0.85, by + ny * side * rw[i] * 0.85
+            if in_standing(px, py):
+                continue
+            _fill_mask(canvas, kit, bank_mat,
+                       _disc_mask(px, py, rw[i] * frng.uniform(0.5, 0.8), canvas, 4),
+                       0.7)
+        # the sheen: a soft lit band on the side facing the light, which is how a
+        # river shows its surface from the air - instead of dashes down its middle
+        offs = []
+        for i in range(n):
+            ax, ay = w.path[max(0, i - 1)]
+            bx, by = w.path[min(n - 1, i + 1)]
+            ln = math.hypot(bx - ax, by - ay) or 1.0
+            nx, ny = -(by - ay) / ln, (bx - ax) / ln
+            toward = -0.6 * nx - 0.7 * ny          # light from the upper left
+            offs.append(rw[i] * 0.42 * (1.0 if toward > 0 else -1.0))
+        sheen = _offset_path(w.path, offs)
+        keep = [not in_standing(x, y) for x, y in sheen]
+        run: list[int] = []
+        for i in range(n + 1):
+            if i < n and keep[i]:
+                run.append(i)
+                continue
+            if len(run) > 2:
+                _darken_band(canvas, _width_mask([sheen[k] for k in run],
+                                                 [rw[k] * 0.2 for k in run], canvas,
+                                                 4), 1.22)
+            run = []
+
 
 def _bridge_cut(surf: Mask, wet: Any, deck: Any) -> Mask:
     """Cut the water out of a road mask and put the bridge decks back."""
@@ -1309,8 +1459,8 @@ def paint_buildings(canvas: Plane, kit: TileKit, plan: SitePlan,
             name = "house_top"
         import pygame
         p = kit.props[name]
-        ang = b.angle
-        p = pygame.transform.rotozoom(p, ang, b.scale)
+        from .siteplan import art_turn
+        p = pygame.transform.rotozoom(p, art_turn(b.kind, b.angle), b.scale)
         _shadow_on(canvas, b.x + p.get_width() * 0.06,
                    b.y + p.get_height() * 0.09,
                    p.get_width() * 0.42, p.get_height() * 0.34, 60)
