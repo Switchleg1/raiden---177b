@@ -12,10 +12,13 @@ WATER_HALF: dict[str, tuple[float, float]] = {
 
 #: (screens per main river, screens per tributary), keyed by a theme's
 #: `water_kinds`. A swamp is MADE of channels; a desert has a wash now and then.
+#: A river valley has ONE river: at 14 screens a river every sector of 21+ screens
+#: (all of them) carried two full-length rivers side by side, which read as a
+#: canal pair, not a valley. 60 rounds to one for any sector length we fly.
 WATER_RATE: dict[tuple[str, ...], tuple[float, float]] = {
-    (): (14.0, 5.0),
-    ("river",): (14.0, 5.0),
-    ("channel", "river"): (12.0, 3.5),
+    (): (60.0, 5.0),
+    ("river",): (60.0, 5.0),
+    ("channel", "river"): (60.0, 3.5),
     ("channel", "channel", "river"): (8.0, 1.8),
     ("wash",): (16.0, 7.0),
     ("channel",): (12.0, 5.0),
