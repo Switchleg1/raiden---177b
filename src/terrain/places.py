@@ -110,6 +110,14 @@ class PlaceSpec:
     #: houses facing streets, and still water inside it read as a park pond at
     #: best and as a flooded estate at worst.
     shun: tuple[tuple[str, float], ...] = ()
+    #: if non-zero, a road must be within this many px: a place sited against
+    #: something else (a camp against water) is still reached by a road, and
+    #: siting it without asking put camps 600 px from any track, which the builder
+    #: then refused - every camp in a sector, every time
+    road_max: float = 0.0
+    #: how far "offroad" is, px from a carriageway: at least the place's own
+    #: footprint, or its clearing is laid across the road and refused
+    offroad: float = 70.0
     #: who lays first. A neighborhood needs the roadside more than a campground
     #: needs a clearing, so it asks first; sorted (order, name) keeps that
     #: deterministic instead of dependent on dict or theme-tuple order.
@@ -148,8 +156,15 @@ VOCABULARY: dict[str, PlaceSpec] = {
         shun=(("neighborhood", 700.0), ("downtown", 800.0))),
     "campground": PlaceSpec(
         name="campground", per=(3.0, 4.5), reach=250.0, keep=140.0, order=3,
-        needs=("flat", "dry"),
-        against="water", against_max=330.0, kinds=("cabin", "container")),
+        needs=("flat", "dry", "offroad"), road_max=ROAD_MAX - 60.0,
+        offroad=150.0,
+        against="water", against_max=330.0,
+        kinds=("tent_orange", "tent_green", "tent_green")),
+    "plains": PlaceSpec(
+        # laid after the settlements and the woods: open country is what is LEFT
+        # open, and claiming it first would push every estate off the flat ground
+        name="plains", per=(3.0, 4.5), reach=520.0, keep=380.0, order=4,
+        needs=("flat", "dry", "offroad"), offroad=120.0),
     "farmstead": PlaceSpec(
         # against_max 220, not 300: the plan's own rule is that every building is
         # reached by a road (within 260 px), and a farmstead's second range is
@@ -274,7 +289,7 @@ def _satisfies(plan: SitePlan, x: float, y: float, ps: PlaceSpec) -> bool:
         return False
     if "dry" in ps.needs and plan.is_wet(x, y):
         return False
-    if "offroad" in ps.needs and plan.near_road(x, y, 70.0):
+    if "offroad" in ps.needs and plan.near_road(x, y, ps.offroad):
         return False
     return True
 
@@ -306,6 +321,10 @@ def _choose(plan: SitePlan, claims: list[_Claim], ps: PlaceSpec,
             continue
         if _shunned(claims, ps, x, y, ps.keep):
             continue
+        if ps.road_max:
+            hit = _nearest_road(plan, x, y)
+            if hit is None or hit[3] > ps.road_max:
+                continue
         site = _Site(x, y)
         score = 0.0
         if ps.against == "road":
@@ -450,6 +469,20 @@ def add_water(plan: SitePlan, w) -> bool:
         if (w.closed and _in_poly(b.x, b.y, w.path)) or _near_path(
                 plan.geom, b.x, b.y, w.path, w.half + 14.0):
             return False
+    if w.closed:
+        # Standing water keeps clear of standing water. Two lakes laid over each
+        # other paint as two overlapping circles - a figure of eight with a seam
+        # through it - and nothing about real ground makes that shape.
+        for o in plan.water:
+            if not o.closed:
+                continue
+            if any(_in_poly(x, y, o.path) for x, y in w.path[::2]) or any(
+                    _in_poly(x, y, w.path) for x, y in o.path[::2]):
+                return False
+            if _near_path(plan.geom, w.inside[0] if w.inside else w.path[0][0],
+                          w.inside[1] if w.inside else w.path[0][1], o.path,
+                          w.half + 60.0):
+                return False
     # A road may CROSS water - that is what a bridge is - but it may not run along
     # it. A big blueprint lake laid beside an existing carriageway puts the road and
     # the water side by side for hundreds of pixels, which is the "road runs with the
@@ -1031,7 +1064,15 @@ def _build_street(plan: SitePlan, rng: random.Random, lane: list[Point],
         ex, ey = lane[-1]
         plan.greens.append(Green(x=ex, y=ey, radius=24.0, mat="road_asphalt"))
         plan.greens.append(Green(x=ex, y=ey, radius=9.0, mat="grass_lush"))
-    return _row_place(plan, rng, sp, lane, fits, group, lots)
+    n = _row_place(plan, rng, sp, lane, fits, group, lots)
+    if n == 0:
+        # The probe asks about each house alone, so two candidates can each fit and
+        # not fit together; a street can end up paved with nobody on it. A street to
+        # nowhere is the tell of generated ground: take it back out.
+        plan.roads.remove(sp)
+        if head:
+            del plan.greens[-2:]
+    return n
 
 
 def _ring_fit(plan: SitePlan, at: Point, radius: float, rng: random.Random,
@@ -1490,18 +1531,40 @@ def build_campground(plan: SitePlan, site: _Site, ps: PlaceSpec,
         # nothing, and the cabins would fail the plan's own "every building is
         # reached by a road" rule after the clearing was already drawn
         return 0
-    rx, ry = rng.uniform(74.0, 104.0), rng.uniform(62.0, 88.0)
-    clearing = _ellipse(site.x, site.y, rx, ry, n=9, wob=0.08, rng=rng)
-    if add_parcel(plan, clearing, "grass_patchy", "pasture") is None:
+    rx, ry = rng.uniform(118.0, 150.0), rng.uniform(100.0, 128.0)
+    # A camp is sited BY the water, so its clearing can reach the bank - and a
+    # parcel touching wet ground is refused. The clearing stops at the bank instead:
+    # try it smaller before giving the camp up.
+    # Pull back only the edge that reaches the water: a clearing stops at the bank
+    # on that side and keeps its size on the others.
+    clearing = []
+    for qx, qy in _shore(site.x, site.y, rx, ry, rng, n=24):
+        t = 1.0
+        while t > 0.35 and plan.is_wet(site.x + (qx - site.x) * t,
+                                       site.y + (qy - site.y) * t):
+            t -= 0.08
+        clearing.append((site.x + (qx - site.x) * t, site.y + (qy - site.y) * t))
+    ground = add_parcel(plan, clearing, "grass_patchy", "clearing")
+    if ground is None:
         return 0
-    # the fire clearing in the middle
-    plan.greens.append(Green(x=site.x, y=site.y, radius=rng.uniform(11.0, 16.0),
-                             mat="earth_cracked"))
-    kind = (ps.kinds or ("cabin",))[0]
-    # cabins on a ring, spaced by their own ink width, all facing the fire
-    ring = rx + 26.0
-    size = max(ink_size(kind, 0.3))
-    n = max(3, min(6, int(math.tau * ring // (size + AIR))))
+    # the tents' ring has to fit the ground the clearing actually got
+    reach = min(math.hypot(qx - site.x, qy - site.y) for qx, qy in clearing)
+    rx = ry = max(60.0, reach / 0.58 * 0.95)
+    # the fire clearing in the middle: bare trodden earth, and the fire on it
+    hearth = Green(x=site.x, y=site.y, radius=rng.uniform(22.0, 30.0),
+                   mat="earth_cracked")
+    plan.greens.append(hearth)
+    fire = place_building(plan, "campfire", site.x, site.y, (site.x, site.y + 1.0),
+                          rng.uniform(0.16, 0.19), "campfire", air=4.0)
+    kinds = ps.kinds or ("cabin",)
+    # Tents on a ring inside the clearing, spaced by their own ink, every door to
+    # the fire. A tent is a third the size of a house - the old camp used stilt
+    # huts at house scale, which is a fishing village, not a campsite.
+    # (half again true scale: at 3 m a tent is 13 px on screen and reads as a dot)
+    tent_scale = (0.22, 0.27)
+    ring = min(rx, ry) * 0.58
+    size = max(ink_size(kinds[0], tent_scale[1]))
+    n = max(3, min(9, int(math.tau * ring // (size + 10.0))))
     a0 = rng.uniform(0, math.tau)
     built = 0
     quarter = math.tau / 4.0
@@ -1521,7 +1584,7 @@ def build_campground(plan: SitePlan, site: _Site, ps: PlaceSpec,
         for aa in cand:
             if placed:
                 break
-            for rr in (ring, ring - 22.0, ring + 22.0, ring - 40.0):
+            for rr in (ring, ring + 14.0, ring - 10.0, ring + 26.0):
                 cx = site.x + math.cos(aa) * rr
                 cy = site.y + math.sin(aa) * rr
                 look = _face(cx, cy, site.x, site.y)
@@ -1530,23 +1593,42 @@ def build_campground(plan: SitePlan, site: _Site, ps: PlaceSpec,
                 if ((math.cos(math.radians(look)) * dx
                      + math.sin(math.radians(look)) * dy) / ln) <= 0.0:
                     continue          # this arc would turn its back on the fire
-                if place_building(plan, kind, cx, cy, (site.x, site.y),
-                                  rng.uniform(0.26, 0.34), "campground",
-                                  air=AIR):
+                if place_building(plan, kinds[i % len(kinds)], cx, cy,
+                                  (site.x, site.y), rng.uniform(*tent_scale),
+                                  "campground", air=8.0):
                     built += 1
                     placed = True
                     break
-    # gear and a parked block by the track head
+    if built == 0:
+        # A camp with no tents is not a camp. Take the clearing and the fire back
+        # out, or the retry builds a second camp beside an abandoned fire.
+        plan.fields.remove(ground)
+        plan.greens.remove(hearth)
+        if fire is not None:
+            plan.buildings.remove(fire)
+        return 0
+    # the track in, and the campers' car where it ends
     hit = _nearest_road(plan, site.x, site.y)
     if hit is not None and hit[3] < 460.0:
         (ax, ay) = hit[1]
-        # the track runs from the road to the clearing's edge on that side
-        edge = (site.x + math.copysign(rx + 10.0, ax - site.x), site.y)
+        # the track runs from the road straight toward the fire and stops short of
+        # the clearing's real edge (an outline pulled back from the water is not
+        # the oval it started as, so the edge is found by walking, not assumed)
+        dx, dy = site.x - ax, site.y - ay
+        ln = math.hypot(dx, dy) or 1.0
+        ux, uy = dx / ln, dy / ln
+        t = 0.0
+        while t < ln and not _in_poly(ax + ux * (t + 22.0), ay + uy * (t + 22.0),
+                                      clearing):
+            t += 6.0
+        edge = (ax + ux * t, ay + uy * t)
         add_road(plan, "track", [(ax, ay), edge], 10.0)
-        px, py = edge[0] + math.copysign(18.0, ax - site.x), site.y
+        px, py = edge[0] - ux * 26.0 - uy * 22.0, edge[1] - uy * 26.0 + ux * 22.0
         if _inside(plan, px, py, 24.0):
-            place_building(plan, "container", px, py, (site.x, site.y),
-                           rng.uniform(0.15, 0.2), "campground", air=14.0)
+            # the campers' car, parked where the track ends
+            car = ("car_red", "car_white", "car_blue", "car_grey")[rng.randrange(4)]
+            place_building(plan, car, px, py, (ax, ay), 0.15, "parking",
+                           air=6.0)
     return built
 
 
@@ -1585,6 +1667,43 @@ def build_farmstead(plan: SitePlan, site: _Site, ps: PlaceSpec,
     return built
 
 
+def build_plains(plan: SitePlan, site: _Site, ps: PlaceSpec,
+                 rng: random.Random) -> int:
+    """Open grassland: a wide meadow with a handful of lone trees standing in it.
+
+    The countryside used to be busy everywhere - a field, a hedge, a copse, a
+    farm, another field - which is the clutter the user kept describing. Real
+    country has open stretches, and they are what make the busy parts read. A
+    plain CLAIMS its ground, so the field and woodland passes leave it open; what
+    it holds is grass and a few big trees, each standing alone.
+    """
+    r = rng.uniform(380.0, 620.0)
+    poly = _shore(site.x, site.y, r, r * rng.uniform(0.7, 0.95), rng, n=32)
+    g = plan.geom
+    poly = [(min(g.w - 4.0, max(4.0, x)), y) for x, y in poly]
+    if any(plan.is_wet(x, y) for x, y in poly[::4]):
+        r *= 0.7
+        poly = [(site.x + (x - site.x) * 0.7, site.y + (y - site.y) * 0.7)
+                for x, y in poly]
+    plan.fields.insert(0, Field(poly=poly, mat="grass_lush", kind="meadow",
+                                hedge=False))
+    _claim_cells(plan, poly)
+    items = []
+    for _ in range(rng.randint(3, 7)):
+        for _try in range(6):
+            a, d = rng.uniform(0, math.tau), r * math.sqrt(rng.random()) * 0.8
+            x, y = site.x + math.cos(a) * d, site.y + math.sin(a) * d * 0.85
+            if (not _in_poly(x, y, poly) or plan.is_wet(x, y)
+                    or plan.near_road(x, y, 40.0)
+                    or any(math.hypot(x - ix, y - iy) < 150.0 for ix, iy, _s in items)):
+                continue
+            items.append((x, y, rng.uniform(0.55, 0.75)))
+            break
+    if items:
+        plan.woods.append(Wood(kind="copse", items=items))
+    return 1
+
+
 BUILDERS: dict[str, Callable[[SitePlan, _Site, PlaceSpec, random.Random], int]] = {
     "neighborhood": build_neighborhood,
     "highway": build_highway,
@@ -1592,6 +1711,7 @@ BUILDERS: dict[str, Callable[[SitePlan, _Site, PlaceSpec, random.Random], int]] 
     "woodland": build_woodland,
     "campground": build_campground,
     "farmstead": build_farmstead,
+    "plains": build_plains,
 }
 
 

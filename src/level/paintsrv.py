@@ -52,7 +52,7 @@ def _display() -> None:
 
 
 def _plan_for(theme: str, seed: int, length: int,
-              slice_h: int, margin: int) -> Any:
+              slice_h: int, margin: int, scars: float = 0.0) -> Any:
     """The plan, designed once per child process and kept.
 
     Sending a sector's plan with every slice would be a few hundred kilobytes of
@@ -60,7 +60,9 @@ def _plan_for(theme: str, seed: int, length: int,
     makes painting start promptly for the slices prepared ahead of the camera:
     the plan is already there.
     """
-    key = (theme, int(seed), int(length))
+    # the war is part of the ground: a child that re-planned without it would
+    # paint the sector as it was before it was bombed
+    key = (theme, int(seed), int(length), float(scars))
     with _CACHE_LOCK:
         plan = _CACHE.get(key)
         if plan is not None:
@@ -71,7 +73,7 @@ def _plan_for(theme: str, seed: int, length: int,
         from terrain.siteplan import CELL, Geom, plan_site
 
         plan = plan_site(theme, int(seed), Geom(h=int(length), cell=CELL,
-                                                cyclic=False))
+                                                cyclic=False), scars=float(scars))
         if len(_CACHE) >= _MAX_PLANS:
             _CACHE.clear()
         _CACHE[key] = plan
@@ -79,14 +81,14 @@ def _plan_for(theme: str, seed: int, length: int,
 
 
 def _paint_here(theme: str, seed: int, length: int, layer: str, index: int,
-                slice_h: int, margin: int) -> tuple:
+                slice_h: int, margin: int, scars: float = 0.0) -> tuple:
     """Paint slice `index` in this process; hand back (w, h, rgba bytes)."""
     _display()
     import pygame
 
     from .strip import TerrainStrip
 
-    plan = _plan_for(theme, seed, length, slice_h, margin)
+    plan = _plan_for(theme, seed, length, slice_h, margin, scars)
     strip = TerrainStrip(plan, layer, slice_h, margin)
     surf = strip.paint(index)
     return (surf.get_width(), surf.get_height(),
@@ -107,7 +109,8 @@ def paint_slice(plan: Any, layer: str, index: int, slice_h: int,
     if p is None:
         return None
     args = (str(plan.theme), int(plan.seed), int(plan.geom.h), str(layer),
-            int(index), int(slice_h), int(margin))
+            int(index), int(slice_h), int(margin),
+            float(getattr(plan, "scars", 0.0)))
     try:
         fut = p.submit(_paint_here, *args)
         if stop is None:

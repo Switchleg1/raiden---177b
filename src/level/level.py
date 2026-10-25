@@ -120,7 +120,8 @@ class Level:
         t0 = time.monotonic()
         self._design_t0 = t0
         self.plan = plan_sector(self.theme, self.seed, self.length,
-                                process=self.process_design, stop=self._stop)
+                                process=self.process_design, stop=self._stop,
+                                scars=float(getattr(self.spec, "scars", 0.0)))
         if self.plan is not None:
             # Remembered, not assumed: the loading bar's first half is an estimate,
             # and the only honest estimate is the last time this same job took. Each

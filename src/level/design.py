@@ -46,11 +46,12 @@ _LOCK = threading.Lock()
 _BROKEN = False
 
 
-def _plan_here(theme: str, seed: int, length: int) -> Any:
+def _plan_here(theme: str, seed: int, length: int, scars: float = 0.0) -> Any:
     """Design in this interpreter. The fallback, and the small-map path."""
     from terrain.siteplan import CELL, Geom, plan_site
 
-    return plan_site(theme, seed, Geom(h=int(length), cell=CELL, cyclic=False))
+    return plan_site(theme, seed, Geom(h=int(length), cell=CELL, cyclic=False),
+                     scars=float(scars))
 
 
 def _init_worker() -> None:
@@ -91,7 +92,8 @@ def pool() -> Any:
 
 
 def plan_sector(theme: str, seed: int, length: int,
-                process: bool | None = None, stop: Any = None) -> Any | None:
+                process: bool | None = None, stop: Any = None,
+                scars: float = 0.0) -> Any | None:
     """Design a sector's ground, in the other process when it is worth it.
 
     `process=None` decides by size; True/False says so. A worker that dies or a
@@ -102,9 +104,9 @@ def plan_sector(theme: str, seed: int, length: int,
     want = (int(length) >= PROCESS_MIN_LENGTH) if process is None else bool(process)
     p = pool() if want else None
     if p is None:
-        return _plan_here(theme, seed, length)
+        return _plan_here(theme, seed, length, scars)
     try:
-        fut = p.submit(_plan_here, str(theme), int(seed), int(length))
+        fut = p.submit(_plan_here, str(theme), int(seed), int(length), float(scars))
         if stop is None:
             return fut.result()
         # Polled for the same reason painting is: a Level can be stopped while its
@@ -121,7 +123,7 @@ def plan_sector(theme: str, seed: int, length: int,
                     return None
     except Exception as exc:                      # noqa: BLE001 - any worker fault
         log.warning("design worker failed (%s); designing in-process", exc)
-        return _plan_here(theme, seed, length)
+        return _plan_here(theme, seed, length, scars)
 
 
 def shutdown_pool() -> None:

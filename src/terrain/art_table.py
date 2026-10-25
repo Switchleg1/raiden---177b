@@ -11,7 +11,8 @@ PROP_OF: dict[str, str] = {"house": "house_top", "barn": "barn_red", "hut": "hut
            "depot": "warehouse_long", "warehouse": "warehouse_long",
            "pylon": "mast_lattice", "tower": "antenna_dish",
            "container": "cargo_container", "crate": "crate_stack",
-           "tree": "tree_clump", "pine": "pine_clump", "rock": "rock_cluster"}
+           "tree": "tree_clump", "pine": "pine_clump", "rock": "rock_cluster",
+           "wreck": "wreck_burnt", "campfire": "campfire"}
 
 #: Opaque ink extents of each prop, in ART px at scale 1 - the bounding box of the
 #: non-transparent pixels inside the 256 px art box, not the art box itself.

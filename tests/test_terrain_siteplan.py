@@ -129,8 +129,11 @@ def test_every_house_is_reached_by_a_road(theme, seed):
 @pytest.mark.parametrize("theme", sorted(PLANNED - {"city"}))
 @pytest.mark.parametrize("seed", SEEDS)
 def test_fields_do_not_swallow_the_road(theme, seed):
+    from terrain.field_table import SOFT_FIELDS
     p = _plan(theme, seed)
     for f in p.fields:
+        if f.kind in SOFT_FIELDS:
+            continue        # a tint of the ground under the road, not a parcel
         for j in range(ROWS):
             for i in range(COLS):
                 cx, cy = i * CELL + CELL / 2, j * CELL + CELL / 2

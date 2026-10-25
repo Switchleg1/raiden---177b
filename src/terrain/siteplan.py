@@ -38,6 +38,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from .art_table import ART_FRONT, ART_FRONT_DEFAULT, INK, INK_DEFAULT, PROP_OF
+from .field_table import LIFTABLE_FIELDS
 from .tilekit import CH, CW
 from .water_table import WATER_HALF, WATER_RATE
 
@@ -310,6 +311,8 @@ class SitePlan:
     #: claimed its disc, then refused every house in it.
     place: list[list[bool]] | None = None
     geom: Geom = SCREEN
+    #: how fought-over this ground is, 0..1 (see `terrain.war`)
+    scars: float = 0.0
     _bands: dict | None = None
     # (y_lo, y_hi, corridor half-width, path) per road, rebuilt when roads change
     _road_box: list | None = None
@@ -870,6 +873,9 @@ class SiteSpec:
     #: how hard the main river swings: 1 is a lowland river, a city's is a
     #: straightened, embanked channel
     meander: float = 1.0
+    #: which kind of mountain range this ground grows (see `mountain_table`);
+    #: "" for none
+    ranges: str = ""
     treeline: bool = True
     scree: bool = True
     hedge: str = "hedge"
@@ -879,6 +885,7 @@ _DEFAULT = SiteSpec()
 
 SPEC: dict[str, SiteSpec] = {
     "countryside": SiteSpec(
+        ranges="foothills",
         ridge_shapes=("massif", "sawback", "domefield"), ridge_weight=0.9,
         # more than one mass: a single ridge somewhere on the map is why the
         # review said "no strong hills or slopes read" - the ground has to have
@@ -888,23 +895,25 @@ SPEC: dict[str, SiteSpec] = {
         field_count=(5, 8), tree_props=("tree_clump", "pine_clump"),
         woods=(1, 3),
         places=("neighborhood", "woodland", "farmstead", "campground",
-                "lake")),
+                "lake", "plains")),
     "farmland": SiteSpec(
         ridge_shapes=("domefield", "massif"), ridge_weight=0.7,
         ridge_count=(1, 1), water_kinds=("channel", "river"), road="main",
         build=("barn", "house"), field_kinds=("crop", "paddy", "pasture"),
         field_count=(8, 12), tree_props=("tree_clump", "pine_clump"),
         woods=(1, 2),
-        places=("neighborhood", "woodland", "farmstead", "lake")),
+        places=("neighborhood", "woodland", "farmstead", "lake", "plains")),
     "forest": SiteSpec(
+        ranges="alpine",
         ridge_shapes=("massif", "hogback"), ridge_weight=0.8,
         ridge_count=(1, 2),
-        water_kinds=("river",), road="main", build=("hut",),
+        water_kinds=("river",), road="main", build=("house",),
         field_kinds=("pasture",), field_count=(1, 3),
         tree_props=("pine_clump", "tree_clump"), woods=(5, 8),
         treeline=True,
         places=("woodland", "campground", "lake", "farmstead")),
     "canyon": SiteSpec(
+        ranges="badlands",
         ridge_shapes=("mesa", "hogback", "sawback"), ridge_weight=0.95,
         ridge_count=(2, 3), water_kinds=("wash",), road="main",
         build=(), field_count=(0, 0), tree_props=("dead_tree",),
@@ -914,24 +923,28 @@ SPEC: dict[str, SiteSpec] = {
         woods=(1, 3), scree=True, treeline=False,
         places=()),
     "glacier": SiteSpec(
+        ranges="alpine",
         ridge_shapes=("massif", "domefield", "cone"), ridge_weight=0.9,
         ridge_count=(2, 3), water_kinds=("channel",), road="main",
         build=("hut",), field_count=(0, 0),
         tree_props=("pine_snow",), woods=(2, 4), scree=True,
         places=("farmstead",)),
     "volcanic": SiteSpec(
+        ranges="volcanic",
         ridge_shapes=("cone", "cone", "sawback", "hogback"), ridge_weight=0.95,
         ridge_count=(2, 3), ridge_prop="basalt_spire", water_kinds=(),
         road="main", build=(), field_count=(0, 0),
         tree_props=("dead_tree",), woods=(1, 3), scree=True,
         places=()),
     "wasteland": SiteSpec(
+        ranges="badlands",
         ridge_shapes=("hogback", "massif"), ridge_count=(1, 2),
         water_kinds=("wash",), road="main", build=("crate_stack",),
         field_count=(0, 0), tree_props=("dead_tree",), woods=(2, 4),
         scree=True,
         places=()),
     "ruins": SiteSpec(
+        ranges="foothills",
         ridge_shapes=("massif", "hogback"), ridge_weight=0.5,
         ridge_count=(1, 2), water_kinds=("river",), road="main",
         build=("house",), hamlet=True, field_kinds=("pasture",),
@@ -1104,7 +1117,68 @@ def _orogeny(g: Geom, spec: SiteSpec,
                           width * rng.uniform(0.35, 0.6), asym, taper=0.55)
         ridges.append(ridge)
         _carve_relief(g, relief, spine, height, width, asym, crest=crest)
+    if not g.cyclic:
+        _ranges(g, spec, relief, rng)
     return ridges, relief
+
+
+def _ranges(g: Geom, spec: SiteSpec, relief: list[list[float]],
+            rng: random.Random) -> None:
+    """Mountain ranges: long walls of high ground down one side of the strip.
+
+    The scattered ridges above are hills - a mass here, a spur there. A range is a
+    different landform: a crest line that runs for screens with peaks and saddles
+    along it, falling steeply to a valley the river and the road share. Flying down
+    a valley with a range on one side is one of the things the user asked to see,
+    and it is the shape of most real mountain country.
+
+    The crest wanders slowly, its height rises and falls in long waves (peaks and
+    passes), and the flank falls off with distance from the crest. Raised into the
+    relief with `max`, so it joins the hills already there instead of stacking on
+    them. Rivers and roads are routed after this and keep to the low ground.
+    """
+    from .mountain_table import RANGES
+    spec_r = RANGES.get(spec.ranges)
+    if spec_r is None:
+        return
+    per, (w_lo, w_hi), (h_lo, h_hi) = spec_r
+    count = int(g.screens / per) + (1 if rng.random() < (g.screens / per) % 1.0 else 0)
+    for _ in range(count):
+        left = rng.random() < 0.5
+        length = rng.uniform(4.0, 9.0) * SCREEN_H
+        y0 = rng.uniform(-0.2, 1.0) * g.h
+        y1 = y0 + length
+        width = rng.uniform(w_lo, w_hi)
+        base = rng.uniform(0.04, 0.16) * g.w
+        crest = [(rng.uniform(0.0, 6.28), rng.uniform(0.02, 0.05) * g.w,
+                  rng.uniform(1.4, 2.6) * SCREEN_H) for _k in range(2)]
+        peaks = [(rng.uniform(0.0, 6.28), rng.uniform(0.6, 1.4) * SCREEN_H),
+                 (rng.uniform(0.0, 6.28), rng.uniform(0.25, 0.5) * SCREEN_H)]
+        top = rng.uniform(h_lo, h_hi)
+        j0 = max(0, int(y0 // g.cell))
+        j1 = min(g.rows - 1, int(y1 // g.cell))
+        for j in range(j0, j1 + 1):
+            y = j * g.cell + g.cell / 2
+            t = (y - y0) / length
+            # the range rises out of the plain at its ends rather than starting as
+            # a cliff across the strip
+            taper = min(1.0, t * 5.0, (1.0 - t) * 5.0)
+            if taper <= 0.0:
+                continue
+            cx = base + sum(a * math.sin(y / wl + ph) for ph, a, wl in crest)
+            if not left:
+                cx = g.w - cx
+            h = top * taper * (0.72 + 0.18 * math.sin(y / peaks[0][1] + peaks[0][0])
+                               + 0.10 * math.sin(y / peaks[1][1] + peaks[1][0]))
+            for i in range(g.cols):
+                x = i * g.cell + g.cell / 2
+                d = abs(x - cx)
+                if d >= width:
+                    continue
+                u = 1.0 - d / width
+                v = h * u * u * (3.0 - 2.0 * u)
+                if v > relief[j][i]:
+                    relief[j][i] = min(1.0, v)
 
 
 def _carve_relief(g: Geom, relief: list[list[float]], path: list[Point],
@@ -2032,7 +2106,12 @@ def lift_parcel_ground(plan: SitePlan,
     for f in plan.fields:
         fx = [q[0] for q in f.poly]
         fy = [q[1] for q in f.poly]
-        if max(fx) < x0 or min(fx) > x1 or max(fy) < y0 or min(fy) > y1:
+        # FARMLAND only. Every other parcel was laid by a place for the buildings
+        # that stand on it - a camp's clearing, a rest stop's apron, a city block's
+        # paving - and lifting those deleted each one the moment its first tent or
+        # depot went down.
+        if (f.kind not in LIFTABLE_FIELDS
+                or max(fx) < x0 or min(fx) > x1 or max(fy) < y0 or min(fy) > y1):
             keep.append(f)
             continue
         jr = _span(max(y0, min(fy)), min(y1, max(fy)), g.rows, CELL)
@@ -2297,7 +2376,8 @@ def _water_mark_body(plan: SitePlan, w) -> None:
 # entry point
 # ---------------------------------------------------------------------------
 
-def plan_site(theme: str, seed: int, geom: Geom | None = None) -> SitePlan:
+def plan_site(theme: str, seed: int, geom: Geom | None = None,
+              scars: float = 0.0) -> SitePlan:
     """Design a sector's ground. Deterministic from ``(seed, theme, geom)``.
 
     ``geom`` is the ground being designed: one screen by default, a longer strip
@@ -2370,6 +2450,9 @@ def plan_site(theme: str, seed: int, geom: Geom | None = None) -> SitePlan:
     _settlement(spec, plan, rng)
     _fields(spec, plan, rng)
     _cover(spec, plan, rng)
+    # the war, last: the same ground, broken (a no-op at scars 0)
+    from .war import scar
+    scar(plan, scars)
     return plan
 
 

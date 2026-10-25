@@ -334,8 +334,20 @@ def test_a_neighborhood_lane_holds_houses_on_both_sides():
                         best = (d, vx / seg, vy / seg, qx, qy)
                 if best is None or best[0] > 170.0:
                     continue
-                if min(math.hypot(end[0] - sx, end[1] - sy)
-                       for sx, sy in r.path) > 90.0:
+                # FRONTS this street: its drive ends ON it (on the path, between its
+                # vertices - drives end at a point along the lane). The 90 px slack
+                # this used to allow counted the houses of a crossing street at every
+                # junction as this street's frontage.
+                def on_path(path: list, px: float, py: float) -> float:
+                    out = 1e9
+                    for i in range(len(path) - 1):
+                        (ax, ay), (bx, by) = path[i], path[i + 1]
+                        vx, vy = bx - ax, by - ay
+                        seg2 = (vx * vx + vy * vy) or 1.0
+                        t = max(0.0, min(1.0, ((px - ax) * vx + (py - ay) * vy) / seg2))
+                        out = min(out, math.hypot(px - ax - vx * t, py - ay - vy * t))
+                    return out
+                if on_path(r.path, end[0], end[1]) > 3.0:
                     continue
                 _d, vx, vy, qx, qy = best
                 on_street += 1

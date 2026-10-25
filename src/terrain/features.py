@@ -23,8 +23,10 @@ import math
 import random
 from typing import Any
 
+from .cover_table import COVER_PROPS
+from .mountain_table import SNOWLINE
 from .relief_table import HILL, HILL_LIGHT, HILL_OCTAVES, RELIEF_LOOK
-from .siteplan import CH, CW, SitePlan
+from .siteplan import CH, CW, SitePlan, _in_poly
 from .theme_table import ROCK
 from .tilekit import TILE, TileKit
 
@@ -857,7 +859,7 @@ class _Window:
         self.scale = plane.scale
 
 
-def _hillshade(canvas: Any, plan: SitePlan, field: Any) -> None:
+def _hillshade(canvas: Any, kit: TileKit, plan: SitePlan, field: Any) -> None:
     """Light the WHOLE ground by its slope, with erosion detail on the high ground.
 
     The relief used to colour a mountain by its height and light it weakly from a
@@ -894,6 +896,16 @@ def _hillshade(canvas: Any, plan: SitePlan, field: Any) -> None:
     k = np.clip(lam / lz, 0.5, 1.4)                  # 1.0 on flat ground
     k = 1.0 + (k - 1.0) * strength
     canvas.sync()
+    line = SNOWLINE.get(plan.theme)
+    if line is not None:
+        # Snow lies on the heights and slides off the steep faces: above the
+        # snowline, less on a cliff, ragged at its lower edge by the same detail
+        # that cuts the ridges. Laid before the shading so the snow is lit too.
+        h = base[1:-1, 1:-1] + (_ridged(xs[1:-1], ys[1:-1], seed + 31) - 0.5) * 0.12
+        steep = np.clip(np.hypot(dzdx, dzdy) * 0.9, 0.0, 1.0)
+        snow = np.clip((h - line) / 0.1, 0.0, 1.0) * (1.0 - steep * 0.7)
+        src = _view(kit, "snow_field", canvas).astype(np.float32)
+        canvas.rgb = canvas.rgb * (1.0 - snow[:, :, None]) + src * snow[:, :, None]
     canvas.rgb *= k[:, :, None]
 
 
@@ -1043,7 +1055,7 @@ def paint_relief(canvas: Any, kit: TileKit, plan: SitePlan,
         canvas.blit(pygame.image.fromstring(
             np.ascontiguousarray(rgba).tobytes(), (CW, CH), "RGBA"), (0, 0))
     if hs_raw is not None:
-        _hillshade(canvas, plan, hs_raw)
+        _hillshade(canvas, kit, plan, hs_raw)
     # scree and slumps at the foot: debris where the slope lets go. Small and
     # dark, and in the theme's own rock tone - a bright grey belt across the
     # middle of a green valley is a landslide of decoration, not a landform.
@@ -1080,6 +1092,25 @@ def paint_fields(canvas: Any, kit: TileKit, plan: SitePlan,
     for fi in _band(canvas, plan, "fields"):
         f = plan.fields[fi]
         frng = _frand(plan, fi, 11)
+        if f.kind == "meadow":
+            mask = _raster_mask(f.poly, 0.0, 22, canvas, poly=True)
+            _fill_mask(canvas, kit, f.mat, mask, 0.55)
+            continue
+        if f.kind == "scorch":
+            # burned ground: a soft-edged blackening over whatever was there, with
+            # the ash heavier in patches - not a parcel with a kerb round it
+            mask = _raster_mask(f.poly, 0.0, 22, canvas, poly=True)
+            _fill_mask(canvas, kit, f.mat, mask, 0.8)
+            _darken_band(canvas, mask, 0.72)
+            xs = [q[0] for q in f.poly]
+            ys = [q[1] for q in f.poly]
+            for _k in range(int((max(xs) - min(xs)) * (max(ys) - min(ys)) / 26000)):
+                sx = frng.uniform(min(xs), max(xs))
+                sy = frng.uniform(min(ys), max(ys))
+                if _in_poly(sx, sy, f.poly):
+                    _splat(kit, canvas, "splat_scorch", sx, sy,
+                           frng.uniform(0.3, 0.7), frng)
+            continue
         mask = _poly_mask(f.poly, canvas)
         _fill_mask(canvas, kit, f.mat, mask, 0.92)
         if f.kind in ("crop", "paddy", "lot", "orchard"):
@@ -1486,6 +1517,8 @@ def _cover_props(theme: str, kind: str) -> tuple[str, ...]:
     spec = SPEC.get(theme, _DEFAULT)
     if kind in ("outcrop", "scree"):
         return (spec.ridge_prop,)
+    if kind in COVER_PROPS:
+        return COVER_PROPS[kind]
     if kind == "pylon_row":
         # a highway's pylons are a ROW of one prop, not vegetation: this is how a
         # place lays something the tree vocabulary cannot express
@@ -1493,11 +1526,26 @@ def _cover_props(theme: str, kind: str) -> tuple[str, ...]:
     return spec.tree_props or ("tree_clump",)
 
 
+def paint_scars(canvas: Any, kit: TileKit, plan: SitePlan,
+                rng: random.Random) -> None:
+    """Craters: over the ground, the roads and the fields, under the buildings
+    and the trees - a crater is a hole IN the ground, and a road through a bombed
+    field is a broken road."""
+    for wdi in _band(canvas, plan, "woods"):
+        wd = plan.woods[wdi]
+        if wd.kind != "crater":
+            continue
+        for x, y, s in wd.items:
+            _prop(kit, canvas, "crater", x, y, s, rng, rot4=True)
+
+
 def paint_cover(canvas: Any, kit: TileKit, plan: SitePlan,
                 rng: random.Random) -> None:
     for wdi in _band(canvas, plan, "woods"):
         wd = plan.woods[wdi]
         frng = _frand(plan, wdi, 37)
+        if wd.kind == "crater":
+            continue                  # laid under the buildings by `paint_scars`
         if wd.kind in ("scree", "outcrop"):
             # rock DEBRIS is not a landform. Stamping cluster sprites along a
             # crest gave "boulder fences" - a row of individually drawn rocks
@@ -1561,10 +1609,11 @@ def paint_site(canvas: Plane, kit: TileKit, plan: SitePlan,
     paint_fields(canvas, kit, plan, rng)
     paint_roads(canvas, kit, plan, rng)
     paint_greens(canvas, kit, plan, rng)
+    paint_scars(canvas, kit, plan, rng)
     paint_buildings(canvas, kit, plan, rng)
     paint_cover(canvas, kit, plan, rng)
 
 
 __all__ = ["Plane", "paint_site", "paint_far", "paint_relief", "paint_roads",
            "paint_fields", "paint_water", "paint_buildings", "paint_cover",
-           "paint_greens"]
+           "paint_greens", "paint_scars"]

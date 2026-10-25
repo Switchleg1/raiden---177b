@@ -22,11 +22,12 @@ os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 
 import pygame  # noqa: E402
+
 pygame.init()
 pygame.display.set_mode((8, 8))
 
 from terrain import siteplan  # noqa: E402
-from terrain.siteplan import Geom, SPEC, _ink_rect  # noqa: E402
+from terrain.siteplan import SPEC, Geom, _ink_rect  # noqa: E402
 
 
 def main(argv: list[str]) -> int:
@@ -97,7 +98,7 @@ def main(argv: list[str]) -> int:
         wd: dict[str, int] = {}
         for w in p.woods:
             wd[w.kind] = wd.get(w.kind, 0) + 1
-        want = {n: SPEC[t].places for n in ()} if False else SPEC[t].places
+        want = dict.fromkeys((), SPEC[t].places) if False else SPEC[t].places
         flag = ""
         if ov:
             flag = "  <== OVERLAPPING FOOTPRINTS"
