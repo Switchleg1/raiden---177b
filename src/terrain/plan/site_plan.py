@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from ..design.geometry import _in_poly, _near_path
 from .geom import SCREEN
+from .reach import BASE_REACH, REACH_OF
 
 if TYPE_CHECKING:
     from .building import Building
@@ -99,8 +100,6 @@ class SitePlan:
     # clipped-feature explanation was wrong and the extra reach is only extra work.
     # Lowered numbers are guarded by `scripts/study_slice_seams.py`; if a theme ever
     # grows a sprite that paints past these, that measurement moves first.
-    _REACH = {"ridges": 0.0, "water": 0.0, "roads": 0.0, "buildings": 130.0,
-              "fields": 30.0, "woods": 150.0, "greens": 70.0}
 
     def band(self, kind: str, y0: float, y1: float) -> list[int]:
         """Indices of the features of `kind` that can appear in a y-range.
@@ -113,54 +112,20 @@ class SitePlan:
         across the seam, so culling by y would drop the seam copies and change
         the baked maps.
         """
-        attr = {"ridges": "ridges", "water": "water", "roads": "roads",
-                "buildings": "buildings", "fields": "fields",
-                "woods": "woods", "greens": "greens"}[kind]
-        feats = getattr(self, attr)
+        if kind not in BASE_REACH:
+            raise KeyError(f"no feature list called {kind!r}")
+        feats = getattr(self, kind)
         if self.geom.cyclic:
             return list(range(len(feats)))
         self._bands = self._bands or {}
         ranges = self._bands.get(kind)
         if ranges is None:
-            reach = self._REACH[kind]
+            base = BASE_REACH[kind]
+            reach_of = REACH_OF.get(kind)
             ranges = []
             for i, f in enumerate(feats):
                 lo, hi = _y_extent(f)
-                if kind == "ridges":
-                    reach = f.width * 3.4 + 40.0
-                elif kind == "water":
-                    reach = max(f.flood, f.half * 2.0) + 60.0
-                elif kind == "roads":
-                    reach = f.width * 2.0 + 90.0
-                elif kind == "buildings":
-                    # A building is not its footprint. It stamps a prop sprite
-                    # (256 px of art at `scale`, so it overhangs 128*scale either
-                    # way) and splats a yard (art scaled by radius/60, so about
-                    # 2.1 radii beyond the yard's own edge). The constant 130 was a
-                    # guess at the sprite and covered neither, so a neighbour's yard
-                    # appeared in the window that happened to include it and not in
-                    # the one painting the ground under it - measured as one compact
-                    # 100x100 px blob of differently-shaded ground at a slice
-                    # boundary, present in a one-window reference and absent from the
-                    # slice. Reach is what the feature DRAWS, not what it IS.
-                    spread = 128.0 * float(getattr(f, "scale", 1.0)) + 40.0
-                    if getattr(f, "yard", None):
-                        spread = max(spread, 2.2 * float(f.yard[2]) + 40.0)
-                    reach = max(reach, spread)
-                elif kind == "woods":
-                    # The stand's trees are its own props, up to 256*scale wide,
-                    # and its edge is the outermost crown, not the stand's points.
-                    reach = max(reach, 128.0 + 40.0)
-                elif kind == "greens":
-                    # A green draws its lanes too, and they run out to the houses
-                    # around it - a window that saw the anchor but not the lane end
-                    # (or the reverse) painted half a lane, which is the same
-                    # half-a-house artifact at a slice boundary wearing a different
-                    # hat. Reach is what the feature DRAWS.
-                    lanes = getattr(f, "lanes", None) or []
-                    far = max((max(abs(p2[1] - f.y) for p2 in lane)
-                               for lane in lanes), default=0.0)
-                    reach = max(reach, far + 20.0)
+                reach = reach_of(f, base) if reach_of is not None else base
                 ranges.append((lo - reach, hi + reach, i))
             self._bands[kind] = ranges
         return [i for lo, hi, i in ranges if hi >= y0 and lo <= y1]

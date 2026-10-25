@@ -237,3 +237,19 @@ def mix(a: RGB, b: RGB, t: float) -> RGB:
     return (int(round(a[0] * ta + b[0] * t)),
             int(round(a[1] * ta + b[1] * t)),
             int(round(a[2] * ta + b[2] * t)))
+
+
+WHITE: RGB = (255, 255, 255)
+
+
+def spike(
+        cx: float, cy: float, ang: float, r0: float, r1: float, half_w: float,
+) -> tuple[tuple[float, float], tuple[float, float], tuple[float, float]]:
+    # Fixed-arity on purpose: ``t.tri(*_spike(...), colour)`` only typechecks
+    # when mypy can see the unpacked count is exactly three vertices.
+    """Tip-outward triangle: mine spikes, star points, exhaust tongues."""
+    ca, sa = math.cos(ang), math.sin(ang)
+    px, py = -sa, ca
+    return ((cx + ca * r1, cy + sa * r1),
+            (cx + ca * r0 + px * half_w, cy + sa * r0 + py * half_w),
+            (cx + ca * r0 - px * half_w, cy + sa * r0 - py * half_w))

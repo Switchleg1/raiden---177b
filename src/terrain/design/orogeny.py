@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 from ..plan.geom import CELL, SCREEN_H, SCREEN_W
 from ..plan.ridge import Ridge
+from .crest_table import CRESTS, RIDGE_ARMS
 from .geometry import _along, _hpath, _vpath
 
 if TYPE_CHECKING:
@@ -21,54 +22,7 @@ def _crest(shape: str, rng: random.Random) -> tuple[list[float], float]:
     Each shape is a real ridge cross-section, not a random profile:
     """
     n = 40
-    h = [0.0] * n
-    if shape == "sawback":           # jagged thrust belt: sharp teeth, uneven
-        teeth = rng.randint(3, 6)
-        for i in range(n):
-            t = (i / n) * teeth
-            h[i] = 0.45 + 0.55 * abs(t - math.floor(t) - 0.5) * 2.0
-        h = [min(1.0, v * rng.uniform(0.75, 1.2)) for v in h]
-    elif shape == "domefield":       # domed uplift: broad rounded swells
-        bumps = [(rng.uniform(0.1, 0.9), rng.uniform(0.06, 0.18),
-                  rng.uniform(0.5, 1.0)) for _ in range(rng.randint(2, 4))]
-        for i in range(n):
-            u = i / n
-            h[i] = max(a * math.exp(-((u - c) / w) ** 2) for c, w, a in bumps)
-    elif shape == "mesa":            # table mountain: long flats, cliff edges
-        lo = rng.uniform(0.15, 0.35)
-        hi = lo + rng.uniform(0.25, 0.45)
-        # the cliff is a cosine shoulder over 16% of the run, not a step: a step
-        # in the height field shades as a hard-edged black rectangle, which is
-        # how the first canyon renders looked like a rendering bug
-        for i in range(n):
-            u = i / n
-            if u < lo or u > hi:
-                h[i] = 0.12
-            else:
-                e = min(u - lo, hi - u, 0.16)
-                h[i] = 0.12 + 0.88 * (0.5 - 0.5 * math.cos(math.pi * (e / 0.16)))
-    elif shape == "cone":            # stratovolcano: one narrow tall peak
-        c, w = rng.uniform(0.35, 0.65), rng.uniform(0.08, 0.14)
-        for i in range(n):
-            u = i / n
-            h[i] = math.exp(-((u - c) / w) ** 2)
-    elif shape == "hogback":         # asymmetric dipping strata: steep scarp,
-        c = rng.uniform(0.3, 0.7)    #             gentle dip slope
-        for i in range(n):
-            u = i / n
-            h[i] = (1.0 - abs(u - c) / max(1e-6, c if u < c else 1.0 - c))
-            h[i] = max(0.05, min(1.0, h[i]))
-    elif shape == "massif":          # eroded massif: lumpy core, radiating arms
-        bumps = [(rng.uniform(0.15, 0.85), rng.uniform(0.1, 0.22),
-                  rng.uniform(0.55, 1.0)) for _ in range(rng.randint(3, 5))]
-        for i in range(n):
-            u = i / n
-            h[i] = 0.35 * max(a * math.exp(-((u - c) / w) ** 2)
-                              for c, w, a in bumps) + 0.45
-    else:                            # "ridge" - a single gentle arc
-        c, w = 0.5, rng.uniform(0.22, 0.35)
-        for i in range(n):
-            h[i] = math.exp(-((i / n - c) / w) ** 2)
+    h = CRESTS.get(shape, CRESTS["ridge"])(n, rng)
     # one shared smoothing pass: a crest is continuous rock, never a step
     for _ in range(2):
         h = [h[i] if 0 < i < n - 1 else h[i] * 0.9
@@ -76,9 +30,6 @@ def _crest(shape: str, rng: random.Random) -> tuple[list[float], float]:
         h = [(h[max(0, i - 1)] + 2 * h[i] + h[min(n - 1, i + 1)]) / 4.0
              for i in range(n)]
     return h, (max(h) or 1.0)
-
-
-SHAPES = ("sawback", "domefield", "mesa", "cone", "hogback", "massif", "ridge")
 
 
 def _orogeny(g: Geom, spec: SiteSpec,
@@ -163,9 +114,7 @@ def _orogeny(g: Geom, spec: SiteSpec,
         # spurs: shorter arms leaving the spine at angles - a ridge system, not
         # a line. Massifs and cones get the most. A branch arm gets almost none:
         # it IS an arm
-        arms = {"massif": (3, 6), "cone": (3, 5), "sawback": (1, 3),
-                "domefield": (1, 3), "hogback": (1, 2), "mesa": (0, 1),
-                "ridge": (1, 2)}[shape]
+        arms = RIDGE_ARMS[shape]
         if branch:
             arms = (0, 1)
         for _ in range(rng.randint(*arms)):

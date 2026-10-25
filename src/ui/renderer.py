@@ -23,6 +23,7 @@ from .constants import (
 )
 from .effects import Effects
 from .fonts import get_font
+from .glyph_table import ENEMY_SHAPE_DEFAULT, ENEMY_SHAPES, GLYPHS
 from .menu import Menu
 
 
@@ -656,23 +657,11 @@ class Renderer:
             col = (255, 255, 255)
         r = int(e.r)
         kind = e.kind.value if hasattr(e.kind, "value") else str(e.kind)
-        if kind == "grunt":
-            pts = [(x, y + r), (x - r, y - r), (x + r, y - r)]
-        elif kind == "weaver":
-            pts = [(x, y + r), (x + r, y), (x, y - r), (x - r, y)]
-        elif kind == "darter":
-            pts = [(x, y + r), (x + 4, y - r), (x - 4, y - r)]
-        elif kind == "gunner":
-            pts = self._hex(x, y, r)
-        elif kind == "sentry":
-            pts = self._oct(x, y, r)
-        elif kind == "heavy":
-            pts = [(x - r, y - r), (x + r, y - r), (x + r, y + r), (x - r, y + r)]
-        elif kind == "boss":
+        if kind == "boss":
             self._draw_boss(e, x, y, col)
             return
-        else:
-            pts = [(x, y + r), (x - r, y - r), (x + r, y - r)]
+        pts = [(x + fx * r + dx, y + fy * r + dy)
+               for fx, fy, dx, dy in ENEMY_SHAPES.get(kind, ENEMY_SHAPE_DEFAULT)]
         pygame.draw.polygon(self.canvas, col, pts)
         pygame.draw.polygon(self.canvas, self._shade(col, -60), pts, 2)
         # core highlight (texture)
@@ -696,14 +685,6 @@ class Renderer:
         core = self._shade(col, 60 + int((1 - frac) * 80))
         pygame.draw.circle(self.canvas, core, (x, y), max(3, r // 4))
         pygame.draw.circle(self.canvas, (255, 255, 255), (x, y), max(2, r // 8))
-
-    def _hex(self, x, y, r):
-        return [(x + r * math.cos(a), y + r * math.sin(a))
-                for a in (i * math.tau / 6 for i in range(6))]
-
-    def _oct(self, x, y, r):
-        return [(x + r * math.cos(a), y + r * math.sin(a))
-                for a in (i * math.tau / 8 + math.tau / 16 for i in range(8))]
 
     def _draw_item(self, it: Any) -> None:
         kind = str(getattr(it.kind, "value", it.kind))
@@ -754,56 +735,27 @@ class Renderer:
                          border_radius=4)
         pygame.draw.rect(self.canvas, edge, (x - h, y - h, h * 2, h * 2),
                          width=2, border_radius=4)
-        g = glyph
-        if g == "up":
-            pygame.draw.polygon(self.canvas, edge,
-                                [(x, y - 6), (x + 6, y), (x + 2, y), (x + 2, y + 6),
-                                 (x - 2, y + 6), (x - 2, y), (x - 6, y)])
-        elif g == "rocket":
-            pygame.draw.polygon(self.canvas, edge,
-                                [(x, y - 7), (x + 4, y + 3), (x, y + 1), (x - 4, y + 3)])
-            pygame.draw.line(self.canvas, edge, (x - 4, y + 5), (x + 4, y + 5), 2)
-        elif g == "bomb":
-            pygame.draw.circle(self.canvas, edge, (x, y + 1), 5)
-            pygame.draw.line(self.canvas, edge, (x + 3, y - 3), (x + 6, y - 6), 2)
-        elif g == "shield":
-            pygame.draw.polygon(self.canvas, edge,
-                                [(x, y - 6), (x + 6, y - 3), (x + 6, y + 2),
-                                 (x, y + 7), (x - 6, y + 2), (x - 6, y - 3)], 2)
-        elif g == "medal":
-            pygame.draw.circle(self.canvas, edge, (x, y), 6, 2)
-            pygame.draw.line(self.canvas, edge, (x, y - 3), (x, y + 3), 2)
-            pygame.draw.line(self.canvas, edge, (x - 3, y), (x + 3, y), 2)
-        elif g == "life":
-            pygame.draw.circle(self.canvas, edge, (x - 3, y - 1), 3)
-            pygame.draw.circle(self.canvas, edge, (x + 3, y - 1), 3)
-            pygame.draw.polygon(self.canvas, edge,
-                                [(x - 5, y + 1), (x + 5, y + 1), (x, y + 6)])
-        elif g == "whip":
-            # squashed S-lash with an energy bead at the tip
-            pygame.draw.arc(self.canvas, edge,
-                            (x - 7, y - 8, 8, 9), math.pi * 0.9,
-                            math.pi * 2.1, 2)
-            pygame.draw.arc(self.canvas, edge,
-                            (x - 1, y - 1, 8, 9), math.pi * 1.9,
-                            math.pi * 3.1, 2)
-            pygame.draw.circle(self.canvas, edge, (x + 5, y + 6), 2)
-        elif g == "flame":
-            # tongue of fire: point up, wide base, hot bead inside. Outline
-            # rather than solid, because the "up" glyph beside it is solid.
-            pygame.draw.polygon(self.canvas, edge,
-                                [(x, y - 7), (x + 4, y - 1), (x + 3, y + 4),
-                                 (x, y + 6), (x - 3, y + 4), (x - 4, y - 1)], 2)
-            pygame.draw.circle(self.canvas, edge, (x, y + 2), 2)
-        elif g == "jam":
-            pygame.draw.line(self.canvas, edge, (x - 5, y - 5), (x + 5, y + 5), 2)
-            pygame.draw.line(self.canvas, edge, (x + 5, y - 5), (x - 5, y + 5), 2)
-        elif g == "mine":
-            pygame.draw.circle(self.canvas, edge, (x, y), 4, 2)
-            for a in range(0, 360, 45):
-                vx = math.cos(math.radians(a)) * 7
-                vy = math.sin(math.radians(a)) * 7
-                pygame.draw.line(self.canvas, edge, (x, y), (x + vx, y + vy), 2)
+        for op in GLYPHS.get(glyph, ()):
+            self._glyph_op(op, edge, x, y)
+
+    def _glyph_op(self, op: tuple, colour: Any, x: int, y: int) -> None:
+        """Draw one operation of a glyph (see `glyph_table.GLYPHS`) at (x, y)."""
+        import pygame
+        kind = op[0]
+        if kind == "polygon":
+            pygame.draw.polygon(self.canvas, colour,
+                                [(x + px, y + py) for px, py in op[1]], op[2])
+        elif kind == "circle":
+            (cx, cy), radius, width = op[1], op[2], op[3]
+            pygame.draw.circle(self.canvas, colour, (x + cx, y + cy), radius, width)
+        elif kind == "line":
+            (ax, ay), (bx, by), width = op[1], op[2], op[3]
+            pygame.draw.line(self.canvas, colour, (x + ax, y + ay),
+                             (x + bx, y + by), width)
+        elif kind == "arc":
+            (left, top, w, h), start, end, width = op[1], op[2], op[3], op[4]
+            pygame.draw.arc(self.canvas, colour, (x + left, y + top, w, h),
+                            start, end, width)
 
     # ---- energy whip ------------------------------------------------------
     def _draw_whip(self, game: Any) -> None:

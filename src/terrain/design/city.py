@@ -30,6 +30,7 @@ from .city_table import (
     MAT_YARD,
     OCCUPANCY,
     SHOPS,
+    SIDE_FACING,
     SIDEWALK,
     TOWER,
 )
@@ -184,8 +185,7 @@ def _row(plan: SitePlan, r: Rect, kind: str, scale: tuple[float, float],
         while True:
             k = kinds[rng.randrange(len(kinds))]
             sc = rng.uniform(*scale)
-            face = {"n": (0.0, -1.0), "s": (0.0, 1.0),
-                    "w": (-1.0, 0.0), "e": (1.0, 0.0)}[side]
+            face = SIDE_FACING[side]
             # ink as it will stand: facing the street on this side, by the same
             # rule `place_building` will apply (guessing the angle here stood every
             # slab sideways and walked the row by the wrong width)
