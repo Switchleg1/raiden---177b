@@ -11,6 +11,7 @@ from .ink import _fill_mask, _prop, _splat, _tint_lines
 from .mask import Mask
 from .numpy_import import _numpy
 from .raster import _disc_mask, _path_mask
+from .road_table import SOILED_KINDS, SOILING
 from .sampling import _band, _frand
 from .surface import _blit_wrap, _shadow_on
 
@@ -43,12 +44,14 @@ def paint_roads(canvas: Any, kit: TileKit, plan: SitePlan,
             _fill_mask(canvas, kit, "gravel_rubble",
                        _path_mask(r.path, r.width * 0.5 + r.shoulder, canvas),
                        0.85)
-        shoulder = "splat_oil" if plan.theme == "industrial" else "splat_dirt"
+        shoulder = SOILING.get(plan.theme, "splat_dirt")
+        if r.kind not in SOILED_KINDS:
+            shoulder = None
         # Small and sparse: at the old scale these soiling blobs merged with the
         # road into one wide pale corridor whose identity - road? track? bare
         # ground? - stopped being readable.
         for i in range(0, len(r.path) - 1, 3):
-            if frng.random() < 0.3:
+            if shoulder is not None and frng.random() < 0.3:
                 (ax, ay), (bx, by) = r.path[i], r.path[i + 1]
                 side = 1.0 if frng.random() < 0.5 else -1.0
                 ang = math.atan2(by - ay, bx - ax) + side * math.pi / 2

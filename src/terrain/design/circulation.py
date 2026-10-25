@@ -215,7 +215,10 @@ def _city_grid(g: Geom, water: list[Water], rng: random.Random) -> list[Road]:
         # a city down a long strip is a grid, not two streets: the streets
         # repeat at block spacing over the whole length, so the player keeps
         # flying through the same plan rather than a single giant block
-        ys = list(range(int(g.h * 0.12), int(g.h * 0.9), 460))
+        # from one end of the sector to the other: starting the streets 12% in and
+        # stopping 10% short left the city's first and last stretches as blocks
+        # a screen tall, which hold nothing
+        ys = list(range(200, int(g.h) - 100, 460))
     for x in xs:
         r = Road("main", _vpath(g, x, [(1, 0.0, 0.0)], step=40), 18.0)
         roads.append(r)

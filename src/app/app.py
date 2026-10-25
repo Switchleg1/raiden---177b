@@ -357,17 +357,6 @@ class App:
                 TerrainStrip.NEAREST_BANDS = not TerrainStrip.NEAREST_BANDS
                 print(f"band resample: "
                       f"{'NEAREST' if TerrainStrip.NEAREST_BANDS else 'SMOOTH'}")
-            if ev.type == pygame.KEYDOWN and ev.key == pygame.K_F11:
-                # Screenshots show a band of ground about one slice tall, about
-                # 8/255 darker than the ground above and below, with hard tone steps
-                # at both edges. Every headless measurement of the same sector says
-                # the ground is complete and bit-identical slice to slice - so the
-                # machine being measured and the screen being looked at disagree,
-                # and the only honest way forward is to measure the screen. Press
-                # this when you see it: `seam_debug.json` records the camera row,
-                # which slices exist, which were blitted where, and the composed
-                # field's tone per row.
-                self._seam_dump = True
             if ev.type == pygame.WINDOWFOCUSLOST and self.sm.state == State.PLAYING:
                 self._pause()
             self.input.handle_event(ev, self.viewport)
@@ -1386,9 +1375,6 @@ class App:
             self._last = now
             self._update(frame_dt)
             self._render()
-            if getattr(self, "_seam_dump", False):
-                self._seam_dump = False
-                self._write_seam_debug()
             fps = self.settings.fps_limit
             clock.tick(fps if fps and fps > 0 else 0)
             frames += 1

@@ -24,8 +24,14 @@ def _cover(spec: SiteSpec, plan: SitePlan, rng: random.Random) -> None:
     g = plan.geom
     props = spec.tree_props
     if props:
+        # `spec.woods` is already per STRIP here: `plan_site` scales it by the strip's
+        # length in screens before the passes run. Multiplying by `g.screens` again
+        # squared the scatter with the sector's length - a 40-screen wasteland asked
+        # for ~4,800 stands and carried 464 trees a screen, a 33-screen countryside
+        # 150. A one-screen map multiplies by 1 either way, which is why nothing
+        # short ever showed it.
         lo, hi = spec.woods
-        for _ in range(rng.randint(lo, hi) * g.screens):
+        for _ in range(rng.randint(lo, hi)):
             cx, cy = rng.uniform(40, g.w - 40), rng.uniform(20, g.h - 20)
             if plan.relief_at(cx, cy) > 0.7 or plan.is_wet(cx, cy) \
                     or plan.is_built(cx, cy) or plan.is_place(cx, cy) \
