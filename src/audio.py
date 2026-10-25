@@ -178,6 +178,11 @@ class AudioManager:
         self._music_stop = False
         self._music_thread: threading.Thread | None = None
         self._mix_rate = MIXER_RATE
+        # Where cues are synthesized. `init()` turns this on for the live worker;
+        # a manager driven directly (the tests stub `music.render_track` in this
+        # interpreter) renders here, where the stub is.
+        self._render_in_child = False
+        self._render_pool: Any = None
 
     def init(self) -> bool:
         """Initialise the mixer; returns availability. Never raises."""
@@ -214,6 +219,7 @@ class AudioManager:
             import music as _music_mod
             self._music_ch = pygame.mixer.Channel(MUSIC_CHANNEL)
             self._ntracks = len(self._music_build_plan(_music_mod))
+            self._render_in_child = True
             self._music_thread = threading.Thread(
                 target=self._build_music_bytes, name="raiden-music", daemon=True)
             self._music_thread.start()
@@ -307,14 +313,13 @@ class AudioManager:
         """
         try:
             import music as _music_mod
-            render = _music_mod.render_track
             steps = self._music_build_plan(_music_mod)
-            for pool, key, theme in steps:
+            # not strict: the renderer stops yielding early on shutdown
+            for (pool, key, _theme), buf in zip(
+                    steps, self._rendered(_music_mod, steps), strict=False):
                 if self._music_stop:
                     return
-                try:
-                    buf = render(theme, MIXER_RATE)
-                except Exception:
+                if buf is None:
                     continue          # one bad track must not kill the playlist
                 # Convert on this thread too. A rendered cue is ~1.7 MB of PCM
                 # and the mixer wants a Sound; paying for that wrap on the frame
@@ -338,6 +343,59 @@ class AudioManager:
                         keys.append(key)
         except Exception:
             pass
+
+    def _rendered(self, music_mod: Any, steps: list) -> Any:
+        """PCM for each step, in plan order; None for a cue that failed.
+
+        In a CHILD PROCESS for the live worker. The soundtrack is ~75 s of
+        pure-Python synthesis after boot, and on a thread it competes with the frame
+        thread for the GIL in 5 ms slices for the whole of sector 1: every call the
+        frame makes that releases the GIL (smoothscale, display.flip, the present
+        scale) then waits up to the switch interval to get it back. That is what made
+        the first flamethrower pickup of a run crawl until it ran out - fifty-odd
+        smoothscales a frame, each paying the toll - while a later pickup, after the
+        catalog had finished, cost nothing. A child has its own interpreter and its
+        own GIL; the frame thread stops sharing with it.
+
+        Falls back to rendering here if no child can be had: music arriving with a
+        slow first sector beats no music.
+        """
+        render = music_mod.render_track
+        pool = self._child_pool() if self._render_in_child else None
+        if pool is not None:
+            try:
+                futs = [pool.submit(render, theme, MIXER_RATE)
+                        for _p, _k, theme in steps]
+            except Exception:
+                futs = None
+            if futs is not None:
+                for fut in futs:
+                    if self._music_stop:
+                        for f in futs:
+                            f.cancel()
+                        return
+                    try:
+                        yield fut.result()
+                    except Exception:
+                        yield None
+                return
+        for _p, _k, theme in steps:
+            if self._music_stop:
+                return
+            try:
+                yield render(theme, MIXER_RATE)
+            except Exception:
+                yield None
+
+    def _child_pool(self) -> Any:
+        """One worker process for synthesis, or None if the platform refuses."""
+        if self._render_pool is None:
+            try:
+                from concurrent.futures import ProcessPoolExecutor
+                self._render_pool = ProcessPoolExecutor(max_workers=1)
+            except (OSError, ImportError, RuntimeError, ValueError):
+                self._render_pool = None
+        return self._render_pool
 
     def _make_sound(self, buf: bytes) -> Any:
         """Wrap PCM in the mixer's own format. Safe on any thread.
@@ -541,6 +599,9 @@ class AudioManager:
 
     def dispose(self) -> None:
         self._music_stop = True
+        if self._render_pool is not None:
+            self._render_pool.shutdown(wait=False, cancel_futures=True)
+            self._render_pool = None
         self._sounds.clear()
         self._music_sounds.clear()
         self._track_bytes.clear()

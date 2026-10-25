@@ -76,6 +76,8 @@ class Renderer:
         self._p_prev_t = 0.0
         self._p_vx = 0.0                 # smoothed player horizontal vel
         self._p_scale_cache: dict[int, Any] = {}  # display-scaled p_ship tiles
+        # (flame tile, diameter) -> scaled puff. See `_draw_flame` for why.
+        self._flame_cache: dict[tuple[int, int], Any] = {}
         self._shield_fade: dict[tuple[int, int], Any] = {}
         self._shield_fade_src: Any = None
 
@@ -861,12 +863,26 @@ class Renderer:
             r, a = p.r, max(0.0, min(1.0, p.fade))
             if surf is not None and frames:
                 tile = frames[(int(self._scroll * fps) + i) % len(frames)]
-                fr = bank.frame(surf, "fx_flame", tile)
                 # The tile paints its blob inside the cell with a margin of
                 # bloom around it; scale so the fire itself, not the glow, is
                 # the contact radius the model is hitting with.
                 d = max(4, int(round(cell * r / (cell / 2.0 - 2.2))))
-                fr = pygame.transform.smoothscale(fr, (d, d))
+                # Scaled ONCE per (frame, diameter) and kept. That set is small -
+                # four flicker frames times the twenty-odd integer diameters a
+                # puff passes through - while a lit plume is ~55 puffs a frame.
+                # Scaling per puff per frame was the flamethrower slowdown: not
+                # because smoothscale is slow (55 of them cost 0.14 ms) but
+                # because it RELEASES THE GIL, and with the music thread
+                # synthesizing the soundtrack in pure Python every release waits
+                # up to the 5 ms switch interval to get it back - 55 ms median,
+                # 155 ms p95 per frame, measured. Blits keep the GIL, so a cached
+                # tile costs the same with or without a busy thread.
+                key = (tile, d)
+                fr = self._flame_cache.get(key)
+                if fr is None:
+                    fr = pygame.transform.smoothscale(
+                        bank.frame(surf, "fx_flame", tile), (d, d))
+                    self._flame_cache[key] = fr
                 fr.set_alpha(int(255 * (0.35 + 0.65 * a)))
                 self._blit_center(fr, p.x, p.y)
             else:
