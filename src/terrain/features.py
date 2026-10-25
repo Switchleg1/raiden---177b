@@ -589,6 +589,8 @@ def _tint_lines(canvas: Any, pts: list[tuple[float, float]], col: Any,
         ox, oy = 0, 0
         lo, hi = 0, CH
         s = 1
+    if len(pts) < 2:
+        return                      # nothing to stroke: a degenerate run, not an error
     for shift in shifts:
         seg = [((x - ox) / s, (y + shift - oy) / s) for x, y in pts]
         if max(p[1] for p in seg) < lo - 20 or min(p[1] for p in seg) > hi + 20:
@@ -1084,6 +1086,12 @@ def paint_roads(canvas: Any, kit: TileKit, plan: SitePlan,
         # shoulders first: dirt/grass soiling under the road edge, then the
         # road itself. Order matters: the road has a crisp edge, the shoulder
         # is what stops it looking pasted on.
+        if r.shoulder > 0.0:
+            # a wider band of gravel under the carriageway: the shoulder is what
+            # stops a high-speed road looking like a stripe laid on grass
+            _fill_mask(canvas, kit, "gravel_rubble",
+                       _path_mask(r.path, r.width * 0.5 + r.shoulder, canvas),
+                       0.85)
         shoulder = "splat_oil" if plan.theme == "industrial" else "splat_dirt"
         # Small and sparse: at the old scale these soiling blobs merged with the
         # road into one wide pale corridor whose identity - road? track? bare
@@ -1141,6 +1149,16 @@ def paint_roads(canvas: Any, kit: TileKit, plan: SitePlan,
                     nx, ny = -(by - ay) / ln, (bx - ax) / ln
                     d = r.width * 0.45 * side
                     pts.append((ax + nx * d, ay + ny * d))
+                # the last point too: an edge is drawn along the whole route, and
+                # a route of two points (a place's short track) has one segment -
+                # appending only segment starts gave a ONE point polyline and
+                # pygame.draw.lines raised inside the paint workers
+                ex, ey = r.path[-1]
+                ln = math.hypot(ex - r.path[-2][0], ey - r.path[-2][1]) or 1.0
+                nx = -(ey - r.path[-2][1]) / ln
+                ny = (ex - r.path[-2][0]) / ln
+                pts.append((ex + nx * r.width * 0.45 * side,
+                            ey + ny * r.width * 0.45 * side))
                 _tint_lines(canvas, pts, (0, 0, 0), 1)
     for ri in _band(canvas, plan, "roads"):
         r = plan.roads[ri]
@@ -1207,7 +1225,14 @@ def paint_buildings(canvas: Plane, kit: TileKit, plan: SitePlan,
         if b.yard:
             yx, yy, yr = b.yard
             _splat(kit, canvas, "splat_dirt", yx, yy, yr / 60.0, frng)
-        name = b.kind if b.kind in kit.props else "house_top"
+        # The plan speaks in plan kinds ("barn", "hut"); the atlas speaks in art
+        # names ("barn_red", "hut_stilt"). That alias used to be missing, and the
+        # fallback drew a HOUSE for every barn in the game - which is one reason a
+        # farm read as a pile of houses.
+        from .siteplan import prop_art
+        name = prop_art(b.kind)
+        if name not in kit.props:
+            name = "house_top"
         import pygame
         p = kit.props[name]
         ang = b.angle
@@ -1237,6 +1262,10 @@ def _cover_props(theme: str, kind: str) -> tuple[str, ...]:
     spec = SPEC.get(theme, _DEFAULT)
     if kind in ("outcrop", "scree"):
         return (spec.ridge_prop,)
+    if kind == "pylon_row":
+        # a highway's pylons are a ROW of one prop, not vegetation: this is how a
+        # place lays something the tree vocabulary cannot express
+        return ("mast_lattice",)
     return spec.tree_props or ("tree_clump",)
 
 

@@ -49,6 +49,12 @@ def main(argv) -> int:
         print("no reference")
         return 1
     tv = np.asarray(pygame.surfarray.array3d(truth)).astype(int)
+    # `_paint` turns every band over (its far world row is the one nearest the top
+    # edge of the screen), and the one-window reference is itself a band - so as it
+    # comes out, column 0 is the LAST world row. Put it back into world order once
+    # and address it by world row, which is what the loop below and the failure
+    # messages both mean.
+    tv = tv[:, ::-1]
     print(f"{spec.name}  theme {theme}  layer {layer}  reference {truth.get_size()}")
 
     small = TerrainStrip(plan, layer)
@@ -59,7 +65,8 @@ def main(argv) -> int:
         if band is None:
             continue
         kept = np.asarray(pygame.surfarray.array3d(band)).astype(int)
-        ref = tv[:, i * stride:(i + 1) * stride]
+        # the band is reversed relative to world order (see the note above)
+        ref = tv[:, i * stride:(i + 1) * stride][:, ::-1]
         if ref.shape != kept.shape:
             print(f"  slice {i}: SHAPE {kept.shape} vs reference {ref.shape}")
             continue

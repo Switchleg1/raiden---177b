@@ -111,6 +111,7 @@ def _grid(canvas: Any, k: TileKit, mats: list[tuple[str, float]],
     pitch = max(1, TILE // max(1, scale))
     off_x = (origin[0] // max(1, scale)) % pitch
     off_y = (origin[1] // max(1, scale)) % pitch
+
     w, h = canvas.get_size()
     n_i = -(-(w + off_x) // pitch) + 1       # cells to reach the far edge, +1 for
     n_j = -(-(h + off_y) // pitch) + 1       # the half cell the offset exposes

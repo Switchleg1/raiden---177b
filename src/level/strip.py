@@ -179,7 +179,12 @@ class TerrainStrip:
         # The pass-level stream only picks things the plan did not already pin
         # down; per-feature jitter comes from the plan itself, which is why
         # painting a slice in any order gives the same pixels.
-        rng = random.Random(self.plan.seed * 8191 + i * 131 + (7 if self.layer == "far" else 3))
+        # The slice index used to be in this seed. Measured: taking it out changes
+        # nothing (the disagreement between a slice and a one-window reference is
+        # bit-identical either way), because every per-feature jitter already comes
+        # from the plan. It is out anyway because a paint seeded by *which window*
+        # is asking is the exact thing this codebase keeps having to relearn.
+        rng = random.Random(self.plan.seed * 8191 + (7 if self.layer == "far" else 3))
         if self.layer == "far":
             paint_far(plane, kit, self.plan, rng)
         else:

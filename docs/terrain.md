@@ -216,6 +216,42 @@ treeline. `plan_site(theme, seed)` computes that chain as data; the painter
   the reviewer was scoring stale PNGs. All of those are fixed, and the
   render scripts no longer swallow stderr.
 
+## Places: what the planner knows how to build (`terrain/places.py`)
+
+The plan used to put buildings, trees and parcels down as scattered choices with a
+distance check between *centres*. Centres are not buildings: `house_top.png` is
+221x254 opaque pixels, and frontage rows stepped every 56-100 px, so the art
+overlapped on about a third of the sector while the plan reported a clean grid. The
+fix that made the world legible is that **every dimension of a placement is read off
+the art** - `INK` measures the opaque box of each prop PNG, and `tests/test_places.py`
+asserts `ink_size()` agrees with the PNGs so the table cannot drift.
+
+On top of that, the planner carries a small **vocabulary of structures** it knows how
+to site: `neighborhood` (a lane off the road, houses facing it, a cul-de-sac head),
+`highway` (a straight carriageway with a painted shoulder and a rest stop), `lake`
+(water with an inlet, an outlet and a shed on the shore), `campground` (a clearing,
+a fire, cabins facing the fire, a track to the road), `farmstead` (a barn and a range
+laid along a yard). A blueprint is a *siting* rule plus a *form*: `needs`/`against`
+say what ground it asks for and how far it will travel to find it, `order` settles
+who gets the ground first, `per` bounds how many a sector holds, and `claims` reserves
+the ground so a later pass cannot pave over it.
+
+Rules the blueprints had to learn, all of them from a failing test:
+
+* a campground with no way in is not a campground - it declines rather than filling
+  the ground with cabins no road reaches;
+* a farmstead's second range is laid **toward** the road, not away from it;
+* a parcel may not cover a carriageway (corners are not enough - the interior is
+  sampled too), and may not hang off the edge of the ground being planned;
+* a building's centre is held further off the water than its corners, because the
+  centre is where its door is;
+* a group's roads are spurs and go *with* the group: the bridge pass runs after all
+  roads exist, so a new lane over a river gets its decks.
+
+`scripts/study_places.py` counts what each theme actually builds and attributes every
+rejection to the rule that made it - the discipline the river corridor taught: measure
+what is on the ground before blaming the geometry.
+
 ## Streaming a sector (`Geom` + a windowed `Plane`)
 
 The baked map is one screen tall: 1120 px, about 3.5 s of scroll. A 75 s sector

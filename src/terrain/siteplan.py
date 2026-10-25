@@ -29,6 +29,7 @@ The painter that turns a plan into pixels is :mod:`terrain.features`.
 """
 from __future__ import annotations
 
+import logging
 import math
 import random
 from bisect import bisect_right
@@ -37,6 +38,8 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from .tilekit import CH, CW
+
+_LOG = logging.getLogger("raiden.siteplan")
 
 # Planning grid: 40 px cells, 40 x 28 over the bake space. Coarse enough that a
 # relief query is a lookup and the whole plan costs milliseconds, fine enough
@@ -132,10 +135,15 @@ class Water:
 
 @dataclass
 class Road:
-    kind: str                     # "main" | "spur" | "track"
+    kind: str                     # "main" | "highway" | "spur" | "track"
     path: list[Point]
     width: float
     bridges: list[Point] = field(default_factory=list)
+    #: paved/gravel strip either side of the carriageway. Part of the ROAD, not a
+    #: row of parcels: a highway's shoulders were modelled as ~200 narrow Field
+    #: polygons, which the painter paid for per slice and which the city-block
+    #: rules then read as 18 px-wide "blocks".
+    shoulder: float = 0.0
 
 
 @dataclass
@@ -175,6 +183,85 @@ class Green:
     radius: float
     mat: str
     lanes: list[list[Point]] = field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# how big a thing IS: the art's own ink extents
+# ---------------------------------------------------------------------------
+
+#: Which prop art a plan kind is drawn with. ``paint_buildings`` falls back to
+#: ``house_top`` for any name it does not recognise, which is why every "barn"
+#: the game has ever placed has been a house.
+PROP_OF = {"house": "house_top", "barn": "barn_red", "hut": "hut_stilt",
+           "shack": "hut_stilt", "cabin": "hut_stilt", "shed": "crate_stack",
+           "silo": "storage_tank", "tank": "storage_tank",
+           "depot": "warehouse_long", "warehouse": "warehouse_long",
+           "pylon": "mast_lattice", "tower": "antenna_dish",
+           "container": "cargo_container", "crate": "crate_stack",
+           "tree": "tree_clump", "pine": "pine_clump", "rock": "rock_cluster"}
+
+#: Opaque ink extents of each prop, in ART px at scale 1 - the bounding box of the
+#: non-transparent pixels inside the 256 px art box, not the art box itself.
+#
+#: Every spacing rule in this module derives from these numbers, because a house
+#: set beside another one used to mean 56-100 bake px of arc along a road while the
+#: art is 221 px wide: frontage rows were GUARANTEED to overlap, which is the
+#: "houses piled on top of each other randomly" report. The rule being replaced was
+#: centre-to-centre (`house_gap` 78-95 px) against an object ~160 px wide.
+#:
+#: `tests/test_terrain_siteplan.py` measures the art and fails if a number here goes
+#: stale, so a redrawn sprite cannot silently invalidate the spacing underneath it.
+INK: dict[str, tuple[float, float]] = {
+    "antenna_dish": (222.0, 253.0), "barn_red": (182.0, 254.0),
+    "basalt_spire": (207.0, 254.0), "cargo_container": (254.0, 245.0),
+    "crate_stack": (252.0, 226.0), "cypress_clump": (252.0, 251.0),
+    "dead_tree": (249.0, 250.0), "house_top": (221.0, 254.0),
+    "hut_stilt": (250.0, 195.0), "ice_boulder": (253.0, 254.0),
+    "lava_vent": (249.0, 252.0), "mast_lattice": (254.0, 234.0),
+    "pine_clump": (252.0, 253.0), "pine_snow": (249.0, 252.0),
+    "rock_cluster": (254.0, 251.0), "storage_tank": (254.0, 247.0),
+    "tree_clump": (254.0, 235.0), "warehouse_long": (255.0, 76.0),
+}
+
+_INK_DEFAULT = (256.0, 256.0)
+
+
+def prop_art(kind: str) -> str:
+    """The prop art a plan kind is drawn with."""
+    return PROP_OF.get(kind, kind)
+
+
+def ink_size(kind: str, scale: float = 1.0, angle: float = 0.0
+             ) -> tuple[float, float]:
+    """Ink width and height of a prop as it will be PAINTED.
+
+    ``angle`` is the plan's facing, snapped to the four cardinal facings by
+    :func:`_face`. Snapping is what keeps a footprint axis-aligned, and an
+    axis-aligned footprint is what makes "does this overlap that" an exact test
+    instead of a rumour.
+    """
+    w, h = INK.get(prop_art(kind), _INK_DEFAULT)
+    if int(round(angle / 90.0)) % 2:
+        w, h = h, w
+    return (w * scale, h * scale)
+
+
+def _face(x: float, y: float, tx: float, ty: float) -> int:
+    """The cardinal facing that points from (x, y) toward a target.
+
+    Arbitrary angles made every building lean its own way - half of why a row of
+    houses read as a pile rather than a lane - and a rotated footprint cannot be
+    tested for overlap without rotating the test with it.
+    """
+    return int(round(math.degrees(math.atan2(ty - y, tx - x)) / 90.0) * 90) % 360
+
+
+def _ink_rect(kind: str, x: float, y: float, scale: float, angle: float,
+              pad: float = 0.0) -> tuple[float, float, float, float]:
+    """The ground a prop covers, as ``(x0, y0, x1, y1)`` plus `pad` px of air."""
+    w, h = ink_size(kind, scale, angle)
+    return (x - w / 2.0 - pad, y - h / 2.0 - pad,
+            x + w / 2.0 + pad, y + h / 2.0 + pad)
 
 
 def _y_extent(f: Any) -> tuple[float, float]:
@@ -221,8 +308,17 @@ class SitePlan:
     relief: list[list[float]]         # [row][col], 0..1
     wet: list[list[bool]]
     built: list[list[bool]]
+    #: ground a PLACE owns: its lane, its clearing, its highway corridor. Kept
+    #: separate from `built` on purpose - `built` means "a footprint stands here",
+    #: and a place must be able to build on the ground it reserved. Using one grid
+    #: for both made every blueprint block its own buildings: the neighborhood
+    #: claimed its disc, then refused every house in it.
+    place: list[list[bool]] | None = None
     geom: Geom = SCREEN
     _bands: dict | None = None
+    # (y_lo, y_hi, corridor half-width, path) per road, rebuilt when roads change
+    _road_box: list | None = None
+    _road_n: int = -1
 
     # ------------------------------------------------------------- windowing
     # How far a feature of each kind reaches beyond its own y-range. The painter
@@ -291,6 +387,16 @@ class SitePlan:
                     # The stand's trees are its own props, up to 256*scale wide,
                     # and its edge is the outermost crown, not the stand's points.
                     reach = max(reach, 128.0 + 40.0)
+                elif kind == "greens":
+                    # A green draws its lanes too, and they run out to the houses
+                    # around it - a window that saw the anchor but not the lane end
+                    # (or the reverse) painted half a lane, which is the same
+                    # half-a-house artifact at a slice boundary wearing a different
+                    # hat. Reach is what the feature DRAWS.
+                    lanes = getattr(f, "lanes", None) or []
+                    far = max((max(abs(p2[1] - f.y) for p2 in lane)
+                               for lane in lanes), default=0.0)
+                    reach = max(reach, far + 20.0)
                 ranges.append((lo - reach, hi + reach, i))
             self._bands[kind] = ranges
         return [i for lo, hi, i in ranges if hi >= y0 and lo <= y1]
@@ -304,6 +410,41 @@ class SitePlan:
 
     def is_built(self, x: float, y: float) -> bool:
         return self.built[self.geom.row(y)][self.geom.col(x)]
+
+    def in_road_corridor(self, x: float, y: float,
+                         margin: float = 30.0) -> bool:
+        """Is this point inside a road's cleared corridor?
+
+        Every road is tested - not just the one a building faces - because a
+        building set back from its own lane can still be standing on a highway the
+        lane runs beside.
+
+        Cheap by bounding box first: roads are indexed once per plan by the y they
+        span, and a point outside that span plus the corridor cannot be in it.
+        Without that prefilter the check walked every segment of every road for
+        every candidate building, and planning a 24-screen strip went from seconds
+        to two minutes.
+        """
+        if self._road_box is None or self._road_n != len(self.roads):
+            self._road_n = len(self.roads)
+            self._road_box = [(min(p[1] for p in r.path),
+                               max(p[1] for p in r.path),
+                               r.width * 0.5 + margin, r.path)
+                              for r in self.roads]
+        for lo, hi, half, path in self._road_box:
+            if not (lo - half <= y <= hi + half):
+                continue
+            if _near_path(self.geom, x, y, path, half):
+                return True
+        return False
+
+    def is_place(self, x: float, y: float) -> bool:
+        """Is this ground owned by a place (a lane, a clearing, a road corridor)?
+
+        Vegetation and parcels stay out of it. Buildings may stand in it - they are
+        the place.
+        """
+        return bool(self.place) and             self.place[self.geom.row(y)][self.geom.col(x)]
 
     def near_water(self, x: float, y: float, dist: float) -> bool:
         return any(_near_path(self.geom, x, y, w.path, dist)
@@ -370,48 +511,33 @@ def _seg_dist(px: float, py: float, a: Point, b: Point) -> float:
 def _dist_path(g: Geom, px: float, py: float, path: list[Point]) -> float:
     """Distance to a polyline; on a wrapping map the seam copies are checked.
 
-    The segments are bucketed by the y-band they touch (see :func:`_seg_index`).
-    A query used to walk every segment of the path: on a twenty-screen strip a
-    road is a thousand segments, and the planner asks this question hundreds of
-    thousands of times - "is this house near the road", "is this parcel on the
-    river", "does this new channel stack on the last one". Bucketing is exact:
-    a segment cannot be nearer than its band is, so the sweep stops as soon as
-    the remaining bands could not improve on what has already been found.
+    See :func:`_near_path` for why the sweep is bucketed by y and how it is
+    pruned - the same exactness rule applies, with `best` in place of the radius.
     """
     best = float("inf")
-    bands = _seg_index(path)
     for shift in g.shifts():
-        yy = py - shift
-        # start at the band the point falls in and work outward in both
-        # directions, tightening `best` as we go
-        lo_i = _band_before(bands, yy)
-        hi_i = lo_i + 1
-        i = lo_i
-        while i >= 0:
-            b_lo, b_hi, idxs = bands[i]
-            gap = yy - b_hi
+        best = min(best, _dist_path_band(g, px, py - shift, path, best))
+    return best
+
+
+def _dist_path_band(g: Geom, px: float, py: float, path: list[Point],
+                    limit: float) -> float:
+    buckets, lo_b, hi_b = _seg_buckets_range(path)
+    qb = int(math.floor(py / _SEG_BAND))
+    best = limit
+    for side in (-1, 1):
+        b = qb
+        while (side < 0 and b >= lo_b) or (side > 0 and b <= hi_b):
+            gap = _bucket_gap(py, b)
             if gap > best:
                 break
-            for j in idxs:
-                d = _seg_dist(px, yy, path[j], path[j + 1])
+            for j in buckets.get(b, ()):
+                d = _seg_dist(px, py, path[j], path[j + 1])
                 if d < best:
                     best = d
                     if best <= 1e-6:
                         return 0.0
-            i -= 1
-        i = hi_i
-        while i < len(bands):
-            b_lo, b_hi, idxs = bands[i]
-            gap = b_lo - yy
-            if gap > best:
-                break
-            for j in idxs:
-                d = _seg_dist(px, yy, path[j], path[j + 1])
-                if d < best:
-                    best = d
-                    if best <= 1e-6:
-                        return 0.0
-            i += 1
+            b += side
     return best
 
 
@@ -419,72 +545,84 @@ def _near_path(g: Geom, px: float, py: float, path: list[Point],
                dist: float) -> bool:
     """Is any part of `path` within `dist` of the point?
 
-    The question the planner actually asks - is this parcel off the road, is
-    this tree clear of the river, does this new channel stack on the last one -
-    and it is far cheaper than the exact distance: the band sweep is pruned by
-    the radius itself instead of by whatever distance happened to be found, and
-    it stops at the first segment that answers yes.
+    The question the planner asks constantly - is this parcel off the road, is
+    this tree clear of the river, does this building stand in a channel - over a
+    path that is a thousand segments long on a multi-screen strip.
+
+    The sweep walks the y buckets outward from the bucket the query falls in and
+    stops at each side once that side's bucket gap exceeds the radius. The
+    previous version stopped at the first band whose extent did not reach the
+    query, which is a different thing: bands are scattered along the path, not a
+    partition of y, so a nearer band can sit behind a farther one in the sort
+    order. It therefore answered "not near" to points that were ON the line - a
+    house whose drive ended on its own lane, a building standing in a channel, a
+    tree inside a carriageway - and every check that runs through it inherited
+    the same silent "no". `tests/test_places.py` found it: a drive measured 0 px
+    from a spur at radius 400 and unreachable at radius 24.
     """
-    bands = _seg_index(path)
+    buckets, lo_b, hi_b = _seg_buckets_range(path)
     for shift in g.shifts():
         yy = py - shift
-        i = _band_before(bands, yy)
-        while i >= 0:
-            b_lo, b_hi, idxs = bands[i]
-            if yy - b_hi > dist:
-                break
-            for j in idxs:
-                if _seg_dist(px, yy, path[j], path[j + 1]) <= dist:
-                    return True
-            i -= 1
-        i = _band_before(bands, yy) + 1
-        while i < len(bands):
-            b_lo, b_hi, idxs = bands[i]
-            if b_lo - yy > dist:
-                break
-            for j in idxs:
-                if _seg_dist(px, yy, path[j], path[j + 1]) <= dist:
-                    return True
-            i += 1
+        q = int(math.floor(yy / _SEG_BAND))
+        for side in (-1, 1):
+            b = q
+            while (side < 0 and b >= lo_b) or (side > 0 and b <= hi_b):
+                if _bucket_gap(yy, b) > dist:
+                    break
+                for j in buckets.get(b, ()):
+                    if _seg_dist(px, yy, path[j], path[j + 1]) <= dist:
+                        return True
+                b += side
     return False
 
 
-_SEG_BAND = 160.0            # bake px of y per segment band
+def _bucket_gap(py: float, b: int) -> float:
+    """The least vertical distance from `py` to anything in bucket `b`.
+
+    A lower bound, which is what makes pruning exact: no segment inside the
+    bucket can be nearer than this.
+    """
+    lo, hi = b * _SEG_BAND, (b + 1) * _SEG_BAND
+    if py < lo:
+        return lo - py
+    if py > hi:
+        return py - hi
+    return 0.0
+
+
+def _seg_buckets_range(path: list[Point]) -> tuple[dict[int, list[int]], int, int]:
+    """The path's y buckets, plus the first and last bucket index it occupies."""
+    ent = _seg_cache(path)
+    return ent[2], ent[3][0], ent[3][1]
+
+
+_SEG_BAND = 160.0            # bake px of y per segment bucket
 _SEG_INDEX: dict[int, tuple] = {}
 
 
-def _band_before(bands: list[tuple[float, float, list[int]]],
-                 yy: float) -> int:
-    """Index of the last band whose y starts at or above... at or below `yy`.
-
-    The sentinel second element is below every real band extent, so the tuple
-    compare never reaches the index list (which is not orderable against a
-    number).
-    """
-    return bisect_right(bands, (yy, float("-inf"))) - 1
-
-
 def _seg_index(path: list[Point]) -> list[tuple[float, float, list[int]]]:
-    """The path's segments as (y_lo, y_hi, indices), ordered by y_lo.
+    """The path's segments as (y_lo, y_hi, indices), ordered by y_lo."""
+    return _seg_cache(path)[1]
+
+
+def _seg_buckets(path: list[Point]) -> dict[int, list[int]]:
+    """The path's segments keyed by the bucket index of y they touch.
+
+    A segment that spans several buckets is filed in every one of them, which is
+    what makes bucket-keyed queries exact: two y-ranges that overlap share a
+    bucket.
+    """
+    return _seg_cache(path)[2]
+
+
+def _seg_cache(path: list[Point]) -> tuple:
+    """(path, bands, buckets, (first_bucket, last_bucket)) for a polyline.
 
     Cached per path object - the planner asks the same question about the same
     road or channel over and over while it lays fields, houses and trees around
     it. Keyed by identity and re-checked against the cached path, so a recycled
     id can never answer with someone else's geometry.
     """
-    return _seg_cache(path)[1]
-
-
-def _seg_buckets(path: list[Point]) -> dict[int, list[int]]:
-    """The path's segments keyed by the band index of y they touch.
-
-    A segment that spans several bands is filed in every one of them, which is
-    what makes band-keyed queries exact: two y-ranges that overlap share a band.
-    """
-    return _seg_cache(path)[2]
-
-
-def _seg_cache(path: list[Point]) -> tuple:
     key = id(path)
     ent = _SEG_INDEX.get(key)
     if ent is not None and ent[0] is path:
@@ -493,7 +631,14 @@ def _seg_cache(path: list[Point]) -> tuple:
     for i in range(len(path) - 1):
         y0, y1 = path[i][1], path[i + 1][1]
         b0, b1 = int(y0 // _SEG_BAND), int(y1 // _SEG_BAND)
-        for b in range(b0, b1 + 1):
+        # min/max, not b0..b1: a segment whose y DECREASES has b0 > b1, and
+        # range(b0, b1 + 1) is then empty - so every downward-running segment of
+        # every vertical road, river and channel filed itself into no bucket at all
+        # and was invisible to the nearness index. That is why a road "does not
+        # cross" the river it runs along, why a drive measured 24 px from the lane
+        # it was drawn on, and why a building could stand in a channel the plan
+        # believed it was clear of.
+        for b in range(min(b0, b1), max(b0, b1) + 1):
             buckets.setdefault(b, []).append(i)
     bands: list[tuple[float, float, list[int]]] = []
     for _b, idxs in buckets.items():
@@ -501,29 +646,72 @@ def _seg_cache(path: list[Point]) -> tuple:
         hi = max(max(path[i][1], path[i + 1][1]) for i in idxs)
         bands.append((lo, hi, idxs))
     bands.sort()
+    keys = sorted(buckets)
+    lohi = (keys[0], keys[-1]) if keys else (0, -1)
     if len(_SEG_INDEX) > 400:          # a planning pass pins its paths; bound it
         _SEG_INDEX.clear()
-    ent = (path, bands, buckets)
+    cum = [0.0]
+    for i in range(len(path) - 1):
+        cum.append(cum[-1] + math.hypot(path[i + 1][0] - path[i][0],
+                                        path[i + 1][1] - path[i][1]))
+    ent = (path, bands, buckets, lohi, cum)
     _SEG_INDEX[key] = ent
     return ent
 
 
 def _along(path: list[Point], s: float) -> tuple[Point, float]:
-    """Point at fraction ``s`` along a polyline, plus the tangent angle."""
-    total = sum(math.hypot(path[i + 1][0] - path[i][0],
-                           path[i + 1][1] - path[i][1])
-                for i in range(len(path) - 1))
+    """Point at fraction ``s`` along a polyline, plus the tangent angle.
+
+    The cumulative lengths are cached with the path (see :func:`_seg_cache`) and
+    looked up by bisection. Recomputing the total and walking from the start on
+    every call made the placement pass quadratic: a twenty-four screen strip took
+    two minutes to design, against a dozen seconds of budget, because the place
+    blueprints ask this question thousands of times per candidate.
+    """
+    ent = _seg_cache(path)
+    cum = ent[4]
+    total = cum[-1]
     want = max(0.0, min(1.0, s)) * total
-    run = 0.0
-    for i in range(len(path) - 1):
-        a, b = path[i], path[i + 1]
-        ln = math.hypot(b[0] - a[0], b[1] - a[1])
-        if run + ln >= want or i == len(path) - 2:
-            t = 0.0 if ln <= 1e-9 else (want - run) / ln
-            return ((a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])),
-                    math.atan2(b[1] - a[1], b[0] - a[0]))
-        run += ln
-    return path[-1], 0.0
+    i = max(0, bisect_right(cum, want) - 1)
+    i = min(i, len(path) - 2) if len(path) > 1 else 0
+    a, b = path[i], path[i + 1]
+    ln = cum[i + 1] - cum[i]
+    t = 0.0 if ln <= 1e-9 else (want - cum[i]) / ln
+    return ((a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])),
+            math.atan2(b[1] - a[1], b[0] - a[0]))
+
+
+def _nearest_on_path(path: list[Point], px: float, py: float
+                     ) -> tuple[Point, float, float]:
+    """The nearest point on a polyline, its tangent, and the distance.
+
+    Bucketed by y like the rest of the index, so "which road is this place
+    leaning against" costs what it should. Sampling the road by arc - which is
+    what this replaced - was both slower and less exact.
+    """
+    ent = _seg_cache(path)
+    buckets, (lo_b, hi_b) = ent[2], ent[3]
+    q = int(math.floor(py / _SEG_BAND))
+    best = (float("inf"), 0)
+    for side in (-1, 1):
+        b = q
+        while (side < 0 and b >= lo_b) or (side > 0 and b <= hi_b):
+            if _bucket_gap(py, b) > best[0]:
+                break
+            for j in buckets.get(b, ()):
+                d = _seg_dist(px, py, path[j], path[j + 1])
+                if d < best[0]:
+                    best = (d, j)
+            b += side
+    d, i = best
+    a, c = path[i], path[i + 1]
+    ln2 = (c[0] - a[0]) ** 2 + (c[1] - a[1]) ** 2
+    if ln2 <= 1e-9:
+        return a, math.atan2(c[1] - a[1], c[0] - a[0]), d
+    t = max(0.0, min(1.0, ((px - a[0]) * (c[0] - a[0])
+                           + (py - a[1]) * (c[1] - a[1])) / ln2))
+    return ((a[0] + t * (c[0] - a[0]), a[1] + t * (c[1] - a[1])),
+            math.atan2(c[1] - a[1], c[0] - a[0]), d)
 
 
 def _crossings(a: list[Point], b: list[Point]) -> list[Point]:
@@ -654,11 +842,18 @@ class SiteSpec:
     water_kinds: tuple[str, ...] = ("river",)
     road: str = "main"               # main | ring | none
     build: tuple[str, ...] = ("house",)
-    house_gap: float = 78.0          # min centre-to-centre distance, bake px
+    # NOTE: there is deliberately no house_gap. Spacing between buildings is
+    # the size of the buildings (see INK / ink_size), which is the only rule
+    # that can hold across kinds as different as a hut and a 255 px warehouse.
     hamlet: bool = True
     field_kinds: tuple[str, ...] = ()
     field_count: tuple[int, int] = (0, 0)
     tree_props: tuple[str, ...] = ("tree_clump",)
+    #: which places this theme knows how to build (see terrain.places.VOCABULARY).
+    #: This is the theme's SETTLEMENT character: countryside knows neighborhoods
+    #: and campgrounds by the water, a city knows neighborhoods and a highway, a
+    #: forest knows campgrounds and lakes, a canyon knows neither.
+    places: tuple[str, ...] = ()
     woods: tuple[int, int] = (2, 4)
     treeline: bool = True
     scree: bool = True
@@ -673,23 +868,26 @@ SPEC: dict[str, SiteSpec] = {
         # more than one mass: a single ridge somewhere on the map is why the
         # review said "no strong hills or slopes read" - the ground has to have
         # a high side and a low side across the whole strip
-        ridge_count=(2, 3), house_gap=95.0, water_kinds=("river",), road="main",
+        ridge_count=(2, 3), water_kinds=("river",), road="main",
         build=("house", "barn"), field_kinds=("crop", "pasture", "orchard"),
         field_count=(5, 8), tree_props=("tree_clump", "pine_clump"),
-        woods=(3, 5)),
+        woods=(3, 5),
+        places=("neighborhood", "farmstead", "campground", "lake")),
     "farmland": SiteSpec(
         ridge_shapes=("domefield", "massif"), ridge_weight=0.7,
         ridge_count=(1, 1), water_kinds=("channel", "river"), road="main",
         build=("barn", "house"), field_kinds=("crop", "paddy", "pasture"),
         field_count=(8, 12), tree_props=("tree_clump", "pine_clump"),
-        woods=(2, 4)),
+        woods=(2, 4),
+        places=("farmstead", "neighborhood", "lake")),
     "forest": SiteSpec(
         ridge_shapes=("massif", "hogback"), ridge_weight=0.8,
         ridge_count=(1, 2),
         water_kinds=("river",), road="main", build=("hut",),
         field_kinds=("pasture",), field_count=(1, 3),
         tree_props=("pine_clump", "tree_clump"), woods=(7, 11),
-        treeline=True),
+        treeline=True,
+        places=("campground", "lake", "farmstead")),
     "canyon": SiteSpec(
         ridge_shapes=("mesa", "hogback", "sawback"), ridge_weight=0.95,
         ridge_count=(2, 3), water_kinds=("wash",), road="main",
@@ -697,28 +895,33 @@ SPEC: dict[str, SiteSpec] = {
         # no treeline: a contour-following row of bare trees along every ridge
         # flank shades into "tangled roots" and hides the canyon wall it was
         # supposed to trace
-        woods=(1, 3), scree=True, treeline=False),
+        woods=(1, 3), scree=True, treeline=False,
+        places=()),
     "glacier": SiteSpec(
         ridge_shapes=("massif", "domefield", "cone"), ridge_weight=0.9,
         ridge_count=(2, 3), water_kinds=("channel",), road="main",
         build=("hut",), field_count=(0, 0),
-        tree_props=("pine_snow",), woods=(3, 6), scree=True),
+        tree_props=("pine_snow",), woods=(3, 6), scree=True,
+        places=("farmstead",)),
     "volcanic": SiteSpec(
         ridge_shapes=("cone", "cone", "sawback", "hogback"), ridge_weight=0.95,
         ridge_count=(2, 3), ridge_prop="basalt_spire", water_kinds=(),
         road="main", build=(), field_count=(0, 0),
-        tree_props=("dead_tree",), woods=(1, 3), scree=True),
+        tree_props=("dead_tree",), woods=(1, 3), scree=True,
+        places=()),
     "wasteland": SiteSpec(
         ridge_shapes=("hogback", "massif"), ridge_count=(1, 2),
         water_kinds=("wash",), road="main", build=("crate_stack",),
         field_count=(0, 0), tree_props=("dead_tree",), woods=(2, 4),
-        scree=True),
+        scree=True,
+        places=()),
     "ruins": SiteSpec(
         ridge_shapes=("massif", "hogback"), ridge_weight=0.5,
         ridge_count=(1, 2), water_kinds=("river",), road="main",
         build=("house",), hamlet=True, field_kinds=("pasture",),
         field_count=(2, 4), tree_props=("tree_clump", "dead_tree"),
-        woods=(3, 5)),
+        woods=(3, 5),
+        places=("neighborhood", "farmstead", "lake")),
     "city": SiteSpec(
         ridge_shapes=("domefield",), ridge_count=(1, 1),
         ridge_weight=0.5, relief_gain=0.45, water_kinds=("river",),
@@ -727,29 +930,36 @@ SPEC: dict[str, SiteSpec] = {
         road="grid", scree=False,
         build=("house",), hamlet=True,
         field_kinds=("lot", "park", "yard"), field_count=(10, 16),
-        tree_props=("tree_clump",), woods=(4, 7), treeline=False),
+        tree_props=("tree_clump",), woods=(4, 7), treeline=False,
+        places=("neighborhood", "highway")),
     "airbase": SiteSpec(
         ridge_shapes=("domefield",), ridge_weight=0.3, ridge_count=(0, 1),
         water_kinds=("wash",), road="main", build=("warehouse_long",),
-        field_count=(0, 0), tree_props=("tree_clump",), woods=(1, 2)),
+        field_count=(0, 0), tree_props=("tree_clump",), woods=(1, 2),
+        places=("highway",)),
     "industrial": SiteSpec(
         ridge_shapes=("massif",), ridge_weight=0.35, ridge_count=(0, 1),
         water_kinds=("channel",), road="main",
         build=("warehouse_long", "storage_tank"), field_count=(0, 0),
-        tree_props=("dead_tree",), woods=(1, 2)),
+        tree_props=("dead_tree",), woods=(1, 2),
+        places=("highway",)),
     "swamp": SiteSpec(
         ridge_shapes=("ridge",), ridge_count=(1, 2), ridge_weight=0.4,
-        relief_gain=0.35, water_kinds=("channel", "channel", "river"),
+        relief_gain=0.35,
+        water_kinds=("channel", "channel", "river"),
         # a swamp still gets ONE route - a causeway on the only dry ground
         # there is, crossing every channel - because without a road there is no
         # settlement either, and the sector reads as an empty green soup
         road="main", build=("hut_stilt",), hamlet=False, field_count=(0, 0),
         tree_props=("cypress_clump", "dead_tree"), woods=(6, 10),
-        treeline=False),
+        treeline=False,
+        places=("farmstead",)),
     "ocean": SiteSpec(
         ridge_shapes=(), ridge_count=(0, 0), water_kinds=(), road="none",
         build=(), field_count=(0, 0), tree_props=(), woods=(0, 0),
-        treeline=False, scree=False),
+        treeline=False, scree=False,
+        places=()),
+
 }
 
 
@@ -1286,12 +1496,40 @@ def _city_grid(g: Geom, water: list[Water], rng: random.Random) -> list[Road]:
     return roads
 
 
+def _along_extent(kind: str, scale: float, angle: float, tang: float) -> float:
+    """How much ROOM a building takes along a road running at `tang`.
+
+    Footprints are axis-aligned (buildings face the cardinal directions), so a
+    building on a north-south road occupies its height along the road and one on an
+    east-west road its width. Interpolating between the two by the road's own
+    direction is exact enough for choosing a step, and the footprint test catches
+    anything this under-estimates.
+    """
+    w, h = ink_size(kind, scale, angle)
+    c = abs(math.cos(tang))
+    s = abs(math.sin(tang))
+    return w * c + h * s
+
+
 def _settlement(spec: SiteSpec, plan: SitePlan, rng: random.Random) -> None:
     """Houses with frontage: on the road, facing it, set back from it, with a
-    drive to it - and a hamlet where the road meets the water."""
+    drive to it - and a hamlet where the road meets the water.
+
+    Spacing here is sized from the ART, because that is what was missing. The frontage
+    step used to be a fraction of the lane's arc (`0.05-0.09 * SCREEN_H / lane`), which
+    on a multi-screen strip puts a centre every 56-100 bake px while a house at the
+    scale being stamped is 150-220 px of ink wide: every frontage row overlapped the
+    next one by half a house, at a random tilt, which is the report this module exists
+    to fix. Now a house is placed where its own footprint fits, and the next one
+    starts after that footprint ends.
+    """
     if not spec.build or not plan.roads:
         return
-    main = max(plan.roads, key=lambda r: len(r.path))
+    # the theme's own route, not the longest road in the sector: a six-screen
+    # highway is longer than the lane a village fronts, and `max(len)` made the
+    # village front the traffic
+    main = max([r for r in plan.roads if r.kind in ("main", "ring")]
+               or plan.roads, key=lambda r: len(r.path))
     # the green: where a bridge lands, or where the spur leaves the main road.
     # That is where a village actually forms.
     if spec.hamlet:
@@ -1306,67 +1544,74 @@ def _settlement(spec: SiteSpec, plan: SitePlan, rng: random.Random) -> None:
                                                           "ruins",
                                                           "farmland")
                       else "concrete_apron")
-        for i in range(rng.randint(4, 6)):
-            a = (i / 6.0) * math.tau + rng.uniform(-0.2, 0.2)
-            d = radius + rng.uniform(40.0, 66.0)
+        # Houses around a green are spaced by their own size, not by a fixed count:
+        # six houses on a small green were six roofs merged into one roof.
+        room = 2.0 * math.pi * (radius + 52.0)
+        n = max(0, min(6, int(room // (max(ink_size(spec.build[0], 0.85)) + 26.0))))
+        for i in range(n):
+            a = (i / float(n)) * math.tau + rng.uniform(-0.14, 0.14)
+            d = radius + rng.uniform(46.0, 66.0)
             hx, hy = gx + math.cos(a) * d, gy + math.sin(a) * d
-            if not _buildable(plan, hx, hy, spec.house_gap):
+            b = place_building(plan, rng.choice(spec.build), hx, hy, (gx, gy),
+                               rng.uniform(0.6, 0.78), "hamlet")
+            if b is None:
                 continue
-            plan.buildings.append(Building(
-                kind=rng.choice(spec.build), x=hx, y=hy,
-                angle=int(math.degrees(math.atan2(gy - hy, gx - hx))) % 360,
-                scale=rng.uniform(0.78, 0.95), group="hamlet"))
             green.lanes.append([(hx, hy), (gx + math.cos(a) * radius,
                                            gy + math.sin(a) * radius)])
-            _mark_built(plan, hx, hy, 26.0)
         plan.greens.append(green)
     # frontage: the row of houses along the road the player reads as a lane
-    # Frontage spacing is a DISTANCE along the road, not a share of it: eight
-    # screens of lane must have eight screens of houses, not eight houses
-    # smeared over eight screens.
     lane = sum(math.hypot(main.path[i + 1][0] - main.path[i][0],
                           main.path[i + 1][1] - main.path[i][1])
                for i in range(len(main.path) - 1)) or 1.0
-    s = 0.04
-    gap = rng.uniform(0.05, 0.09) * SCREEN_H / lane
+    s = 0.04 * lane
     side = 1.0
-    while s < 0.96:
-        (bx, by), tang = _along(main.path, s)
-        setback = rng.uniform(40.0, 70.0)
-        nx = bx + math.cos(tang + math.pi / 2 * side) * setback
-        ny = by + math.sin(tang + math.pi / 2 * side) * setback
-        side = -side
-        s += gap * rng.uniform(0.7, 1.4)
-        if not _buildable(plan, nx, ny, spec.house_gap):
-            continue
+    while s < 0.96 * lane:
+        (bx, by), tang = _along(main.path, s / lane)
         kind = rng.choice(spec.build)
-        plan.buildings.append(Building(
-            kind=kind, x=nx, y=ny,
-            angle=int(math.degrees(tang - math.pi / 2 * side)) % 360,
-            scale=rng.uniform(0.62, 0.86), group="frontage",
-            drive=[(nx, ny), (bx, by)],
-            yard=(nx + math.cos(tang + math.pi / 2 * side) * 26.0,
-                  ny + math.sin(tang + math.pi / 2 * side) * 26.0,
-                  rng.uniform(14.0, 22.0))))
-        _mark_built(plan, nx, ny, 30.0)
-    # farmyards: set back off the road, at the edge of the fields
+        scale = rng.uniform(0.58, 0.8)
+        # Set the front EDGE back from the carriageway, then stand the centre far
+        # enough in for the footprint to clear it: setting the CENTRE 40 px off a
+        # 22 px road put half the house on the road.
+        nx_, ny_ = math.cos(tang + math.pi / 2 * side), math.sin(tang + math.pi / 2 * side)
+        front = rng.uniform(34.0, 64.0) + main.width * 0.5
+        w, h = ink_size(kind, scale, _face(bx, by, bx + nx_, by + ny_))
+        depth = h if abs(math.sin(tang)) > abs(math.cos(tang)) else w
+        nx = bx + nx_ * (front + depth * 0.5)
+        ny = by + ny_ * (front + depth * 0.5)
+        b = place_building(plan, kind, nx, ny, (bx, by), scale, "frontage",
+                           drive=[(nx, ny), (bx, by)],
+                           yard=(nx + nx_ * 30.0, ny + ny_ * 30.0,
+                                 rng.uniform(14.0, 22.0)))
+        # Advance by whatever this house actually occupies, plus a gap - and when
+        # the ground refused the house, advance by the house's own width anyway, so
+        # a rejected site does not become the same candidate retried forever.
+        step = _along_extent(kind, scale, _face(nx, ny, bx, by), tang)
+        s += step + rng.uniform(26.0, 90.0) if b is not None else step
+        side = -side
+    # farmyards: set back off the road, at the edge of the fields. A farm is a
+    # COMPOUND: a barn and a house with a yard between them, sized apart so their
+    # roofs do not merge. The old code jittered both inside a 80x60 px box guarded
+    # only by a centre distance smaller than either roof.
     for _ in range(rng.randint(1, 2) * plan.geom.screens):
         (bx, by), tang = _along(main.path, rng.uniform(0.1, 0.9))
-        fx = bx + math.cos(tang + math.pi / 2) * rng.uniform(70.0, 120.0)
-        fy = by + math.sin(tang + math.pi / 2) * rng.uniform(70.0, 120.0)
-        if not _buildable(plan, fx, fy, spec.house_gap):
+        nx_, ny_ = math.cos(tang + math.pi / 2), math.sin(tang + math.pi / 2)
+        off = rng.uniform(90.0, 150.0)
+        fx, fy = bx + nx_ * off, by + ny_ * off
+        barn = place_building(plan, "barn" if "barn" in spec.build else
+                              spec.build[0], fx, fy, (bx, by),
+                              rng.uniform(0.62, 0.78), "farm",
+                              drive=[(fx, fy), (bx, by)])
+        if barn is None:
             continue
-        for i in range(rng.randint(2, 3)):
-            hx = fx + rng.uniform(-40.0, 40.0)
-            hy = fy + rng.uniform(-30.0, 30.0)
-            if not _buildable(plan, hx, hy, spec.house_gap):
-                continue
-            plan.buildings.append(Building(
-                kind="barn" if i == 0 else rng.choice(spec.build),
-                x=hx, y=hy, angle=int(math.degrees(tang)) % 360,
-                scale=rng.uniform(0.8, 1.0), group="farm",
-                drive=[(hx, hy), (bx, by)]))
-            _mark_built(plan, hx, hy, 30.0)
+        # the second building stands beside the first, clear of its footprint
+        bw, bh = ink_size(barn.kind, barn.scale, barn.angle)
+        span = max(bw, bh) + 34.0
+        for k in range(rng.randint(1, 2)):
+            hx = fx + math.cos(tang) * span * (k + 1)
+            hy = fy + math.sin(tang) * span * (k + 1)
+            place_building(plan, spec.build[0], hx, hy, (bx, by),
+                           rng.uniform(0.58, 0.72), "farm",
+                           drive=[(hx, hy), (bx, by)])
 
 
 def _near_building(plan: SitePlan, x: float, y: float, dist: float) -> bool:
@@ -1375,27 +1620,99 @@ def _near_building(plan: SitePlan, x: float, y: float, dist: float) -> bool:
     return any(math.hypot(b.x - x, b.y - y) < dist for b in plan.buildings)
 
 
-def _buildable(plan: SitePlan, x: float, y: float,
-               gap: float = 78.0) -> bool:
-    if not 20.0 < x < plan.geom.w - 20.0:
+def _rect_free(plan: SitePlan, rect: tuple[float, float, float, float]) -> bool:
+    """Is a footprint's ground free: inside the strip, unbuilt, dry, not on a slope,
+    not in a channel.
+
+    Checked against the PLANNING CELLS the rect covers, not against the rect's
+    centre. A centre-only test is how two houses whose art is 160-220 px wide were
+    allowed to stand 60 px apart: each centre sat on free ground while the two
+    footprints were on top of one another.
+    """
+    x0, y0, x1, y1 = rect
+    g = plan.geom
+    if x0 < 10.0 or x1 > g.w - 10.0:
         return False
-    if plan.relief_at(x, y) > 0.42 or plan.is_wet(x, y) or plan.is_built(x, y):
+    if not _in_strip(g, y0) or not _in_strip(g, y1):
         return False
-    if plan.near_water(x, y, 40.0):
-        return False
-    for b in plan.buildings:
-        if math.hypot(b.x - x, b.y - y) < gap:
+    j0, j1 = _span(y0, y1, g.rows, g.cell)
+    i0, i1 = _span(x0, x1, g.cols, g.cell)
+    for j in range(j0, j1 + 1):
+        row_rel, row_wet, row_built = plan.relief[j], plan.wet[j], plan.built[j]
+        for i in range(i0, i1 + 1):
+            if row_built[i] or row_wet[i] or row_rel[i] > 0.42:
+                return False
+    # a footprint must not straddle water either: the corners and the middle are
+    # enough, because a channel wider than the spacing between those samples would
+    # swallow the whole building anyway
+    for px, py in ((x0, y0), (x1, y0), (x0, y1), (x1, y1),
+                   # the middle is held further off the water than the corners: a
+                   # building's centre is where its door and yard are, and the plan
+                   # promises no building stands in a channel (measured against the
+                   # water's own half-width + 38) - a 26 px corner test let a frontage
+                   # house sit 30 px from a channel it was built across
+                   ((x0 + x1) / 2.0, (y0 + y1) / 2.0)):
+        centre = abs(px - (x0 + x1) / 2.0) < 1.0 and abs(py - (y0 + y1) / 2.0) < 1.0
+        if plan.near_water(px, py, 42.0 if centre else 26.0):
             return False
     return True
 
 
-def _mark_built(plan: SitePlan, x: float, y: float, r: float) -> None:
+def _claim_rect(plan: SitePlan, rect: tuple[float, float, float, float]) -> None:
+    """Mark the ground a footprint covers as taken.
+
+    This mark is what every later pass reads: fields refuse the cell (`_fields`),
+    vegetation refuses it (`_cover`), the next building refuses it. Claiming a 26 px
+    dot under a 160 px house is why a hedgerow used to run through a living room and
+    a barn stood in the middle of a crop field.
+    """
     g = plan.geom
-    j0, j1 = g.row(y - r), g.row(y + r)
-    i0, i1 = g.col(x - r), g.col(x + r)
+    x0, y0, x1, y1 = rect
+    j0, j1 = _span(max(0.0, y0), min(float(g.h), y1), g.rows, g.cell)
+    i0, i1 = _span(max(0.0, x0), min(float(g.w), x1), g.cols, g.cell)
     for j in range(j0, j1 + 1):
         for i in range(i0, i1 + 1):
             plan.built[j][i] = True
+
+
+def place_building(plan: SitePlan, kind: str, x: float, y: float,
+                   face_to: Point, scale: float, group: str,
+                   drive: list[Point] | None = None,
+                   yard: tuple[float, float, float] | None = None,
+                   air: float = 16.0) -> Building | None:
+    """The one way a building enters the plan.
+
+    Size comes from the art, not from a wish: the footprint is the prop's ink box at
+    its painted scale, the candidate is rejected if any of that ground is taken, and
+    on success the ground it covers is claimed - so nothing later plants a tree, a
+    hedge or another house inside it.
+
+    `air` is the gap kept between footprints, in bake px. It is a *painting* margin:
+    shadows and the light dot at a house's near edge reach a few px past the ink.
+    """
+    angle = _face(x, y, face_to[0], face_to[1])
+    rect = _ink_rect(kind, x, y, scale, angle, pad=air)
+    if not _rect_free(plan, rect):
+        return None
+    # A road owns its corridor. Checked here, in the one gate every building
+    # passes through, because a rule that lives in one blueprint is a rule the
+    # others do not know: a frontage house set back from the lane it faces ended
+    # up 23 px from the edge of a highway the lane happened to run beside.
+    if plan.in_road_corridor(x, y):
+        return None
+    b = Building(kind=kind, x=x, y=y, angle=angle, scale=scale, group=group,
+                 drive=drive, yard=yard)
+    plan.buildings.append(b)
+    _claim_rect(plan, rect)
+    return b
+
+
+def along_road(road: Road, s: float) -> tuple[Point, float]:
+    """A point and tangent part-way along a road, `s` in ARC px from its start."""
+    total = sum(math.hypot(road.path[i + 1][0] - road.path[i][0],
+                           road.path[i + 1][1] - road.path[i][1])
+                for i in range(len(road.path) - 1))
+    return _along(road.path, (s / total) if total else 0.0)
 
 
 def _fields(spec: SiteSpec, plan: SitePlan, rng: random.Random) -> None:
@@ -1428,9 +1745,7 @@ def _fields(spec: SiteSpec, plan: SitePlan, rng: random.Random) -> None:
         furrows = _furrows(poly, w, h, kind, rng)
         plan.fields.append(Field(poly=poly, mat=mat, kind=kind,
                                  furrows=furrows, hedge=kind != "lot"))
-        for px, py in poly:
-            _mark_built(plan, px, py, 4.0)
-        _mark_parcel(plan, poly)
+        _mark_parcel(plan, poly)      # a parcel claims its own ground
 
 
 def _city_blocks(spec: SiteSpec, plan: SitePlan, rng: random.Random) -> None:
@@ -1468,10 +1783,19 @@ def _city_blocks(spec: SiteSpec, plan: SitePlan, rng: random.Random) -> None:
                    for j in range(int((y1 - y0) / 40.0))):
                 continue
             kind = rng.choice(kinds)
+            block = _clip_poly(plan.geom, poly)
+            bx = [q[0] for q in block]
+            by = [q[1] for q in block]
+            # Clipping to the strip can leave a sliver where a block ran off the
+            # edge, and a 28 px sliver of cobble is texture, not a block. The test
+            # that found it calls it "too small to read as a block"; the planner
+            # should know that rather than emit it for the painter to shrug at.
+            if not block or max(bx) - min(bx) < 70.0 or max(by) - min(by) < 70.0:
+                continue
             # no furrows in a city: parallel strips inside a paved block read as
             # planking or decking, not as land use
             plan.fields.append(Field(
-                poly=_clip_poly(plan.geom, poly),
+                poly=block,
                 mat=_field_mat(plan.theme, kind), kind=kind,
                 furrows=[], hedge=False))
 
@@ -1537,7 +1861,8 @@ def _parcel_ok(plan: SitePlan, poly: list[Point]) -> bool:
             cx, cy = i * CELL + CELL / 2, j * CELL + CELL / 2
             if not _in_poly(cx, cy, poly):
                 continue
-            if plan.relief[j][i] > 0.34 or plan.wet[j][i] or plan.built[j][i]:
+            if plan.relief[j][i] > 0.34 or plan.wet[j][i] or plan.built[j][i] \
+                    or (plan.place and plan.place[j][i]):
                 return False
             if plan.near_road(cx, cy, 26.0):
                 return False
@@ -1613,7 +1938,8 @@ def _cover(spec: SiteSpec, plan: SitePlan, rng: random.Random) -> None:
         for _ in range(rng.randint(lo, hi) * g.screens):
             cx, cy = rng.uniform(40, g.w - 40), rng.uniform(20, g.h - 20)
             if plan.relief_at(cx, cy) > 0.7 or plan.is_wet(cx, cy) \
-                    or plan.is_built(cx, cy) or plan.near_road(cx, cy, 34.0):
+                    or plan.is_built(cx, cy) or plan.is_place(cx, cy) \
+                    or plan.near_road(cx, cy, 34.0):
                 continue
             n = rng.randint(3, 7)              # clustered, never uniform
             items = []
@@ -1624,6 +1950,7 @@ def _cover(spec: SiteSpec, plan: SitePlan, rng: random.Random) -> None:
                 if 12 < x < g.w - 12 and _in_strip(g, y) \
                         and plan.relief_at(x, y) < 0.72 \
                         and not plan.is_built(x, y) \
+                        and not plan.is_place(x, y) \
                         and not _near_building(plan, x, y, 60.0):
                     items.append((x, y, rng.uniform(0.45, 1.05)))
             if len(items) >= 3:
@@ -1649,6 +1976,7 @@ def _cover(spec: SiteSpec, plan: SitePlan, rng: random.Random) -> None:
                         y = a[1] + math.sin(ang) * d
                         if 12 < x < g.w - 12 and _in_strip(g, y) \
                                 and not plan.is_built(x, y) \
+                                and not plan.is_place(x, y) \
                                 and not _near_building(plan, x, y, 50.0):
                             plan.woods.append(Wood(
                                 kind="riparian",
@@ -1791,8 +2119,32 @@ def plan_site(theme: str, seed: int, geom: Geom | None = None) -> SitePlan:
                     built=[[False] * g.cols for _ in range(g.rows)], geom=g)
     _water_mark(plan)
     plan.roads = _circulation(g, spec, plan.relief, water, rng)
-    _fields(spec, plan, rng)
+    # Settlement BEFORE fields, which is the order the module promises: the road
+    # decides where the houses stand, and the flat dry ground the road and the
+    # houses left over is what gets enclosed as fields. Run the other way round,
+    # the parcels took the roadside and the frontage row was pushed into the
+    # leftovers - which is part of why the houses looked put down at random.
+    # Places first, then the frontage row, then the fields that enclose whatever
+    # settled ground is left. Two orderings were wrong before this: fields claimed
+    # the ground a blueprint was about to build on (a lane got laid and then lost
+    # every house on it), and with settlement first the frontage row took the
+    # roadside - which is where a neighborhood hangs its lane from - so the
+    # neighborhood was sited onto ground the houses had already claimed and lost
+    # every footprint to `built`. A place owns ground; a frontage house fills a
+    # gap. That is the order that says so.
+    from .places import lay_places
+    built = lay_places(plan, spec.places, rng)
+    # Reconcile the roads with the water once, AFTER the vocabulary is down: a
+    # lane laid before a lake can cross it, and a road standing in water with no
+    # deck is the "road fords the river" artifact this project has already been
+    # told about twice.
+    for r in plan.roads:
+        _add_decks(r, _bridge_spans(g, r.path, plan.water))
+    if built:
+        _LOG.debug("places for %s: %s", theme,
+                   ", ".join(f"{k}={v}" for k, v in sorted(built.items())))
     _settlement(spec, plan, rng)
+    _fields(spec, plan, rng)
     _cover(spec, plan, rng)
     return plan
 

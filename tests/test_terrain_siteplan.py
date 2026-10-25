@@ -404,3 +404,52 @@ def test_every_feature_kind_is_indexed_where_it_actually_is():
             if far + 0.5 * CH < strip.geom.h:
                 assert index not in strip.band(kind, far, far + 0.5 * CH), \
                     f"{kind} indexed where it is not"
+
+
+def test_the_segment_index_agrees_with_brute_force():
+    """`_near_path` / `_dist_path` must not answer "no" to a point on the line.
+
+    Every siting rule runs through them: is this house clear of the channel, is
+    this parcel off the road, does this route cross the water (and so need a
+    bridge). The index buckets segments by y to make those questions cheap over a
+    thousand-segment road, and the bucketing had a hole in it: a segment whose y
+    DECREASES was filed in no bucket at all, because `range(b0, b1 + 1)` is empty
+    when b0 > b1. Every downward-running segment of every vertical road, river
+    and channel was therefore invisible.
+
+    Measured before the fix: 9 of 13 probes disagreed with brute force, the worst
+    by a factor of five (a point 7 px from a lane measured 33 px), and a drive
+    drawn ON its own lane read as 24 px away from it.
+
+    Paths that run both up and down in y are the point: a plan full of ascending
+    segments alone passes and still ships the bug.
+    """
+    import random
+
+    from terrain import siteplan as sp
+
+    g = Geom(h=1120 * 6, cyclic=False)
+    rng = random.Random(11)
+    mismatches = 0
+    probes = 0
+    for _ in range(40):
+        x, y = rng.uniform(0.0, 1600.0), rng.uniform(0.0, 6000.0)
+        path = [(x, y)]
+        for _ in range(30):
+            x = max(0.0, min(1600.0, x + rng.uniform(-90.0, 90.0)))
+            y = max(0.0, min(6700.0, y + rng.uniform(-160.0, 160.0)))
+            path.append((x, y))
+        for px, py in [(p[0] + rng.uniform(-150, 150),
+                        p[1] + rng.uniform(-150, 150)) for p in path[::3]]:
+            want = min(sp._seg_dist(px, py, path[i], path[i + 1])
+                       for i in range(len(path) - 1))
+            got = sp._dist_path(g, px, py, path)
+            probes += 1
+            if abs(got - want) > 1e-6:
+                mismatches += 1
+            elif not sp._near_path(g, px, py, path, want + 0.01):
+                mismatches += 1
+    assert probes > 300, f"only {probes} probes ran - the test is not probing"
+    assert mismatches == 0, (
+        f"{mismatches} of {probes} probes disagree with brute force - a plan "
+        "sits things on ground it believes is free")
