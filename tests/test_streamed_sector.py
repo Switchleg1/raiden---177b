@@ -391,6 +391,9 @@ def test_the_launch_hold_continues_while_ground_arrives_and_stops_when_it_doesnt
         def frontier(self) -> int:
             return self.n
 
+        def painted_count(self) -> int:
+            return self.n
+
         def stop(self, timeout: float | None = None) -> None:
             pass
 
@@ -420,6 +423,9 @@ class _WaitingGround:
             self.level = level
 
         def frontier(self) -> int:
+            return self.level.painted
+
+        def painted_count(self) -> int:
             return self.level.painted
 
         def window_at(self, y):
