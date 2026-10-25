@@ -14,13 +14,6 @@ import ui
 from audio import BOSS_KEY, LEVEL_KEY, MENU_KEY
 from audio import effect_table as sfx
 from game import (
-    SIG_BOMB,
-    SIG_BOSS,
-    SIG_GAME_OVER,
-    SIG_HAZARD,
-    SIG_LEVEL_CLEAR,
-    SIG_LIFE_LOST,
-    SIG_POWERUP,
     Game,
 )
 from input import (
@@ -34,7 +27,20 @@ from input import (
 )
 from state import State, StateMachine
 
+from .control_table import (
+    BACK_ACTIONS,
+    BUTTON_ACTIONS,
+    CONFIRM_ACTIONS,
+    CONFIRM_PROMPTS,
+    CONFIRMED_ACTIONS,
+    MENU_STATES,
+    NAME_ENTRY_KEYS,
+    SCREENS,
+)
+from .howto_table import HOWTO_LINES
 from .settings_rows import SETTINGS_ROWS, _replace
+from .signal_fx import SignalFx
+from .signal_table import ENDS_PLAY, SIGNAL_ACTIONS, SIGNAL_FX
 
 log = logging.getLogger("raiden_shadow")
 
@@ -427,16 +433,10 @@ class App:
 
     def _on_confirm(self) -> None:
         st = self.sm.state
-        if st == State.NAME_ENTRY:
-            self._submit_initials()
-        elif st == State.HIGH_SCORES:
-            self._leave_scores()
-        elif st == State.READY:
-            self._launch_craft()
-        elif st in (State.LIFE_LOST, State.LEVEL_COMPLETE):
-            self._finish_transition()
-        elif self._menu is not None and st in (State.TITLE, State.GAME_OVER,
-                    State.VICTORY, State.SETTINGS, State.HOW_TO_PLAY, State.PAUSED):
+        action = CONFIRM_ACTIONS.get(st)
+        if action is not None:
+            getattr(self, action)()
+        elif self._menu is not None and st in MENU_STATES:
             b = self._menu.current()
             if b:
                 self._activate(b.id)
@@ -450,64 +450,36 @@ class App:
                 return
 
     def _on_back(self) -> None:
-        st = self.sm.state
-        if st == State.NAME_ENTRY:
-            self._cancel_name_entry()
-        elif st == State.HIGH_SCORES:
-            self._leave_scores()
-        elif st == State.TITLE:
-            self.running = False
-        elif st == State.HOW_TO_PLAY:
-            self._return_from_submenu()
-        elif st == State.SETTINGS:
-            self._settings_cancel()
-        elif st == State.PAUSED:
-            if self._pending_confirm:
-                self._pending_confirm = None
-                self._build_pause_menu()
-            else:
-                self._resume()
-        elif st in (State.GAME_OVER, State.VICTORY):
-            self._goto_title()
-        elif st in (State.PLAYING, State.READY):
-            self._pause()
+        action = BACK_ACTIONS.get(self.sm.state)
+        if action is not None:
+            getattr(self, action)()
+
+    def _back_from_pause(self) -> None:
+        """Back out of a pending confirmation, or out of the pause menu."""
+        if self._pending_confirm:
+            self._decline_confirm()
+        else:
+            self._resume()
+
+    def _quit(self) -> None:
+        self.running = False
 
     # ------------------------------------------------------------- activation
     def _activate(self, bid: str) -> None:
         self._sfx(nav=False)
-        if bid == "play":
-            self._start_game()
-        elif bid == "howto":
-            self._enter_howto()
-        elif bid == "settings":
-            self._enter_settings()
-        elif bid == "scores":
-            self._enter_scores()
-        elif bid == "quit":
-            self.running = False
-        elif bid == "resume":
-            self._resume()
-        elif bid == "restart":
-            self._require_confirm("restart", "Restart the current game?")
-        elif bid == "title":
-            self._require_confirm("title", "Return to title? Progress is lost.")
-        elif bid == "quit_desktop":
-            self._require_confirm("quit_desktop", "Quit to desktop?")
-        elif bid == "again":
-            self._start_game()
-        elif bid == "apply":
-            self._settings_apply()
-        elif bid == "cancel":
-            self._settings_cancel()
-        elif bid == "defaults":
-            self._settings_restore_defaults()
-        elif bid == "confirm_yes":
-            self._run_confirmed(self._pending_confirm or "")
-        elif bid == "confirm_no":
-            self._pending_confirm = None
-            self._build_pause_menu()
+        if bid in CONFIRM_PROMPTS:
+            self._require_confirm(bid, CONFIRM_PROMPTS[bid])
+        elif bid in BUTTON_ACTIONS:
+            getattr(self, BUTTON_ACTIONS[bid])()
         elif bid.startswith("opt:"):
             self._toggle_setting_option(int(bid.split(":")[1]))
+
+    def _accept_confirm(self) -> None:
+        self._run_confirmed(self._pending_confirm or "")
+
+    def _decline_confirm(self) -> None:
+        self._pending_confirm = None
+        self._build_pause_menu()
 
     def _require_confirm(self, action: str, text: str) -> None:
         self._pending_confirm = action
@@ -519,12 +491,9 @@ class App:
 
     def _run_confirmed(self, action: str) -> None:
         self._pending_confirm = None
-        if action == "restart":
-            self._start_game()
-        elif action == "title":
-            self._goto_title()
-        elif action == "quit_desktop":
-            self.running = False
+        method = CONFIRMED_ACTIONS.get(action)
+        if method is not None:
+            getattr(self, method)()
 
     # ----------------------------------------------------------- game control
     def _start_game(self) -> None:
@@ -1112,100 +1081,67 @@ class App:
 
     # -------------------------------------------------------------- gameplay
     def _on_signal(self, ev: dict[str, Any]) -> bool:
+        """Answer one game signal: its effects (`SIGNAL_FX`), then anything more
+        the app does about it (`SIGNAL_ACTIONS`). True when it ends the flying."""
         et = ev.get("type")
-        if et == SIG_BOSS:
-            self._set_boss_music()
-        elif et == "shoot":
-            if self.audio:
-                self.audio.play(sfx.SHOOT)
-        elif et == "missile":
-            if self.audio:
-                self.audio.play(sfx.MISSILE)
-        elif et == "moon":
-            if self.audio:
-                self.audio.play(sfx.MOON)
-        elif et == "whip_hit":
-            if self.audio:
-                self.audio.play(sfx.WHIP_HIT)
-            self.effects.add_burst(ev.get("x", 0.0), ev.get("y", 0.0),
-                                   (235, 130, 255), 3)
-        elif et == "flame_hit":
-            if self.audio:
-                self.audio.play(sfx.FLAME_HIT)
-            self.effects.add_burst(ev.get("x", 0.0), ev.get("y", 0.0),
-                                   (255, 150, 62), 3)
-        elif et == "medal":
-            if self.audio:
-                self.audio.play(sfx.MEDAL)
-        elif et == "enemy_killed":
-            if self.audio:
-                self.audio.play(sfx.EXPLOSION)
-            col = tuple(ev.get("color", (200, 200, 200)))[:3]
-            x, y = ev.get("x", 0.0), ev.get("y", 0.0)
-            tier = ui.EXPLOSION_TIER.get(ev.get("kind", "grunt"),
-                                              "explosion_small")
-            self.effects.add_explosion(x, y, tier)
-            self.effects.add_burst(x, y, col, 6)
-        elif et == "boss_spawn":
-            if self.audio:
-                self.audio.play(sfx.BOSS_WARN)
-            self.effects.do_shake(4.0)
-        elif et == "boss_down":
-            if self.audio:
-                self.audio.play(sfx.BOSS_EXPLOSION)
-            self.effects.do_shake(8.0)
-            self.effects.do_screen_flash(0.5)
-            bx = ev.get("x", C.LOGICAL_W / 2)
-            by = ev.get("y", C.FIELD_TOP + 120)
-            self.effects.add_explosion(bx, by, "explosion_big")
-            self.effects.add_burst(bx, by, (255, 220, 140), 40)
-        elif et == SIG_BOMB:
-            if self.audio:
-                self.audio.play(sfx.BOMB)
-            self.effects.do_screen_flash(0.85)
-            self.effects.do_shake(6.0)
-        elif et == SIG_LIFE_LOST:
-            if self.audio:
-                self.audio.play(sfx.LIFE_LOST)
-            self.effects.do_shake(7.0)
-            self.effects.add_explosion(self.game.player.x,
-                                       self.game.player.y, "explosion_mid")
-            self.effects.add_burst(self.game.player.x, self.game.player.y,
-                                   (120, 210, 255), 30)
-            self._begin_transition("SHIP DOWN", f"{self.game.lives} lives left",
-                                   1.2, "ready")
-        elif et == SIG_LEVEL_CLEAR:
-            if self.audio:
-                self.audio.play(sfx.LEVEL_COMPLETE)
-            if self.game.is_final_level():
-                self._begin_transition("SECTOR CLEAR", "All sectors down!",
-                                       1.4, "victory")
-            else:
-                self._begin_transition("SECTOR CLEAR",
-                                       f"Sector {self.game.level_index + 1} secure",
-                                       1.2, "next_level")
-        elif et == SIG_GAME_OVER:
-            if self.audio:
-                self.audio.play(sfx.GAME_OVER)
-            self.effects.add_explosion(self.game.player.x,
-                                       self.game.player.y, "explosion_big")
-            self.effects.add_burst(self.game.player.x, self.game.player.y,
-                                   (120, 210, 255), 30)
-            self._begin_transition("GAME OVER", "", 1.2, "game_over")
-        elif et == SIG_POWERUP:
-            if ev.get("kind") == C.ItemKind.MOON.value:
-                # Warm the blade's sheet now, while there is still time: the
-                # first auto-fire lands MOON_INTERVAL later, and loading a PNG
-                # on that frame is a hitch exactly when the player is waiting to
-                # hear the reward.
-                self.prefetch.request_art("shot_moon")
-            if self.audio:
-                self.audio.play(sfx.POWERUP)
-        elif et == SIG_HAZARD:
-            if self.audio:
-                self.audio.play(sfx.HAZARD)
-            self.effects.do_shake(5.0)
-        return et in (SIG_LIFE_LOST, SIG_LEVEL_CLEAR, SIG_GAME_OVER)
+        fx = SIGNAL_FX.get(et)
+        if fx is not None:
+            self._play_fx(ev, fx)
+        action = SIGNAL_ACTIONS.get(et)
+        if action is not None:
+            getattr(self, action)(ev)
+        return et in ENDS_PLAY
+
+    def _play_fx(self, ev: dict[str, Any], fx: SignalFx) -> None:
+        if fx.sound and self.audio:
+            self.audio.play(fx.sound)
+        if fx.shake:
+            self.effects.do_shake(fx.shake)
+        if fx.flash:
+            self.effects.do_screen_flash(fx.flash)
+        if fx.at == "player":
+            x, y = self.game.player.x, self.game.player.y
+        else:
+            x = ev.get("x", C.LOGICAL_W / 2)
+            y = ev.get("y", C.FIELD_TOP + 120)
+        if fx.explosion:
+            self.effects.add_explosion(x, y, fx.explosion)
+        if fx.burst:
+            colour, n = fx.burst
+            self.effects.add_burst(x, y, colour, n)
+
+    def _on_boss_signal(self, ev: dict[str, Any]) -> None:
+        self._set_boss_music()
+
+    def _on_enemy_killed(self, ev: dict[str, Any]) -> None:
+        col = tuple(ev.get("color", (200, 200, 200)))[:3]
+        x, y = ev.get("x", 0.0), ev.get("y", 0.0)
+        tier = ui.EXPLOSION_TIER.get(ev.get("kind", "grunt"), "explosion_small")
+        self.effects.add_explosion(x, y, tier)
+        self.effects.add_burst(x, y, col, 6)
+
+    def _on_life_lost(self, ev: dict[str, Any]) -> None:
+        self._begin_transition("SHIP DOWN", f"{self.game.lives} lives left",
+                               1.2, "ready")
+
+    def _on_level_clear(self, ev: dict[str, Any]) -> None:
+        if self.game.is_final_level():
+            self._begin_transition("SECTOR CLEAR", "All sectors down!",
+                                   1.4, "victory")
+        else:
+            self._begin_transition("SECTOR CLEAR",
+                                   f"Sector {self.game.level_index + 1} secure",
+                                   1.2, "next_level")
+
+    def _on_game_over(self, ev: dict[str, Any]) -> None:
+        self._begin_transition("GAME OVER", "", 1.2, "game_over")
+
+    def _on_powerup(self, ev: dict[str, Any]) -> None:
+        if ev.get("kind") == C.ItemKind.MOON.value:
+            # Warm the blade's sheet now, while there is still time: the first
+            # auto-fire lands MOON_INTERVAL later, and loading a PNG on that frame
+            # is a hitch exactly when the player is waiting to hear the reward.
+            self.prefetch.request_art("shot_moon")
 
     def _begin_transition(self, msg: str, sub: str, dur: float, after: str) -> None:
         self._msg, self._msg_sub = msg, sub
@@ -1335,24 +1271,30 @@ class App:
         import pygame
         if ev.type != pygame.KEYDOWN:
             return
-        if ev.key in (pygame.K_LEFT, pygame.K_a):
-            self._initial_index = max(0, self._initial_index - 1)
-        elif ev.key in (pygame.K_RIGHT, pygame.K_d):
-            self._initial_index = min(C.INITIALS_LEN - 1,
-                                      self._initial_index + 1)
-        elif ev.key in (pygame.K_UP, pygame.K_w):
-            self._cycle_initial(1)
-        elif ev.key in (pygame.K_DOWN, pygame.K_s):
-            self._cycle_initial(-1)
-        elif ev.key == pygame.K_BACKSPACE:
-            self._initials[self._initial_index] = C.INITIALS_BLANK
-            self._initial_index = max(0, self._initial_index - 1)
-        else:
-            ch = (ev.unicode or "").upper()
-            if ch and ch in C.INITIALS_TYPED:
-                self._initials[self._initial_index] = ch
-                self._initial_index = min(C.INITIALS_LEN - 1,
-                                          self._initial_index + 1)
+        for key, method in NAME_ENTRY_KEYS.items():
+            if ev.key == getattr(pygame, key):
+                getattr(self, method)()
+                return
+        ch = (ev.unicode or "").upper()
+        if ch and ch in C.INITIALS_TYPED:
+            self._initials[self._initial_index] = ch
+            self._initial_index = min(C.INITIALS_LEN - 1, self._initial_index + 1)
+
+    def _initial_left(self) -> None:
+        self._initial_index = max(0, self._initial_index - 1)
+
+    def _initial_right(self) -> None:
+        self._initial_index = min(C.INITIALS_LEN - 1, self._initial_index + 1)
+
+    def _initial_up(self) -> None:
+        self._cycle_initial(1)
+
+    def _initial_down(self) -> None:
+        self._cycle_initial(-1)
+
+    def _initial_erase(self) -> None:
+        self._initials[self._initial_index] = C.INITIALS_BLANK
+        self._initial_index = max(0, self._initial_index - 1)
 
     def _cycle_initial(self, step: int) -> None:
         letters = C.INITIALS_LETTERS
@@ -1538,70 +1480,79 @@ class App:
         r.sync_effects(self.effects)
         r.clear()
         st = self.sm.state
-
-        if st == State.TITLE:
-            self._render_title_background()
-            r.draw_menu(self._menu, C.APP_NAME,
-                        f"HIGH SCORE  {self.stats.high_score}")
-        elif st in (State.READY, State.PLAYING, State.LIFE_LOST, State.LEVEL_COMPLETE):
-            r.draw_field(self.game)
-            r.draw_particles(self.effects)
-            r.draw_hud(self.game, self._play_time)
-            if st == State.READY and self._msg == "LOADING":
-                # The wait is the feature; being able to see it is what makes it
-                # a load rather than a freeze.
-                frac, label = self._load_status()
-                r.draw_progress(frac, label)
-            if self._transition_timer > 0 or (st == State.READY and self._msg):
-                r.draw_message(self._msg, self._msg_sub)
-        elif st == State.PAUSED:
-            r.draw_field(self.game)
-            r.draw_hud(self.game, self._play_time)
-            self._overlay_dim()
-            if self._pending_confirm:
-                r.draw_message(self._confirm_text or "Confirm?", "Yes / No")
-            r.draw_menu(self._menu, "PAUSED")
-        elif st in (State.GAME_OVER, State.VICTORY):
-            r.draw_field(self.game)
-            self._overlay_dim()
-            # While a placing run's banner rolls there is no menu yet - the
-            # initials screen follows as soon as the banner finishes.
-            foot = ("" if self._run_rank is None
-                    else f"NEW HIGH SCORE - rank {self._run_rank}!")
-            r.draw_text_block("VICTORY!" if st == State.VICTORY else "GAME OVER",
-                              self._result_lines(), foot)
-            r.draw_menu(self._menu)
-        elif st == State.NAME_ENTRY:
-            # The wreck is still on screen behind the entry boxes: this is the
-            # arcade moment, not a form.
-            r.draw_field(self.game)
-            self._overlay_dim()
-            r.draw_initials_entry("".join(self._initials), self._initial_index,
-                                  self._run_rank or 0, self._entry_score,
-                                  "type or up/down: letter   left/right: slot"
-                                  "   enter: sign it   esc: skip")
-        elif st == State.HIGH_SCORES:
-            if self._submenu_origin == State.PAUSED:
-                r.draw_field(self.game)
-                self._overlay_dim()
-            else:
-                self._render_title_background()
-            r.draw_score_table(self._scores, self._score_highlight,
-                               foot="Enter / Esc back")
-        elif st == State.HOW_TO_PLAY:
-            self._overlay_dim()
-            r.draw_text_block("HOW TO PLAY", self._howto_lines(),
-                              "Press Esc / Enter to go back")
-        elif st == State.SETTINGS:
-            self._overlay_dim()
-            r.draw_settings(self._menu, "SETTINGS", self._current_rows())
-            foot = "left/right adjust   Enter toggle/activate   Esc back"
-            ff = ui.get_font(18)
-            p = r.palette
-            t = ff.render(foot, True, p.ui_focus)
-            self.canvas.blit(t, t.get_rect(center=(C.LOGICAL_W // 2, C.LOGICAL_H - 30)))
-
+        screen = SCREENS.get(st)
+        if screen is not None:
+            getattr(self, screen)(r, st)
         self._present()
+
+    def _draw_title_screen(self, r: Any, st: State) -> None:
+        self._render_title_background()
+        r.draw_menu(self._menu, C.APP_NAME,
+                    f"HIGH SCORE  {self.stats.high_score}")
+
+    def _draw_flight(self, r: Any, st: State) -> None:
+        r.draw_field(self.game)
+        r.draw_particles(self.effects)
+        r.draw_hud(self.game, self._play_time)
+        if st == State.READY and self._msg == "LOADING":
+            # The wait is the feature; being able to see it is what makes it
+            # a load rather than a freeze.
+            frac, label = self._load_status()
+            r.draw_progress(frac, label)
+        if self._transition_timer > 0 or (st == State.READY and self._msg):
+            r.draw_message(self._msg, self._msg_sub)
+
+    def _draw_paused(self, r: Any, st: State) -> None:
+        r.draw_field(self.game)
+        r.draw_hud(self.game, self._play_time)
+        self._overlay_dim()
+        if self._pending_confirm:
+            r.draw_message(self._confirm_text or "Confirm?", "Yes / No")
+        r.draw_menu(self._menu, "PAUSED")
+
+    def _draw_result(self, r: Any, st: State) -> None:
+        r.draw_field(self.game)
+        self._overlay_dim()
+        # While a placing run's banner rolls there is no menu yet - the
+        # initials screen follows as soon as the banner finishes.
+        foot = ("" if self._run_rank is None
+                else f"NEW HIGH SCORE - rank {self._run_rank}!")
+        r.draw_text_block("VICTORY!" if st == State.VICTORY else "GAME OVER",
+                          self._result_lines(), foot)
+        r.draw_menu(self._menu)
+
+    def _draw_name_entry(self, r: Any, st: State) -> None:
+        # The wreck is still on screen behind the entry boxes: this is the
+        # arcade moment, not a form.
+        r.draw_field(self.game)
+        self._overlay_dim()
+        r.draw_initials_entry("".join(self._initials), self._initial_index,
+                              self._run_rank or 0, self._entry_score,
+                              "type or up/down: letter   left/right: slot"
+                              "   enter: sign it   esc: skip")
+
+    def _draw_high_scores(self, r: Any, st: State) -> None:
+        if self._submenu_origin == State.PAUSED:
+            r.draw_field(self.game)
+            self._overlay_dim()
+        else:
+            self._render_title_background()
+        r.draw_score_table(self._scores, self._score_highlight,
+                           foot="Enter / Esc back")
+
+    def _draw_howto(self, r: Any, st: State) -> None:
+        self._overlay_dim()
+        r.draw_text_block("HOW TO PLAY", self._howto_lines(),
+                          "Press Esc / Enter to go back")
+
+    def _draw_settings(self, r: Any, st: State) -> None:
+        self._overlay_dim()
+        r.draw_settings(self._menu, "SETTINGS", self._current_rows())
+        foot = "left/right adjust   Enter toggle/activate   Esc back"
+        ff = ui.get_font(18)
+        p = r.palette
+        t = ff.render(foot, True, p.ui_focus)
+        self.canvas.blit(t, t.get_rect(center=(C.LOGICAL_W // 2, C.LOGICAL_H - 30)))
 
     def _present(self) -> None:
         import pygame
@@ -1637,35 +1588,7 @@ class App:
         ]
 
     def _howto_lines(self) -> list[str]:
-        return [
-            "Objective: destroy every enemy wave and the sector boss.",
-            "You have 3 lives. Weapon levels reset when you die, but a cleared",
-            "  sector is a reward: your power-ups carry into the next one.",
-            "  A bonus life is awarded once at 40000 points.",
-            "",
-            "Power-ups fall from enemies (toggleable in Settings):",
-            "  W up-arrow: wider weapon   M rocket: missiles   B: smart bomb",
-            "  shield: temporary protection   medal: score   heart: extra life",
-            "  Timed powers fire alongside your guns and wear off: the magenta",
-            "  coil is the energy lash, the red pod is a flamethrower. A second",
-            "  pod buys more time instead of restarting the clock.",
-            "Hazards: J jams your weapon (downgrade); a floating mine costs a",
-            "  life unless your shield or respawn invulnerability is active.",
-            "",
-            "Bosses fire aimed, fan and ring patterns; they enrage below half",
-            "  health, and call in escort fighters while they fight. Smart",
-            "  bombs clear every bullet and scar the boss.",
-            "A boss fight gets its own music - it never repeats the same cue.",
-            "",
-            "A placing run is signed with three initials and saved to the",
-            "  high score table (High Scores from the title screen).",
-            "",
-            "Move:  WASD / arrows, or the mouse (craft follows the pointer).",
-            "Fire:  hold SPACE or the Left mouse button (auto-repeat).",
-            "Bomb:  X or the Right mouse button.",
-            "Pause (opens menu):  P or Esc.   Fullscreen:  F11.",
-            "Losing window focus pauses the game automatically.",
-        ]
+        return list(HOWTO_LINES)
 
     # ------------------------------------------------------------- shutdown
     def shutdown(self) -> None:
