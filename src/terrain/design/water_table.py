@@ -20,8 +20,11 @@ WATER_RATE: dict[tuple[str, ...], tuple[float, float]] = {
     ("river",): (60.0, 5.0),
     ("channel", "river"): (60.0, 3.5),
     ("channel", "channel", "river"): (8.0, 1.8),
-    ("wash",): (16.0, 7.0),
-    ("channel",): (12.0, 5.0),
+    # A desert has one main wash through it and the side washes join it; at 16
+    # screens a 40-screen wasteland got two or three full-length washes running
+    # parallel, and the sector read as corduroy rather than as a desert.
+    ("wash",): (60.0, 6.0),
+    ("channel",): (60.0, 5.0),
 }
 
 __all__ = ["WATER_HALF", "WATER_RATE"]

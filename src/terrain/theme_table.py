@@ -77,8 +77,13 @@ NEAR_MATS = {
               ("mud_flat", 0.14)),
     "glacier": (("snow_field", 0.7), ("ice_sheet", 0.2),
                 ("tundra_moss", 0.1)),
-    "volcanic": (("obsidian", 0.66), ("lava_crust", 0.2),
-                 ("gravel_rubble", 0.14)),
+    # The whole palette is dark (obsidian 33, crust and ash about 42), so a mix
+    # that is mostly obsidian flattens the sector into one black value - the
+    # volcanic review could not find a field, a road or a ridge in it. The
+    # materials are kept but balanced, and the pale ash and gravel carry the
+    # difference: brightness range is what a bare lava country is made of.
+    "volcanic": (("lava_crust", 0.36), ("obsidian", 0.30),
+                 ("ash_ground", 0.22), ("gravel_rubble", 0.12)),
     "industrial": (("steel_deck", 0.6), ("rust_plate", 0.26),
                    ("concrete_apron", 0.14)),
 }
@@ -132,7 +137,11 @@ ROCK = {
     # sand plain paints a dark slab with a rectangular outline
     "canyon": ((52, 34, 22), (158, 118, 78), (112, 86, 58), "sand_canyon"),
     "glacier": ((58, 74, 92), (234, 242, 250), (150, 162, 176), "ice_sheet"),
-    "volcanic": ((34, 20, 18), (126, 68, 42), (62, 42, 34), "obsidian"),
+    # rust-baked basalt highlands over a field of dark glass. The crest used to
+    # peak at (126, 68, 42), so the ranges came down the sector as red-brown
+    # streaks on black - dramatic, but the only two values in the sector. A crest
+    # of cool baked ash keeps the range legible and leaves the red to the crust.
+    "volcanic": ((30, 22, 22), (146, 112, 92), (70, 58, 54), "obsidian"),
     "wasteland": ((40, 26, 20), (114, 84, 62), (82, 62, 48), "gravel_rubble"),
     "ruins": ((30, 28, 24), (102, 100, 88), (72, 70, 60), "cobble_moss"),
     "city": ((20, 22, 28), (90, 92, 98), (62, 62, 66), "concrete_apron"),

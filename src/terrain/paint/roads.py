@@ -13,7 +13,51 @@ from .numpy_import import _numpy
 from .raster import _disc_mask, _path_mask
 from .road_table import SOILED_KINDS, SOILING
 from .sampling import _band, _frand
-from .surface import _blit_wrap, _shadow_on
+from .surface import _blit_wrap, _shadow_on, _target
+
+
+def _wet_span(plan: SitePlan, x: float, y: float) -> float:
+    """Half-length, along the road, of the water a bridge has to clear: the
+    channel's own half-width at the crossing, from the body actually under it.
+    A deck sized from a constant (or from the widest body in the sector) stood on
+    the bank as a platform and was wider than the road it carried."""
+    best, span = float("inf"), 0.0
+    for w in plan.water:
+        d = min(math.hypot(px - x, py - y) for px, py in w.path)
+        if d < best:
+            best, span = d, w.half + 16.0
+    return span if best < 260.0 else 0.0
+
+
+def _wet_mask(canvas: Any, plan: SitePlan) -> Any:
+    """The channels' footprint as an array: what a road must not be painted on."""
+    np = _numpy()
+    wet = np.zeros((canvas.w, canvas.h), dtype=np.float32)
+    for w in plan.water:
+        _path_mask(w.path, w.half * 2.0, canvas).paste(wet)
+    return wet
+
+
+def _heading_at(path: list, x: float, y: float) -> float:
+    """The direction a route is running where it passes (x, y).
+
+    A vertex test ("the first corner within 60 px") silently kept the default of
+    0 - straight along the road - for every crossing that fell BETWEEN two
+    vertices, so those decks were planks laid along the street, on dry land, a
+    field away from the water they were built over.
+    """
+    best, ang = float("inf"), 0.0
+    for i in range(len(path) - 1):
+        (ax, ay), (bx, by) = path[i], path[i + 1]
+        vx, vy = bx - ax, by - ay
+        ln2 = vx * vx + vy * vy
+        if ln2 <= 0.0:
+            continue
+        t = max(0.0, min(1.0, ((x - ax) * vx + (y - ay) * vy) / ln2))
+        d = math.hypot(ax + t * vx - x, ay + t * vy - y)
+        if d < best:
+            best, ang = d, math.atan2(vy, vx)
+    return ang
 
 
 def _bridge_cut(surf: Mask, wet: Any, deck: Any) -> Mask:
@@ -64,14 +108,20 @@ def paint_roads(canvas: Any, kit: TileKit, plan: SitePlan,
         # the water out of the road mask, then put the deck back at each
         # crossing so the bridge still spans its gap.
         if plan.water and r.bridges:
-            wet = np.zeros((canvas.w, canvas.h), dtype=np.float32)
-            for w in plan.water:
-                _path_mask(w.path, w.half * 2.0, canvas).paste(wet)
+            wet = _wet_mask(canvas, plan)
             deck = np.zeros((canvas.w, canvas.h), dtype=np.float32)
             for bx, by in r.bridges:
-                _path_mask([(bx - 40.0, by), (bx + 40.0, by)],
-                           r.width * 2.6, canvas).paste(deck)
+                # a bridge with nothing under it still must not leave a gap in
+                # the carriageway, so it keeps a nominal deck
+                span = _wet_span(plan, bx, by) or 40.0
+                ang = _heading_at(r.path, bx, by)
+                dx, dy = math.cos(ang) * span, math.sin(ang) * span
+                _path_mask([(bx - dx, by - dy), (bx + dx, by + dy)],
+                           r.width * 1.35, canvas).paste(deck)
             surf = _bridge_cut(surf, wet, deck)
+            decks = wet
+        else:
+            decks = None
         _fill_mask(canvas, kit, mat, surf, 1.0)
         # a lit edge on both sides: a road that is only a darker band disappears
         # into dirt and shadow while it scrolls. The edges are what make it read
@@ -118,23 +168,22 @@ def paint_roads(canvas: Any, kit: TileKit, plan: SitePlan,
         r = plan.roads[ri]
         frng = _frand(plan, ri, 29)
         for (bx, by) in r.bridges:
-            _bridge(canvas, kit, r, bx, by, frng)
+            _bridge(canvas, kit, plan, r, bx, by, frng, decks)
 
 
-def _bridge(canvas: Any, kit: TileKit, road: Any, x: float, y: float,
-            rng: random.Random) -> None:
+def _bridge(canvas: Any, kit: TileKit, plan: SitePlan, road: Any, x: float,
+            y: float, rng: random.Random, wet: Any = None) -> None:
     """A deck across the water with abutments: where the road meets a river,
     the road does not simply continue over it."""
     import pygame
-    ln = road.width * 3.0
-    ang = 0.0
-    for i in range(len(road.path) - 1):
-        ax, ay = road.path[i]
-        if math.hypot(ax - x, ay - y) < 60.0:
-            bx2, by2 = road.path[i + 1]
-            ang = math.atan2(by2 - ay, bx2 - ax)
-            break
-    deck = pygame.Surface((int(ln * 2), int(road.width * 2.6)),
+    # The deck runs across the channel it was built over, along the road's own
+    # heading AT the crossing, and spans the water and no further: at the old
+    # fixed length it lay on the bank as a platform, and at the old angle it lay
+    # anywhere.
+    ang = _heading_at(road.path, x, y)
+    span = max(26.0, _wet_span(plan, x, y))
+    ln = span + 8.0
+    deck = pygame.Surface((int(ln * 2), int(road.width * 1.5)),
                           pygame.SRCALPHA)
     deck.fill((0, 0, 0, 0))
     pygame.draw.rect(deck, (96, 74, 48),
@@ -146,7 +195,33 @@ def _bridge(canvas: Any, kit: TileKit, road: Any, x: float, y: float,
     d = pygame.transform.rotozoom(deck, math.degrees(ang), 1.0)
     _shadow_on(canvas, x + 4, y + 5, d.get_width() * 0.5, d.get_height() * 0.5,
                80)
-    _blit_wrap(canvas, d, x - d.get_width() / 2, y - d.get_height() / 2)
+    if wet is None:
+        _blit_wrap(canvas, d, x - d.get_width() / 2, y - d.get_height() / 2)
+        return
+    # Only the part of the deck that lies OVER the channel is drawn. Cut out of
+    # the carriageway, the gap is exactly as wide as the water; a full rectangle
+    # of planks hanging past the bank is what made a bridge read as a hut, and
+    # where the road did not run over the crossing it read as a platform in a
+    # field - the deck was drawn at the crossing, the carriageway was not.
+    from .plane import Plane
+    np = _numpy()
+    lay = _target(canvas)
+    lx, ly = canvas.local(x - d.get_width() / 2.0,
+                          y - d.get_height() / 2.0) \
+        if isinstance(canvas, Plane) else \
+        (int(round(x - d.get_width() / 2.0)), int(round(y - d.get_height() / 2.0)))
+    lay.blit(d, (lx, ly))
+    cx0, cy0 = max(0, lx), max(0, ly)
+    cx1 = min(canvas.w, lx + d.get_width())
+    cy1 = min(canvas.h, ly + d.get_height())
+    if cx1 <= cx0 or cy1 <= cy0:
+        return
+    view = pygame.surfarray.pixels_alpha(lay)
+    keep = np.clip(wet[cx0:cx1, cy0:cy1] * 255.0, 0.0, 255.0).astype(np.uint8)
+    view[cx0:cx1, cy0:cy1] = (view[cx0:cx1, cy0:cy1].astype(np.uint16)
+                              * keep // 255).astype(np.uint8)
+    del view
+    canvas.touch_box(cx0, cy0, cx1, cy1) if isinstance(canvas, Plane) else None
 
 
 def paint_greens(canvas: Any, kit: TileKit, plan: SitePlan,

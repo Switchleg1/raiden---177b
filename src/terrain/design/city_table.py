@@ -4,7 +4,7 @@ from __future__ import annotations
 #: Block types by zone, as (type, weight). The CORE is downtown - towers,
 #: apartments, shops with their parking; the EDGE is where people live.
 BLOCK_MIX: dict[str, tuple[tuple[str, int], ...]] = {
-    "core": (("towers", 4), ("apartments", 3), ("shops", 3), ("parking", 1),
+    "core": (("towers", 4), ("apartments", 3), ("shops", 3), ("parking", 2),
              ("park", 1)),
     "edge": (("residential", 7), ("apartments", 1), ("shops", 1), ("park", 1)),
 }
@@ -23,7 +23,13 @@ MAT_SIDEWALK = "concrete_apron"
 MAT_PLAZA = "concrete_apron"
 MAT_PARKING = "gravel_rubble"
 MAT_PARK = "grass_lush"
-MAT_YARD = "grass_lush"
+#: the ground between a city's buildings: NOT the park grass. `grass_lush` is the
+#: countryside's turf and every city block was laid out on a field of it - half
+#: the sector read as a suburb with offices in it. `cobble_moss` is the city's own
+#: ground (a duller, darker version of it), so a yard reads as open city ground.
+#: `grass_patchy` was tried and is a tan (mean 88 against the city's 50): the
+#: whole sector went the colour of a playing field.
+MAT_YARD = "cobble_moss"
 
 #: How far a block's buildable ground sits back from a street's centreline,
 #: beyond half the carriageway: the kerb and the pavement.
