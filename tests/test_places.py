@@ -181,3 +181,91 @@ def test_ink_size_follows_scale_and_facing():
     assert prop_art("barn") == "barn_red", (
         "a plan kind with no art alias is drawn as the fallback sprite, which is "
         "how every barn in the game has so far been a house")
+
+
+def test_a_lake_is_water_in_the_middle():
+    """A closed water body is a REGION. Stroked like a river it becomes a ring of
+    water with a bank line on each side of the ring and flow glints down the middle
+    of it - which is what the user described as "lakes appear to be roadways made in
+    a circle because they still have the centre lines inside". The test paints a
+    sector and asks the simplest question about a lake: is the middle of it water?
+    Water is the darkest thing in a green sector, so the middle of a lake must be
+    darker than the ground outside it."""
+    import numpy as np
+    import pygame
+
+    from level.strip import STRIP_MARGIN, STRIP_SLICE, TerrainStrip
+    from terrain.siteplan import Geom, plan_site
+
+    rows = STRIP_SLICE * 4
+    plan = plan_site("countryside", 5, Geom(h=rows, cyclic=False))
+    lakes = [w for w in plan.water if w.closed and w.inside is not None]
+    if not lakes:
+        raise AssertionError("the countryside blueprint lays no lakes at all")
+    strip = TerrainStrip(plan, "near", slice_h=rows, margin=STRIP_MARGIN)
+    band = np.asarray(pygame.surfarray.array3d(strip.paint(0))).astype(int)
+    lum = band.mean(axis=2)          # [x][y] in painted px, band flipped: row 0 far
+    h = lum.shape[1]
+    for w in lakes:
+        ix, iy = w.inside
+        # world row -> band column. The band is TURNED OVER (`_paint` flips every
+        # band so its far world row lands nearest the top of the screen), so band
+        # column 0 is the LAST world row, not the first.
+        col = (rows - 1 - int(iy)) // 2
+        row = int(ix // 2)
+        if not (0 <= col < h and 0 <= row < lum.shape[0]):
+            continue
+        inside = lum[row, col]
+        # ground a long way from this lake's shore, off in the same band
+        far = []
+        for dx in (-260.0, 260.0):
+            fx = int((ix + dx) // 2)
+            if 0 <= fx < lum.shape[0]:
+                far.append(lum[fx, col])
+        if not far:
+            continue
+        assert inside < min(far) - 4, (
+            f"the middle of a {w.kind} at ({ix:.0f},{iy:.0f}) is not darker than the"
+            f" ground outside it ({inside:.0f} vs {min(far):.0f}): the water is a ring"
+            f" and its middle is dry ground with lines in it")
+
+
+def test_a_neighborhood_lane_holds_houses_on_both_sides():
+    """A neighborhood is a STREET: houses along a road, facing it, on both sides.
+    One walker alternating sides spent a full house-width whether or not the other
+    side produced a house, so a 450 px lane against 190 px houses held one house -
+    which read as "single houses here and there", not a neighborhood."""
+    def plan_for(theme: str, seed: int):
+        from terrain.siteplan import Geom, plan_site
+        return plan_site(theme, seed, Geom(h=1120 * 4, cyclic=False))
+
+    seen = False
+    for seed in (5, 33, 19, 41, 47):
+        plan = plan_for("countryside", seed)
+        lanes = [r for r in plan.roads if r.kind == "spur" and len(r.path) > 4]
+        homes = [b for b in plan.buildings if b.group == "neighborhood"]
+        for lane in lanes:
+            sides = {1: 0, -1: 0}
+            for b in homes:
+                # the side of the lane this house stands on, judged at the lane
+                # point nearest to it
+                best = min(((math.hypot(b.x - px, b.y - py), i)
+                            for i, (px, py) in enumerate(lane.path)))
+                i = best[1]
+                a = lane.path[max(0, i - 1)]
+                c = lane.path[min(len(lane.path) - 1, i + 1)]
+                nx, ny = -(c[1] - a[1]), (c[0] - a[0])
+                side = 1 if (b.x - lane.path[i][0]) * nx + (
+                    b.y - lane.path[i][1]) * ny > 0 else -1
+                if best[0] < 190.0:
+                    sides[side] += 1
+            if min(sides.values()) >= 2:
+                seen = True
+                break
+        if seen:
+            break
+    assert seen, ("no neighborhood in five sectors has houses on both sides of its "
+                  "lane: " + str([
+                      sum(1 for b in plan_for("countryside", s).buildings
+                          if b.group == "neighborhood")
+                      for s in (5, 33, 19, 41, 47)]))

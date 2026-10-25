@@ -127,10 +127,19 @@ class Ridge:
 
 @dataclass
 class Water:
-    kind: str                     # "river" | "wash" | "channel"
+    kind: str                     # "river" | "wash" | "channel" | "lake"
     path: list[Point]
     half: float                   # half width, px
     flood: float                  # floodplain half width, px
+    #: a body you stand IN, not a channel you cross: its outline is a shoreline and
+    #: the water is INSIDE it. Without this the painter strokes the outline like a
+    #: river - a ring of water, a bank line on each side of the ring, and flow
+    #: glints down the middle of it - and a lake reads as a circular roadway with
+    #: centre lines, which is exactly what the user reported seeing.
+    closed: bool = False
+    #: a point known to be inside a closed body (its anchor): what the fill asks
+    #: "which side is water" with
+    inside: Point | None = None
 
 
 @dataclass
@@ -1633,6 +1642,14 @@ def _rect_free(plan: SitePlan, rect: tuple[float, float, float, float]) -> bool:
     g = plan.geom
     if x0 < 10.0 or x1 > g.w - 10.0:
         return False
+    # The footprint's own position, sampled the way the plan's own contract samples
+    # it. The cell test below reads planning cells; a house can pass it (every cell
+    # it covers under 0.42) and still stand where `relief_at` says 0.46 - which is
+    # the number `no_building_on_ground_it_cannot_stand_on` measures, and what a
+    # farmstead's barn on a farmland ridge tripped. A building is allowed on ground
+    # a lane can climb to, not on a slope it has to sit into.
+    if plan.relief_at((x0 + x1) / 2.0, (y0 + y1) / 2.0) > 0.40:
+        return False
     if not _in_strip(g, y0) or not _in_strip(g, y1):
         return False
     j0, j1 = _span(y0, y1, g.rows, g.cell)
@@ -1679,7 +1696,7 @@ def place_building(plan: SitePlan, kind: str, x: float, y: float,
                    face_to: Point, scale: float, group: str,
                    drive: list[Point] | None = None,
                    yard: tuple[float, float, float] | None = None,
-                   air: float = 16.0) -> Building | None:
+                   air: float = 16.0, commit: bool = True) -> Building | None:
     """The one way a building enters the plan.
 
     Size comes from the art, not from a wish: the footprint is the prop's ink box at
@@ -1702,6 +1719,13 @@ def place_building(plan: SitePlan, kind: str, x: float, y: float,
         return None
     b = Building(kind=kind, x=x, y=y, angle=angle, scale=scale, group=group,
                  drive=drive, yard=yard)
+    if not commit:
+        # A probe, not a placement: a blueprint is allowed to ask "would a house
+        # stand here" before it commits to the road that house hangs off. Without
+        # this the probe built the house for real, the blueprint built it again, and
+        # when the road was then refused the sector kept houses with no lane under
+        # them - which is what `every_house_is_reached_by_a_road` caught.
+        return b
     plan.buildings.append(b)
     _claim_rect(plan, rect)
     return b
@@ -2059,14 +2083,34 @@ def _cover(spec: SiteSpec, plan: SitePlan, rng: random.Random) -> None:
 
 
 def _water_mark(plan: SitePlan) -> None:
-    g = plan.geom
     for w in plan.water:
-        lo_j, hi_j, lo_i, hi_i = _cell_box(g, w.path, w.half + 14.0)
-        for j in range(lo_j, hi_j + 1):
-            for i in range(lo_i, hi_i + 1):
-                cx, cy = i * CELL + CELL / 2, j * CELL + CELL / 2
-                if _near_path(g, cx, cy, w.path, w.half + 14.0):
-                    plan.wet[j][i] = True
+        _water_mark_body(plan, w)
+
+
+def _water_mark_body(plan: SitePlan, w) -> None:
+    """Mark the cells this water body makes wet.
+
+    Called as the body is laid, not only during orogeny: a lake a blueprint digs
+    arrives after the orogeny pass, and until its cells are marked the rest of the
+    planner believes the middle of that lake is dry ground.
+    """
+    g = plan.geom
+    lo_j, hi_j, lo_i, hi_i = _cell_box(g, w.path, w.half + 14.0)
+    for j in range(lo_j, hi_j + 1):
+        for i in range(lo_i, hi_i + 1):
+            cx, cy = i * CELL + CELL / 2, j * CELL + CELL / 2
+            # A closed body is wet INSIDE it. Marking wet by distance to the outline
+            # alone left a dry core in the middle of every lake: the shoreline is
+            # `ry` away from the centre while the stroke reaches 0.95*ry, so the very
+            # middle of the water read as buildable ground - and a later pass put
+            # something there. That dry core, ringed by the inner bank line and the
+            # flow glints of a channel stroke, is what made a lake look like "a
+            # roadway made in a circle, with the centre lines still inside it".
+            if w.closed and _in_poly(cx, cy, w.path):
+                plan.wet[j][i] = True
+                continue
+            if _near_path(g, cx, cy, w.path, w.half + 14.0):
+                plan.wet[j][i] = True
 
 
 # ---------------------------------------------------------------------------

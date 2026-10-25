@@ -31,6 +31,7 @@ happened to iterate, and not of which window is painting it.
 """
 from __future__ import annotations
 
+import bisect
 import math
 import random
 from collections.abc import Callable
@@ -53,6 +54,7 @@ from .siteplan import (
     _nearest_on_path,
     _span,
     _vpath,
+    _water_mark_body,
     ink_size,
     place_building,
 )
@@ -80,6 +82,13 @@ class PlaceSpec:
     #: the ground it claims around its anchor, bake px. Two places may not overlap
     #: discs, which is what stops a campground standing inside a neighborhood.
     reach: float = 260.0
+    #: the ground it actually OCCUPIES - what gets painted into the `place` grid.
+    #: Kept separate from `reach` because one number cannot do both jobs: at
+    #: reach x 0.62 a neighborhood's reservation is a 534 px disc in a 1460 px-wide
+    #: sector, so three of them cover the map end to end, and every lane the next
+    #: neighborhood tries crosses someone's reservation and is refused. Measured:
+    #: four sites chosen, thirty-six lanes refused, zero houses built.
+    keep: float = 150.0
     #: siting rules, all must hold: "flat" (low relief), "dry" (not wet ground),
     #: "offroad" (not on a carriageway)
     needs: tuple[str, ...] = ("flat", "dry", "offroad")
@@ -99,7 +108,8 @@ class PlaceSpec:
 #: The vocabulary. A theme picks a subset in `SPEC.places`; the blueprints live here.
 VOCABULARY: dict[str, PlaceSpec] = {
     "neighborhood": PlaceSpec(
-        name="neighborhood", per=(1, 2), reach=430.0, order=0, against="road",
+        name="neighborhood", per=(1, 2), reach=430.0, keep=210.0, order=0,
+        against="road",
         against_max=260.0,
         kinds=("house", "house", "house", "cabin")),
     "highway": PlaceSpec(
@@ -108,14 +118,15 @@ VOCABULARY: dict[str, PlaceSpec] = {
         # the houses that were already standing there - the corridor test guards
         # NEW buildings, not old ones - and a building ended up 14 px inside the
         # carriageway.
-        name="highway", per=(1, 1), reach=240.0, order=-1,
+        name="highway", per=(1, 1), reach=240.0, keep=150.0, order=-1,
         needs=("flat", "offroad"),
         kinds=("depot", "container", "pylon")),
     "lake": PlaceSpec(
-        name="lake", per=(1, 1), reach=330.0, needs=("flat", "offroad"),
+        name="lake", per=(1, 1), reach=330.0, keep=210.0,
+        needs=("flat", "offroad"),
         kinds=("shed",)),
     "campground": PlaceSpec(
-        name="campground", per=(1, 1), reach=250.0, order=3,
+        name="campground", per=(1, 1), reach=250.0, keep=140.0, order=3,
         needs=("flat", "dry"),
         against="water", against_max=330.0, kinds=("cabin", "container")),
     "farmstead": PlaceSpec(
@@ -123,7 +134,8 @@ VOCABULARY: dict[str, PlaceSpec] = {
         # reached by a road (within 260 px), and a farmstead's second range is
         # laid a barn-length further along the yard - at 300 px of slack the barn
         # itself was already out of reach of the lane it served.
-        name="farmstead", per=(1, 2), reach=300.0, order=2, against="road",
+        name="farmstead", per=(1, 2), reach=300.0, keep=150.0, order=2,
+        against="road",
         against_max=210.0, kinds=("barn", "house")),
 }
 
@@ -168,15 +180,27 @@ def _free(plan: SitePlan, claims: list[_Claim], x: float, y: float,
     j0, j1 = _span(y - r, y + r, g.rows, g.cell)
     i0, i1 = _span(x - r, x + r, g.cols, g.cell)
     hits = 0
+    cells = (j1 - j0 + 1) * (i1 - i0 + 1)
+    # A PROPORTION, not a count of three. The old test asked a 470 px box to hold at
+    # most three occupied cells - about half a percent of a field-and-hedge country -
+    # so almost every anchor in the sector was refused and the themes built almost no
+    # neighborhoods at all (measured: seeds 3, 11, 19, 27 built zero). A place may
+    # stand in working country; what it may not do is stand IN it, and that is what
+    # the footprint test in `place_building` decides, cell by cell, later.
+    budget = max(3, int(cells * 0.12))
     for j in range(j0, j1 + 1):
         row_p = plan.place[j] if plan.place else None
         for i in range(i0, i1 + 1):
             if (row_p is not None and row_p[i]) or plan.built[j][i]:
                 hits += 1
-                if hits > 3:
+                if hits > budget:
                     return False
     for w in plan.water:
-        if _near_path(g, x, y, w.path, r * 0.7):
+        # off the CHANNEL, not off a radius scaled from the place's own influence:
+        # the old rule put every anchor 165 px from every stream, which is the
+        # floodplain, and a sector's rivers thread the whole map. What a blueprint
+        # must not do is build IN water, and `is_wet` / the corridor test say that.
+        if _near_path(g, x, y, w.path, max(56.0, w.half + 40.0)):
             return False
     return True
 
@@ -223,12 +247,19 @@ def _choose(plan: SitePlan, claims: list[_Claim], ps: PlaceSpec,
     """
     g = plan.geom
     best: tuple[float, _Site] | None = None
+    if ps.against == "road":
+        # see `_site_from_road`: the network IS the siting rule for these
+        return _site_from_road(plan, claims, ps, rng)
     for _ in range(ps.tries):
         x = rng.uniform(60.0, g.w - 60.0)
         y = rng.uniform(40.0, g.h - 40.0)
         if not _satisfies(plan, x, y, ps):
             continue
-        if not _free(plan, claims, x, y, ps.reach * 0.55):
+        # `reach` is how much ground a place RESERVES once built; it is not how
+        # much empty ground it needs before being sited. Capping the siting radius
+        # is what lets a neighborhood find a lane in country that is already
+        # farmed: the reservation still applies afterwards.
+        if not _free(plan, claims, x, y, min(ps.reach * 0.5, 150.0)):
             continue
         site = _Site(x, y)
         score = 0.0
@@ -250,6 +281,52 @@ def _choose(plan: SitePlan, claims: list[_Claim], ps: PlaceSpec,
     return best[1] if best else None
 
 
+def _site_from_road(plan: SitePlan, claims: list[_Claim], ps: PlaceSpec,
+                    rng: random.Random) -> _Site | None:
+    """Site a road-side place by picking a point ON the network, not a point in
+    the sector and then asking whether a road is nearby.
+
+    The difference is what makes neighborhoods exist at all. Sampling the map and
+    then filtering (flat, dry, off-road, unclaimed, clear of every watercourse, and
+    within `against_max` of a road) and THEN requiring the whole lane corridor to be
+    free asks for an empty pasture the size of a subdivision, in a sector whose
+    ground is already carved up by water corridors, roads and fields. Measured on
+    five seeds: four seeds built no neighborhood at all. A lane is a LINEAR thing
+    along a road; the corridor test is the decision that matters, so the candidate
+    is generated on the road and only that test decides.
+    """
+    roads = [r for r in plan.roads if len(r.path) > 1]
+    if not roads:
+        return None
+    lens = []
+    tot = 0.0
+    for r in roads:
+        ln = sum(math.hypot(r.path[i + 1][0] - r.path[i][0],
+                            r.path[i + 1][1] - r.path[i][1])
+                 for i in range(len(r.path) - 1))
+        tot += ln
+        lens.append(tot)
+    if tot < 200.0:
+        return None
+    for _ in range(ps.tries):
+        u = rng.random() * tot
+        ri = bisect.bisect_left(lens, u)
+        if ri >= len(roads):
+            continue
+        road = roads[ri]
+        span = lens[ri] - (lens[ri - 1] if ri else 0.0)
+        frac = (u - (lens[ri - 1] if ri else 0.0)) / span if span else 0.5
+        frac = min(0.9, max(0.1, frac))
+        (x, y), tang = _along(road.path, frac)
+        if any(math.hypot(c.x - x, c.y - y) < c.r + ps.keep for c in claims):
+            continue
+        site = _Site(x, y)
+        site.near = (x, y)
+        site.tangent = tang
+        return site
+    return None
+
+
 def _claim(claims: list[_Claim], plan: SitePlan, site: _Site, ps: PlaceSpec,
            name: str) -> None:
     """Reserve a place's ground so the passes after it keep out."""
@@ -257,7 +334,7 @@ def _claim(claims: list[_Claim], plan: SitePlan, site: _Site, ps: PlaceSpec,
     g = plan.geom
     if plan.place is None:
         plan.place = [[False] * g.cols for _ in range(g.rows)]
-    r = ps.reach * 0.62
+    r = ps.keep
     j0, j1 = _span(site.y - r, site.y + r, g.rows, g.cell)
     i0, i1 = _span(site.x - r, site.x + r, g.cols, g.cell)
     for j in range(j0, j1 + 1):
@@ -411,18 +488,73 @@ def _ellipse(x: float, y: float, rx: float, ry: float, n: int = 9,
 
 
 def _lane_from(plan: SitePlan, at: Point, tang: float, side: float,
-               length: float, rng: random.Random) -> list[Point]:
-    """A lane leaving a road at `at`, bending gently away from it."""
+               length: float, rng: random.Random, wind: float = 0.0) -> list[Point]:
+    """A lane leaving a road at `at`, bending gently away from it.
+
+    `wind` adds a sway across the direction of travel, so some lanes are straight
+    and some curl: a row of houses on a straight lane and a row on a winding lane
+    are both "houses along a road facing it", and only the second kind stops every
+    neighborhood in the game looking like the same street."""
     ang = tang + side * math.pi / 2
     pts = [at]
-    n = max(3, int(length / 50))
+    n = max(3, int(length / 40))
     bend = rng.uniform(-0.5, 0.5)
     for i in range(1, n + 1):
         t = i / n
         a = ang + bend * t
-        pts.append((at[0] + math.cos(a) * length * t,
-                    at[1] + math.sin(a) * length * t))
+        sway = wind * math.sin(t * math.pi * rng.uniform(0.7, 1.3))
+        d = length * t
+        nx = (at[0] + math.cos(a) * d + math.cos(a + math.pi / 2) * sway)
+        ny = (at[1] + math.sin(a) * d + math.sin(a + math.pi / 2) * sway)
+        if not (14.0 < nx < plan.geom.w - 14.0) or not _in_strip(plan.geom, ny):
+            # TRIM, do not refuse: nine of thirty-six lane attempts on one seed died
+            # because a 780 px lane drawn from a point on the network ran off the end
+            # of the sector. A lane that fits in 400 px is still a lane; a lane that
+            # leaves the map is nobody's neighborhood.
+            break
+        pts.append((nx, ny))
     return pts
+
+
+def _lane_grow(plan: SitePlan, at: Point, ang: float, max_len: float,
+               rng: random.Random, wind: float = 0.0) -> list[Point]:
+    """Draw a lane by walking off the road until the ground stops.
+
+    The alternative - pick a length, draw it, then reject the whole lane if anything
+    in it is unsuitable - is why four of five seeds had no neighborhoods at all: the
+    lane was a wish, the sector was already carved up by water corridors and roads,
+    and the corridor test said no to thirty-six attempts in a row. A lane is whatever
+    buildable ground runs off this point on this road, so it is generated to fit and
+    the length is an upper bound, not a demand. 200 px is the floor: shorter than
+    that and there is no row of houses to put on it.
+    """
+    g = plan.geom
+    pts = [at]
+    bend = rng.uniform(-0.5, 0.5)
+    step = 40.0
+    n = max(2, int(max_len / step))
+    wet_run = 0
+    for i in range(1, n + 1):
+        t = i / n
+        a = ang + bend * t
+        d = step * i
+        sway = wind * math.sin(t * math.pi * 1.1)
+        x = at[0] + math.cos(a) * d + math.cos(a + math.pi / 2) * sway
+        y = at[1] + math.sin(a) * d + math.sin(a + math.pi / 2) * sway
+        if not (14.0 < x < g.w - 14.0) or not _in_strip(g, y):
+            break
+        if plan.is_place(x, y) or plan.relief_at(x, y) > 0.55:
+            break
+        if plan.is_wet(x, y):
+            # a lane crosses a stream (the bridge pass gives it decks afterwards);
+            # a lane that chases a floodplain is a track through a bog
+            wet_run += 1
+            if wet_run > 4:
+                break
+        else:
+            wet_run = 0
+        pts.append((x, y))
+    return pts if len(pts) >= 5 else []
 
 
 def _corridor_free(plan: SitePlan, path: list[Point], half: float,
@@ -439,16 +571,59 @@ def _corridor_free(plan: SitePlan, path: list[Point], half: float,
                          path[i + 1][1] - path[i][1])
               for i in range(len(path) - 1)) or 1.0
     hits = 0
+    soft = 0
+    wet_run = 0
+    wet_tot = 0
     s = 0.0
+    steps = 0
     while s <= arc:
         (px, py), tang = _along(path, s / arc)
+        steps += 1
         for off in (-half, 0.0, half):
             cx = px + math.cos(tang + math.pi / 2) * off
             cy = py + math.sin(tang + math.pi / 2) * off
-            if not (12.0 < cx < g.w - 12.0) or not _in_strip(g, cy):
+            outside = not (12.0 < cx < g.w - 12.0) or not _in_strip(g, cy)
+            if outside and off == 0.0:
                 return False
-            if plan.is_wet(cx, cy) or plan.relief_at(cx, cy) > 0.42:
-                return False
+            if outside:
+                # the house band runs past the edge of the ground: that side simply
+                # has no houses there, which is what a lane along a map edge IS
+                soft += 1
+                continue
+            if off == 0.0:
+                # The carriageway may climb, and it may CROSS water. Refusing a
+                # lane the moment its centre touched wet ground refused 35 of 36
+                # attempts on one seed: a sector's drains and streams thread every
+                # valley, and a 400-780 px lane crosses one of them almost always.
+                # Real lanes cross streams - on a culvert or a bridge - and this
+                # planner already puts decks on every road after the places are
+                # laid. What a lane may not do is RUN ALONG the wet ground: a
+                # crossing is a few samples, a chase along a floodplain is many in
+                # a row.
+                if plan.is_wet(cx, cy):
+                    wet_run += 1
+                    wet_tot += 1
+                    if wet_run > 5 or wet_tot > max(3, int(steps * 0.30)):
+                        return False
+                else:
+                    wet_run = 0
+                if plan.relief_at(cx, cy) > 0.55:
+                    return False
+                if plan.is_place(cx, cy):
+                    return False
+                continue
+            # The house band is a THIRD of the samples and used to be held to the
+            # same absolute rule as the carriageway: one wet spot or one ridge
+            # crossing 110 px to the side and the whole lane was refused - measured
+            # nine refusals out of nine attempts on four of five seeds, which is
+            # why "neighborhoods" looked like single houses here and there. Country
+            # that a lane can be built through has ditches and rises in it. A house
+            # may not stand in either, and `place_building` decides that per
+            # footprint; the corridor only has to say the lane is buildable and the
+            # row is not already taken.
+            if plan.is_wet(cx, cy) or plan.relief_at(cx, cy) > 0.52:
+                soft += 1
+                continue
             if plan.is_place(cx, cy):
                 return False
             if plan.is_built(cx, cy):
@@ -456,85 +631,113 @@ def _corridor_free(plan: SitePlan, path: list[Point], half: float,
                 if hits > built_allow:
                     return False
         s += 40.0
-    return True
+    # Most of the band still has to be buildable ground. Set to 100% by mistake when
+    # the carriageway rule was relaxed, and the result was a lane that could be
+    # drawn through a bog and hold not one house - the plan shipped the road and
+    # refused every footprint beside it (measured: 432 footprint refusals for wet on
+    # one study run, four lanes built, zero houses).
+    return soft <= max(2, int(steps * 0.40))
 
 
-def _house_row(plan: SitePlan, rng: random.Random, lane: Road,
-               kinds: tuple[str, ...], scale: tuple[float, float],
-               front: float, group: str, lots: str | None) -> int:
-    """Houses along a lane, stepped by their own widths.
 
-    The step is `what this house occupies along the lane + AIR`, which is the one
-    rule that keeps a row from merging into one roof. It used to be a fixed arc
-    fraction, which put a centre every 56-100 px against a 150-220 px house.
+def _row_candidates(plan: SitePlan, rng: random.Random, lane: list[Point],
+                    kinds: tuple[str, ...], scale: tuple[float, float],
+                    front: float) -> list[dict]:
+    """Where the houses on a lane would stand, before any of it is committed.
+
+    Generated separately from the act of building so a lane can be ASKED whether it
+    holds a street before it is laid. Laying a road and then failing to place a
+    single house beside it is what produced thirty-odd empty lanes in one sector:
+    the road got drawn because the ground was walkable, and the houses were refused
+    afterwards because the ground beside it was wet or claimed.
+
+    Two rows, one per side of the lane, each walked by arc and stepped by `what this
+    house occupies along the lane + AIR` - the one rule that keeps a row from merging
+    into one roof (it used to be a fixed arc fraction, which put a centre every
+    56-100 px against a 150-220 px house). It used to be ONE walker alternating
+    sides, which is why neighborhoods read as "single houses here and there": the
+    step was spent whether or not the alternating side produced a house, so a 450 px
+    lane against 190 px houses held two steps total.
     """
+    arc = sum(math.hypot(lane[i + 1][0] - lane[i][0], lane[i + 1][1] - lane[i][1])
+              for i in range(len(lane) - 1))
+    out: list[dict] = []
+    for side in (1.0, -1.0):
+        # the two rows are not required to line up: a house opposite a gap is a
+        # street, a house opposite a house is a hedge
+        s = rng.uniform(18.0, 70.0)
+        while s < arc - 24.0:
+            (px, py), tang = _along(lane, s / arc)
+            sc = rng.uniform(*scale)
+            kind = kinds[len(out) % len(kinds)]
+            ang_face = _face(px, py, px + math.cos(tang + math.pi / 2 * side),
+                             py + math.sin(tang + math.pi / 2 * side))
+            w, h = ink_size(kind, sc, ang_face)
+            along = w * abs(math.cos(tang)) + h * abs(math.sin(tang))
+            depth = h * abs(math.sin(tang)) + w * abs(math.cos(tang))
+            nx_, ny_ = math.cos(tang + math.pi / 2 * side), \
+                math.sin(tang + math.pi / 2 * side)
+            out.append({
+                "kind": kind, "scale": sc, "angle": ang_face,
+                "x": px + nx_ * (front + depth * 0.5),
+                "y": py + ny_ * (front + depth * 0.5),
+                "px": px, "py": py,
+                "w": w, "h": h, "along": along, "depth": depth,
+                "nx": nx_, "ny": ny_, "tang": tang,
+            })
+            s += along + AIR + rng.uniform(6.0, 26.0)
+    return out
+
+
+def _row_place(plan: SitePlan, rng: random.Random, sp: Road, lane: list[Point],
+               cands: list[dict], group: str, lots: str | None) -> int:
+    """Build the row. `place_building` is the only thing that says no here - it owns
+    the footprint rules (wet, steep, claimed, off the carriageway), and every refusal
+    is that rule rather than an extra filter invented on the spot."""
     built = 0
-    side = 1.0
-    # walk the lane by arc, not by vertex: its vertices are ~50 px apart, and a
-    # house is wider than that
-    pts = lane.path
-    arc = sum(math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1])
-              for i in range(len(pts) - 1))
-    s = 30.0
-    while s < arc - 30.0:
-        (px, py), tang = _along(pts, s / arc)
-        kind = kinds[built % len(kinds)]
-        sc = rng.uniform(*scale)
-        ang_face = _face(px, py, px + math.cos(tang + math.pi / 2 * side),
-                         py + math.sin(tang + math.pi / 2 * side))
-        w, h = ink_size(kind, sc, ang_face)
-        along = w * abs(math.cos(tang)) + h * abs(math.sin(tang))
-        depth = h * abs(math.sin(tang)) + w * abs(math.cos(tang))
-        nx_, ny_ = math.cos(tang + math.pi / 2 * side), \
-            math.sin(tang + math.pi / 2 * side)
-        hx = px + nx_ * (front + depth * 0.5)
-        hy = py + ny_ * (front + depth * 0.5)
+    for c in cands:
+        hx, hy = c["x"], c["y"]
         # clear of every OTHER road: a lane hanging off a highway must not put a
         # front door on the carriageway. Measured: a neighborhood house stood 14 px
         # inside a 29 px highway, which the corridor test could not see because it
-        # only ever looks at the lane being built.
-        on_road = any(
-            _near_path(plan.geom, hx, hy, other.path,
-                       other.width * 0.5 + 30.0)
-            for other in plan.roads if other is not lane)
-        if on_road:
-            s += along + AIR
-            side = -side
+        # only ever looked at the lane being built.
+        if any(_near_path(plan.geom, hx, hy, other.path,
+                         other.width * 0.5 + 30.0)
+               for other in plan.roads if other.path is not lane):
             continue
-        b = place_building(plan, kind, hx, hy, (px, py), sc, group,
-                           drive=[(hx, hy), (px, py)], air=AIR)
-        if b is not None:
-            built += 1
-            if lots:
-                # the lot is the ground BEHIND the house: a hedge row along its
-                # front edge is what makes a lane read as owned parcels rather
-                # than houses dropped in grass
-                lw = max(w, h) + 46.0
-                lot = _clip_poly(plan.geom,
-                                 _quad(hx + nx_ * (depth * 0.5 + 26.0),
-                                       hy + ny_ * (depth * 0.5 + 26.0),
-                                       along + 40.0, lw, tang))
-                if len(lot) < 3:
-                    # a lot hanging off the end of the strip is not a lot
-                    continue
-                if add_parcel(plan, lot, lots, "lot", hedge=True) is None:
-                    continue
-                # and the lot is OWNED ground: without this the next pass plants a
-                # tree in the garden or the frontage row stands in the back yard
-                _claim_cells(plan, lot)
-                # one garden tree, in the lot's far corner
-                tx = hx + nx_ * (depth * 0.5 + lw * 0.5) + \
-                    math.cos(tang) * (along * 0.5 + 14.0)
-                ty = hy + ny_ * (depth * 0.5 + lw * 0.5) + \
-                    math.sin(tang) * (along * 0.5 + 14.0)
-                if not plan.is_wet(tx, ty):
-                    plan.woods.append(Wood(kind="wood",
-                                           items=[(tx, ty,
-                                                   rng.uniform(0.34, 0.5))]))
-        s += along + AIR + rng.uniform(10.0, 46.0)
-        side = -side
+        b = place_building(plan, c["kind"], hx, hy, (c["px"], c["py"]),
+                           c["scale"], group,
+                           drive=[(hx, hy), (c["px"], c["py"])], air=AIR)
+        if b is None:
+            continue
+        built += 1
+        if lots:
+            # the lot is the ground BEHIND the house: a hedge row along its front
+            # edge is what makes a lane read as owned parcels rather than houses
+            # dropped in grass
+            lw = max(c["w"], c["h"]) + 46.0
+            lot = _clip_poly(plan.geom,
+                             _quad(hx + c["nx"] * (c["depth"] * 0.5 + 26.0),
+                                   hy + c["ny"] * (c["depth"] * 0.5 + 26.0),
+                                   c["along"] + 40.0, lw, c["tang"]))
+            # own the lot's ground whether or not the parcel survives its own rules,
+            # or the next pass plants a tree in the garden
+            _claim_cells(plan, lot)
+            if len(lot) >= 3:
+                add_parcel(plan, lot, lots, "lot", hedge=True)
+            tx = hx + c["nx"] * (c["depth"] * 0.5 + lw * 0.5) + \
+                math.cos(c["tang"]) * (c["along"] * 0.5 + 14.0)
+            ty = hy + c["ny"] * (c["depth"] * 0.5 + lw * 0.5) + \
+                math.sin(c["tang"]) * (c["along"] * 0.5 + 14.0)
+            # inside the ground being planned: the tree sits at the far corner of
+            # the lot, and a lot whose house is near the strip's edge puts that
+            # corner off the map (`a_strip_is_designed_not_stretched` measured one
+            # at x = -53). A tree that is not on the map is not on the map.
+            if (12.0 < tx < plan.geom.w - 12.0 and _in_strip(plan.geom, ty)
+                    and not plan.is_wet(tx, ty)):
+                plan.woods.append(Wood(kind="wood",
+                                       items=[(tx, ty, rng.uniform(0.34, 0.5))]))
     return built
-
 
 # ---------------------------------------------------------------------------
 # the blueprints
@@ -557,16 +760,33 @@ def build_neighborhood(plan: SitePlan, site: _Site, ps: PlaceSpec,
     # Several lanes are attempted, not one: a lane is a corridor, and whether it
     # fits is a property of the corridor, not of the anchor. One fixed attempt made
     # a neighborhood either work completely or produce a road with no houses.
-    for _ in range(5):
+    for _ in range(9):
         (ax, ay), tang = _along(road.path, rng.uniform(0.1, 0.9))
         side = 1.0 if rng.random() < 0.5 else -1.0
-        length = rng.uniform(320.0, 560.0)
-        lane = _lane_from(plan, (ax, ay), tang, side, length, rng)
-        # ±110 covers the carriageway AND the house band behind it: a
-        # lane that can be drawn but cannot hold a single roof is not a
-        # lane, and picking it produced exactly the empty-cul-de-sac
-        # results the first version of this blueprint shipped with.
-        if not _corridor_free(plan, lane, 110.0):
+        # 380-780, not 320-560: a row of houses needs the room on BOTH sides of the
+        # step, and the old lane was shorter than two houses plus their air
+        length = rng.uniform(380.0, 780.0)
+        # some lanes curl, some run straight - the user asked for "a winding or
+        # straight road with the houses facing the road", and only the first kind
+        # keeps every neighborhood in the game from looking like the same street
+        wind = rng.uniform(30.0, 90.0) if rng.random() < 0.5 else 0.0
+        lane = _lane_grow(plan, (ax, ay), tang + side * math.pi / 2, length,
+                          rng, wind=wind)
+        if not lane:
+            # no buildable ground runs off this point on this road: try another
+            continue
+        # Ask the lane whether it holds a street BEFORE paving it: generate the
+        # row, try every footprint on the ground, and only lay the lane if the
+        # street fits. Lay-then-hope is what filled one sector with 32 lanes and no
+        # houses beside any of them.
+        cands = _row_candidates(plan, rng, lane, ps.kinds or ("house",),
+                                (0.5, 0.62), front=rng.uniform(26.0, 40.0))
+        fits = [c for c in cands
+                if place_building(plan, c["kind"], c["x"], c["y"],
+                                  (c["px"], c["py"]), c["scale"], "neighborhood",
+                                  drive=[(c["x"], c["y"]), (c["px"], c["py"])],
+                                  air=AIR, commit=False) is not None]
+        if len(fits) < 3:
             continue
         sp = add_road(plan, "spur", lane, 13.0)
         if sp is None:
@@ -574,13 +794,9 @@ def build_neighborhood(plan: SitePlan, site: _Site, ps: PlaceSpec,
         # the cul-de-sac: a head the houses turn around
         ex, ey = lane[-1]
         plan.greens.append(Green(x=ex, y=ey, radius=26.0, mat="road_asphalt"))
-        n = _house_row(plan, rng, sp, ps.kinds or ("house",),
-                       (0.5, 0.62), front=rng.uniform(26.0, 40.0),
-                       group="neighborhood",
-                       lots="grass_lush" if plan.theme != "city"
-                       else "concrete_apron")
-        if n:
-            return n
+        return _row_place(plan, rng, sp, lane, fits, "neighborhood",
+                          "grass_lush" if plan.theme != "city"
+                          else "concrete_apron")
     return 0
 
 
@@ -678,10 +894,25 @@ def build_lake(plan: SitePlan, site: _Site, ps: PlaceSpec,
     rx = rng.uniform(70.0, 120.0)
     ry = rx * rng.uniform(0.62, 0.95)
     poly = _ellipse(site.x, site.y, rx, ry, n=10, wob=0.1, rng=rng)
-    # half >= the lake's minor radius: the stroke then overlaps itself in the
-    # middle and the interior is water, not a ring
-    plan.water.append(Water(kind="lake", path=poly, half=ry * 0.95,
-                            flood=rx * 0.28))
+    # A lake is a REGION, not a channel: `closed` and `inside` say so, and the
+    # painter fills the polygon and banks it on the outside only. Stroked like a
+    # river it came out as a ring of water with a bank line on each side of the ring
+    # and glints running down its middle - "lakes appear to be roadways made in a
+    # circle because they still have the centre lines inside".
+    # A lake may not drown ground a building already stands on. The test is the one
+    # `_water_mark_body` will apply afterwards, not a weaker one: inside the outline,
+    # or within the bank band around it. A neighbourhood laid before a lake (the order
+    # the vocabulary runs in) otherwise ends up with a house whose own ground the
+    # later blueprint turns into a shore - which is the plan contradicting itself,
+    # and `no_building_on_ground_it_cannot_stand_on` caught it.
+    for b in plan.buildings:
+        if _in_poly(b.x, b.y, poly) or _near_path(plan.geom, b.x, b.y, poly,
+                                                  ry * 0.95 + 14.0):
+            return 0
+    lake = Water(kind="lake", path=poly, half=ry * 0.95,
+                 flood=rx * 0.28, closed=True, inside=(site.x, site.y))
+    plan.water.append(lake)
+    _water_mark_body(plan, lake)
     built = 0
     # a boat shed on the shore, reached by a track from the nearest road
     a = rng.uniform(0, math.tau)

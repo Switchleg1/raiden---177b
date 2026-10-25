@@ -1000,30 +1000,36 @@ def paint_water(canvas: Any, kit: TileKit, plan: SitePlan,
         w = plan.water[wi]
         frng = _frand(plan, wi, 17)
         mat = WATER_MAT.get(plan.theme, "water_river")
+        # A CLOSED water body with an `inside` point is a REGION, not a channel.
+        # Stroking its shoreline like a river painted a ring of water `half` deep on
+        # both sides of the outline, then drew a bank line on each side of that ring
+        # and ran flow glints down the middle of it - so a lake appeared to be a
+        # circular roadway with centre lines. It is filled, banked on the outside
+        # only, and given still-water margin marks instead of a current.
+        region = bool(w.closed) and w.inside is not None
+        bank_mask = (_path_mask(w.path, w.half * 2.0 + 22.0, canvas) if region
+                     else _path_mask(w.path, w.half * 2.0 + 10.0, canvas))
+        water_mask = (_poly_mask(w.path, canvas) if region
+                      else _path_mask(w.path, w.half * 2.0, canvas))
         # A bank of material first, water on top of it. Water_river is lum 35 on
         # a lum 42 grass base - almost no value separation - and a *stroke*
         # along the shore reads as a drawn outline. A real band of pale gravel,
         # sand or snow around the channel gives the dark/light adjacency the eye
         # uses to find water, without looking drawn.
-        _fill_mask(canvas, kit, bank_mat,
-                   _path_mask(w.path, w.half * 2.0 + 10.0, canvas),
-                   0.55)
-        _fill_mask(canvas, kit, mat,
-                   _path_mask(w.path, w.half * 2.0, canvas),
-                   1.0)
+        _fill_mask(canvas, kit, bank_mat, bank_mask, 0.55)
+        _fill_mask(canvas, kit, mat, water_mask, 1.0)
         dry = w.kind in ("wash", "arroyo")
         # a wet channel is darkened - water reads by value. A DRY wash is
         # lightened instead: a desert arroyo is pale bare sand between darker
         # desert pavement, and darkening one turns it into a black scratch
-        _darken_band(canvas, _path_mask(w.path, w.half * 2.0, canvas),
-                     1.12 if dry else 0.62)
+        _darken_band(canvas, water_mask, 1.12 if dry else 0.62)
         # floodplain: ground beside a river is not ground away from it - but at
         # under half the width, or it becomes one more pale smear
         # The floodplain is a *hint*: at the old width and alpha it was a band
         # of pale mud three times wider than the river itself, and reviewers read
         # the whole corridor as "ambiguous pale strip - stream or track?". The
         # dark river material is the feature; the mud only softens its edge.
-        if w.half >= 34.0:      # only a wide channel earns a floodplain
+        if w.half >= 34.0 and not region:    # only a wide channel earns a floodplain
             _fill_mask(canvas, kit, "mud_flat" if plan.theme != "glacier"
                        else "ice_sheet",
                        _path_mask(w.path,
@@ -1040,8 +1046,10 @@ def paint_water(canvas: Any, kit: TileKit, plan: SitePlan,
                 _splat(kit, canvas, edge, ax + math.cos(ang) * d,
                        ay + math.sin(ang) * d, frng.uniform(0.18, 0.34), frng)
         # a bank line on each side: water needs an edge to be read against, or a
-        # river is just a dark smear with rocks in it
-        for side in (-1.0, 1.0):
+        # river is just a dark smear with rocks in it. A closed body gets ONE line,
+        # on its outer edge: the second line would sit inside the water and read as
+        # a marking.
+        for side in ((0.0,) if region else (-1.0, 1.0)):
             pts = []
             for i in range(len(w.path) - 1):
                 (ax, ay), (bx, by) = w.path[i], w.path[i + 1]
@@ -1052,6 +1060,17 @@ def paint_water(canvas: Any, kit: TileKit, plan: SitePlan,
             _tint_lines(canvas, pts, bank, 3.0)
             # no bright inner lip: it reads as a drawn outline - "its thin
             # bright banks look drawn on" - which is the opposite of a bank
+        if region:
+            # still water: a few dark shallows marks just inside the shore, placed
+            # by the polygon itself rather than by a flow direction it does not have
+            for i in range(0, len(w.path) - 1, 2):
+                if frng.random() < 0.45:
+                    ax, ay = w.path[i]
+                    ix, iy = w.inside
+                    k = frng.uniform(0.06, 0.20)
+                    _splat(kit, canvas, edge, ax + (ix - ax) * k,
+                           ay + (iy - ay) * k, frng.uniform(0.10, 0.22), frng)
+            continue
         # glints along the flow, so water reads as moving
         for i in range(2, len(w.path) - 2, 3):
             (ax, ay), (bx, by) = w.path[i], w.path[i + 1]
