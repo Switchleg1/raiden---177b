@@ -1729,17 +1729,11 @@ def main(argv: list[str] | None = None) -> int:
               "                       (ground designed as one strip and painted "
               "as it\n"
               "                       scrolls is the default)\n"
-              "  --ground-1x          paint the ground at display resolution "
-              "instead\n"
-              "                       of 2x scaled down: faster, no filter pass, "
-              "and a\n"
-              "                       different look - compare it against the "
-              "default\n"
-              "  --nearest-bands      blit the ground bands with nearest rather "
-              "than\n"
-              "                       smooth scaling (diagnostic: tells a "
-              "resampling\n"
-              "                       artifact from a painting one)\n"
+              "  --streamed-terrain   ground designed as one strip and painted "
+              "as it\n"
+              "                       scrolls (the default; kept so a sector\n"
+              "                       change can be compared against the baked "
+              "path)\n"
               "  -h, --help           show this help and exit\n"
               "\n"
               "Controls: WASD/arrows or mouse to move, SPACE / left click to\n"
@@ -1770,18 +1764,14 @@ def main(argv: list[str] | None = None) -> int:
         # Still accepted: streaming is the default now, and muscle memory is a
         # real interface. Asking for it explicitly does no harm.
         app.settings = dataclasses.replace(app.settings, streamed_terrain=True)
-    if "--ground-1x" in argv:
-        # Paint the ground at the size it is blitted (no per-slice filter, ~3.4x
-        # faster painting) instead of at 2x and scaled down. A look change as much as
-        # a speed change, so it is opt-in until a human says which one they want.
-        os.environ["RAIDEN_GROUND_RES"] = "1x"
-    if "--nearest-bands" in argv:
-        # A/B the 2x -> 1x resample the streamed ground is blitted through. Baked
-        # ground is clean and streamed ground shows a line at every slice boundary;
-        # this decides whether the resampler makes it or the paint does. It goes in
-        # the environment because the processes that actually paint the bands are
-        # children, and a flag the painter never sees is not an A/B test.
-        os.environ["RAIDEN_NEAREST_BANDS"] = "1"
+    # Two switches used to live here - `--ground-1x` (paint at display size rather
+    # than 2x and scale down) and `--nearest-bands` (blit the ground bands with
+    # nearest filtering). Both set environment variables that nothing reads any
+    # more: the 2x ground and its scaler were taken out, and `--nearest-bands` was
+    # built to test whether the resampler made the slice-boundary line or the
+    # painting did - it was the painting (a soft mask's raster box clamped at a
+    # window edge; docs/terrain.md). A switch that changes nothing is worse than no
+    # switch: it invites a bug report against a setting that does not exist.
     try:
         if selftest is not None:
             frames = app.run(max_frames=selftest)
