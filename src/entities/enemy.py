@@ -8,6 +8,7 @@ import config as C
 
 from . import bosskit
 from . import physics as P
+from .flight_table import FLIGHT, WALLED
 
 
 class Enemy:
@@ -114,51 +115,11 @@ class Enemy:
         if self.flash > 0.0:
             self.flash = max(0.0, self.flash - dt)
         kind = self.kind
-        if kind is C.EnemyKind.GRUNT:
-            self.vy = C.ENEMY_SPECS[kind].speed
-            self.vx = 0.0
-            self._maybe_fire_aimed(dt, player_x, player_y, fire, bullet_speed, 1)
-        elif kind is C.EnemyKind.WEAVER:
-            self.vy = C.ENEMY_SPECS[kind].speed
-            self.vx = self.amp * math.cos(self.freq * self.t + self.phase)
-        elif kind is C.EnemyKind.DARTER:
-            pass  # constant aimed dive set at spawn
-        elif kind is C.EnemyKind.GUNNER:
-            self._descend_or_hover(dt, speed=C.ENEMY_SPECS[kind].speed)
-            self._drift(dt, speed=60.0)
-            self._maybe_fire_aimed(dt, player_x, player_y, fire, bullet_speed, 1)
-        elif kind is C.EnemyKind.SENTRY:
-            self._descend_or_hover(dt, speed=C.ENEMY_SPECS[kind].speed)
-            self._maybe_fire_radial(dt, fire, bullet_speed, 6)
-        elif kind is C.EnemyKind.HEAVY:
-            self._descend_or_hover(dt, speed=C.ENEMY_SPECS[kind].speed,
-                                   stop_margin=40.0)
-            self._drift(dt, speed=40.0)
-            self._maybe_fire_aimed(dt, player_x, player_y, fire, bullet_speed, 3)
-        elif kind is C.EnemyKind.BOMBER:
-            # Holds a high band and seeds the screen; the shells it drops keep
-            # arriving long after it turned into a fireball.
-            self._descend_or_hover(dt, speed=C.ENEMY_SPECS[kind].speed,
-                                   stop_margin=26.0)
-            self._drift(dt, speed=34.0)
-            self._maybe_fire_shells(dt, fire, bullet_speed)
-        elif kind is C.EnemyKind.SPLITTER:
-            # Wide lazy weave: the children it leaves behind do the chasing.
-            self.vy = C.ENEMY_SPECS[kind].speed
-            self.vx = 1.15 * self.amp * math.cos(self.freq * self.t
-                                                 + self.phase)
-        elif kind is C.EnemyKind.RAMMER:
-            self._update_rammer(dt, player_x)
-        elif kind is C.EnemyKind.SHARD:
-            spec = C.ENEMY_SPECS[kind]
-            self.vy = spec.speed
-            self.vx = spec.speed * C.SHARD_SPREAD * self.drift_dir
-        elif kind is C.EnemyKind.BOSS:
-            self._update_boss(dt, player_x, player_y, fire, bullet_speed, rng)
+        getattr(self, FLIGHT[kind])(dt, player_x, player_y, fire, bullet_speed,
+                                    rng)
         P.advance(self, dt, max_step=8.0)
         # Side walls: bounce drifters so they never leave the field sideways.
-        if kind in (C.EnemyKind.GUNNER, C.EnemyKind.SENTRY, C.EnemyKind.HEAVY,
-                    C.EnemyKind.BOMBER, C.EnemyKind.BOSS):
+        if kind in WALLED:
             if kind is C.EnemyKind.BOSS and self.boss_step < 0.0:
                 # Scripted entry: a boss that sails in from the side is meant to
                 # start outside the field, so no wall rule applies yet.
@@ -174,6 +135,69 @@ class Enemy:
             if kind is C.EnemyKind.BOSS:
                 # Re-clamp after integrating: no fighting boss leaves its band.
                 bosskit.keep_in_band(self)
+
+    def _fly_grunt(self, dt: float, player_x: float, player_y: float,
+                   fire, bullet_speed: float, rng: random.Random) -> None:
+        self.vy = C.ENEMY_SPECS[self.kind].speed
+        self.vx = 0.0
+        self._maybe_fire_aimed(dt, player_x, player_y, fire, bullet_speed, 1)
+
+    def _fly_weaver(self, dt: float, player_x: float, player_y: float,
+                    fire, bullet_speed: float, rng: random.Random) -> None:
+        self.vy = C.ENEMY_SPECS[self.kind].speed
+        self.vx = self.amp * math.cos(self.freq * self.t + self.phase)
+
+    def _fly_darter(self, dt: float, player_x: float, player_y: float,
+                    fire, bullet_speed: float, rng: random.Random) -> None:
+        pass                # a constant aimed dive, set at spawn
+
+    def _fly_gunner(self, dt: float, player_x: float, player_y: float,
+                    fire, bullet_speed: float, rng: random.Random) -> None:
+        self._descend_or_hover(dt, speed=C.ENEMY_SPECS[self.kind].speed)
+        self._drift(dt, speed=60.0)
+        self._maybe_fire_aimed(dt, player_x, player_y, fire, bullet_speed, 1)
+
+    def _fly_sentry(self, dt: float, player_x: float, player_y: float,
+                    fire, bullet_speed: float, rng: random.Random) -> None:
+        self._descend_or_hover(dt, speed=C.ENEMY_SPECS[self.kind].speed)
+        self._maybe_fire_radial(dt, fire, bullet_speed, 6)
+
+    def _fly_heavy(self, dt: float, player_x: float, player_y: float,
+                   fire, bullet_speed: float, rng: random.Random) -> None:
+        self._descend_or_hover(dt, speed=C.ENEMY_SPECS[self.kind].speed,
+                               stop_margin=40.0)
+        self._drift(dt, speed=40.0)
+        self._maybe_fire_aimed(dt, player_x, player_y, fire, bullet_speed, 3)
+
+    def _fly_bomber(self, dt: float, player_x: float, player_y: float,
+                    fire, bullet_speed: float, rng: random.Random) -> None:
+        # Holds a high band and seeds the screen; the shells it drops keep
+        # arriving long after it turned into a fireball.
+        self._descend_or_hover(dt, speed=C.ENEMY_SPECS[self.kind].speed,
+                               stop_margin=26.0)
+        self._drift(dt, speed=34.0)
+        self._maybe_fire_shells(dt, fire, bullet_speed)
+
+    def _fly_splitter(self, dt: float, player_x: float, player_y: float,
+                      fire, bullet_speed: float, rng: random.Random) -> None:
+        # Wide lazy weave: the children it leaves behind do the chasing.
+        self.vy = C.ENEMY_SPECS[self.kind].speed
+        self.vx = 1.15 * self.amp * math.cos(self.freq * self.t
+                                             + self.phase)
+
+    def _fly_rammer(self, dt: float, player_x: float, player_y: float,
+                    fire, bullet_speed: float, rng: random.Random) -> None:
+        self._update_rammer(dt, player_x)
+
+    def _fly_shard(self, dt: float, player_x: float, player_y: float,
+                   fire, bullet_speed: float, rng: random.Random) -> None:
+        spec = C.ENEMY_SPECS[self.kind]
+        self.vy = spec.speed
+        self.vx = spec.speed * C.SHARD_SPREAD * self.drift_dir
+
+    def _fly_boss(self, dt: float, player_x: float, player_y: float,
+                  fire, bullet_speed: float, rng: random.Random) -> None:
+        self._update_boss(dt, player_x, player_y, fire, bullet_speed, rng)
 
     # -- movement helpers --------------------------------------------------
     def _descend_or_hover(self, dt: float, speed: float,

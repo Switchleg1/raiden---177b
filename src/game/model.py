@@ -26,6 +26,7 @@ import config as C
 from entities import Bullet, Enemy, FlameThrower, Player, Whip
 from entities import physics as P
 
+from .item_effect_table import ITEM_STACKS
 from .items import Item, roll_item
 
 # High-level outcome signals (shared names with Breakout Classic's model).
@@ -457,27 +458,15 @@ class Game:
                                       pl.weapon_level - C.JAMMER_DROP_PENALTY)
             events.append({"type": SIG_HAZARD, "kind": kind.value})
             return
-        # beneficial upgrades
-        if kind is C.ItemKind.WEAPON:
-            pl.weapon_level = min(C.WEAPON_MAX_LEVEL, pl.weapon_level + 1)
-        elif kind is C.ItemKind.MISSILE:
-            pl.missile_level = min(C.MISSILE_MAX_LEVEL, pl.missile_level + 1)
-        elif kind is C.ItemKind.MOON:
-            # Its own track: the crescents level up without touching vulcan
-            # power or missile level, so a run can specialise in the fan.
-            pl.moon_level = min(C.MOON_MAX_LEVEL, pl.moon_level + 1)
-        elif kind is C.ItemKind.BOMB:
-            pl.bomb_stock = min(C.BOMB_MAX, pl.bomb_stock + 1)
-        elif kind is C.ItemKind.SHIELD:
+        # beneficial upgrades: each is a counter raised by a step, up to a cap
+        if kind is C.ItemKind.SHIELD:
             # Timed powers buy another block, they do not reset the clock: a
             # pod caught with two seconds left must not throw away five.
             pl.add_shield(C.SHIELD_TIME, C.SHIELD_MAX)
-        elif kind is C.ItemKind.WHIP:
-            self.whip_timer = min(C.WHIP_MAX,
-                                  self.whip_timer + C.WHIP_TIME)
-        elif kind is C.ItemKind.FLAME:
-            self.flame_timer = min(C.FLAME_MAX,
-                                   self.flame_timer + C.FLAME_TIME)
+        elif kind in ITEM_STACKS:
+            owner, attr, step, cap = ITEM_STACKS[kind]
+            target = pl if owner == "player" else self
+            setattr(target, attr, min(cap, getattr(target, attr) + step))
         events.append({"type": SIG_POWERUP, "kind": kind.value})
 
     def _maybe_drop_item(self, enemy: Enemy, events: list[dict[str, Any]]) -> None:

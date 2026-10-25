@@ -6,25 +6,38 @@ from typing import Any
 import config as C
 
 from .actions import (
-    ACT_BACK,
-    ACT_BOMB,
-    ACT_CONFIRM,
-    ACT_FULLSCREEN,
-    ACT_NAV_DOWN,
-    ACT_NAV_LEFT,
-    ACT_NAV_RIGHT,
-    ACT_NAV_UP,
-    ACT_PAUSE,
     DEV_KEYBOARD,
     DEV_MOUSE,
+)
+from .keymap_table import (
+    ACTION_KEYS,
+    BUTTON_ACTIONS,
+    EVENT_HANDLERS,
+    FIRE_BUTTON,
+    FIRE_KEYS,
+    MOVE_KEYS,
 )
 from .ship_axis import ShipAxis
 from .viewport import Viewport, map_mouse_to_logical
 
+_RESOLVED: tuple | None = None
 
-# ---------------------------------------------------------------------------
-# pygame-backed controller
-# ---------------------------------------------------------------------------
+
+def _resolved() -> tuple:
+    """The keymap with pygame's numbers in place of the constant names: (move
+    keys, action keys, event handlers, fire keys). Built once."""
+    global _RESOLVED
+    if _RESOLVED is None:
+        import pygame
+        _RESOLVED = (
+            {getattr(pygame, k): v for k, v in MOVE_KEYS.items()},
+            {getattr(pygame, k): v for k, v in ACTION_KEYS.items()},
+            {getattr(pygame, k): v for k, v in EVENT_HANDLERS.items()},
+            frozenset(getattr(pygame, k) for k in FIRE_KEYS),
+        )
+    return _RESOLVED
+
+
 class InputController:
     """Turns pygame events into gameplay input + high-level actions."""
 
@@ -38,79 +51,49 @@ class InputController:
 
     # ---- event handlers (called from App with a pygame.Event) --------------
     def handle_event(self, event: Any, view: Viewport) -> None:
-        import pygame
-        t = event.type
-        if t == pygame.KEYDOWN:
-            self._key_down(event.key)
-        elif t == pygame.KEYUP:
-            self._key_up(event.key)
-        elif t == pygame.MOUSEMOTION:
-            lx, ly = map_mouse_to_logical(event.pos[0], event.pos[1], view)
-            self.mouse_x, self.mouse_y = lx, ly
-            self.active_device = DEV_MOUSE
-        elif t == pygame.MOUSEBUTTONDOWN:
-            lx, ly = map_mouse_to_logical(event.pos[0], event.pos[1], view)
-            self.mouse_x, self.mouse_y = lx, ly
-            self.active_device = DEV_MOUSE
-            if event.button == 1:
-                # Left click is handled directly by the menu layer
-                # (_handle_click); it must NOT also emit ACT_CONFIRM or the
-                # focused button would activate a second time in one frame.
-                self.fire_held = True
-            elif event.button == 3:
-                self.actions.add(ACT_BOMB)
-        elif t == pygame.MOUSEBUTTONUP:
-            if event.button == 1:
-                self.fire_held = False
-        elif t == pygame.WINDOWFOCUSLOST:
-            self.clear_all()
+        method = _resolved()[2].get(event.type)
+        if method is not None:
+            getattr(self, method)(event, view)
 
-    def _key_down(self, key: int) -> None:
-        import pygame
-        moved = False
-        if key in (pygame.K_a, pygame.K_LEFT):
-            self.axis.set("left", True)
-            self.actions.add(ACT_NAV_LEFT)
-            moved = True
-        elif key in (pygame.K_d, pygame.K_RIGHT):
-            self.axis.set("right", True)
-            self.actions.add(ACT_NAV_RIGHT)
-            moved = True
-        elif key in (pygame.K_w, pygame.K_UP):
-            self.axis.set("up", True)
-            self.actions.add(ACT_NAV_UP)
-            moved = True
-        elif key in (pygame.K_s, pygame.K_DOWN):
-            self.axis.set("down", True)
-            self.actions.add(ACT_NAV_DOWN)
-            moved = True
-        if moved:
+    def _on_key_down(self, event: Any, view: Viewport) -> None:
+        moves, actions, _events, fire = _resolved()
+        key = event.key
+        if key in moves:
+            axis, nav = moves[key]
+            self.axis.set(axis, True)
+            self.actions.add(nav)
             self.active_device = DEV_KEYBOARD
-        elif key == pygame.K_SPACE:
+        elif key in fire:
             self.fire_held = True
-        elif key in (pygame.K_RETURN, pygame.K_KP_ENTER):
-            self.actions.add(ACT_CONFIRM)
-        elif key in (pygame.K_x, pygame.K_l):
-            self.actions.add(ACT_BOMB)
-        elif key == pygame.K_p:
-            self.actions.add(ACT_PAUSE)
-        elif key == pygame.K_ESCAPE:
-            self.actions.add(ACT_BACK)
-        elif key == pygame.K_F11:
-            self.actions.add(ACT_FULLSCREEN)
+        elif key in actions:
+            self.actions.add(actions[key])
 
-    def _key_up(self, key: int) -> None:
-        import pygame
-        if key in (pygame.K_a, pygame.K_LEFT):
-            self.axis.set("left", False)
-        elif key in (pygame.K_d, pygame.K_RIGHT):
-            self.axis.set("right", False)
-        elif key in (pygame.K_w, pygame.K_UP):
-            self.axis.set("up", False)
-        elif key in (pygame.K_s, pygame.K_DOWN):
-            self.axis.set("down", False)
-        elif key == pygame.K_SPACE:
+    def _on_key_up(self, event: Any, view: Viewport) -> None:
+        moves, _actions, _events, fire = _resolved()
+        key = event.key
+        if key in moves:
+            self.axis.set(moves[key][0], False)
+        elif key in fire:
             self.fire_held = False
+
+    def _on_motion(self, event: Any, view: Viewport) -> None:
+        self.mouse_x, self.mouse_y = map_mouse_to_logical(event.pos[0],
+                                                          event.pos[1], view)
+        self.active_device = DEV_MOUSE
+
+    def _on_press(self, event: Any, view: Viewport) -> None:
+        self._on_motion(event, view)
+        if event.button == FIRE_BUTTON:
+            self.fire_held = True
+        elif event.button in BUTTON_ACTIONS:
+            self.actions.add(BUTTON_ACTIONS[event.button])
+
+    def _on_release(self, event: Any, view: Viewport) -> None:
+        if event.button == FIRE_BUTTON:
+            self.fire_held = False
+
+    def _on_focus_lost(self, event: Any, view: Viewport) -> None:
+        self.clear_all()
 
     def clear_all(self) -> None:
         self.axis.clear()
