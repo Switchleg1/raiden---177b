@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ..plan.wood import Wood
-from .footprint import _near_building, _shore_clear
+from .footprint import _near_building, _shore_clear, _tree_clearance
 from .geometry import _in_strip
 
 if TYPE_CHECKING:
@@ -50,7 +50,9 @@ def _cover(spec: SiteSpec, plan: SitePlan, rng: random.Random) -> None:
                         and not plan.is_place(x, y) \
                         and not plan.is_wet(x, y) \
                         and _shore_clear(plan, x, y, sc) \
-                        and not _near_building(plan, x, y, 60.0):
+                        and not _near_building(
+                                    plan, x, y,
+                                    _tree_clearance(plan, x, y, sc, 20.0)):
                     items.append((x, y, sc))
             if len(items) >= 3:
                 plan.woods.append(Wood(kind="wood", items=items))
@@ -83,7 +85,9 @@ def _cover(spec: SiteSpec, plan: SitePlan, rng: random.Random) -> None:
                                 and not plan.is_place(x, y) \
                                 and not plan.is_wet(x, y) \
                                 and _shore_clear(plan, x, y, sc) \
-                                and not _near_building(plan, x, y, 50.0):
+                                and not _near_building(
+                                            plan, x, y,
+                                            _tree_clearance(plan, x, y, sc, 8.0)):
                             plan.woods.append(Wood(
                                 kind="riparian", items=[(x, y, sc)]))
         # treeline where the hillside turns: contour-following, so it reads as
@@ -109,7 +113,9 @@ def _cover(spec: SiteSpec, plan: SitePlan, rng: random.Random) -> None:
                         # like after the fill itself was fixed.
                         if (_in_strip(g, y) and not plan.is_wet(x, y)
                                 and _shore_clear(plan, x, y, sc)
-                                and not _near_building(plan, x, y, 50.0)):
+                                and not _near_building(
+                                            plan, x, y,
+                                            _tree_clearance(plan, x, y, sc, 8.0))):
                             items.append((x, y, sc))
                 if len(items) >= 6:
                     plan.woods.append(Wood(kind="treeline", items=items))
@@ -123,7 +129,9 @@ def _cover(spec: SiteSpec, plan: SitePlan, rng: random.Random) -> None:
                         t = (k + 0.5) / n
                         ox = a[0] + (b[0] - a[0]) * t
                         oy = a[1] + (b[1] - a[1]) * t
-                        if _near_building(plan, ox, oy, 46.0):
+                        if _near_building(
+                               plan, ox, oy,
+                               _tree_clearance(plan, ox, oy, 0.55, 10.0)):
                             continue     # an orchard is not a hedge on a house
                         items.append((ox, oy, rng.uniform(0.4, 0.55)))
                 if items:

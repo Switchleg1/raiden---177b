@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 import math
 
 from .field_table import LIFTABLE_FIELDS
+from .footprint_table import TREE_CROWN_REACH
 
 
 def _shore_clear(plan: SitePlan, x: float, y: float, scale: float) -> bool:
@@ -50,8 +51,30 @@ def _shore_clear(plan: SitePlan, x: float, y: float, scale: float) -> bool:
 
 def _near_building(plan: SitePlan, x: float, y: float, dist: float) -> bool:
     """Foliage within arm's reach of a house reads as scrub swallowing the
-    village, which is exactly what the old maps did."""
+    village, which is exactly what the old maps did.
+
+    `dist` is a plain radius: right for a crater or a scree block, wrong for a
+    tree - a crown's own reach (127 px at scale 1) was not in the sum, so a
+    house at 0.36 scale needed 44 px of clearance and the rule asked for 60,
+    which every tree cleared while its crown still covered the roof. That is the
+    tree-on-the-house in the city view. Use `_tree_clearance` for foliage.
+    """
     return any(math.hypot(b.x - x, b.y - y) < dist for b in plan.buildings)
+
+
+def _tree_clearance(plan: SitePlan, x: float, y: float, scale: float,
+                    extra: float = 8.0) -> float:
+    """How far a tree of this scale must stand from the nearest building: its
+    crown cannot be allowed to lie over a roof, and the biggest building wins."""
+    crown = TREE_CROWN_REACH * scale
+    return min((_near_building_reach(b) + crown + extra for b in plan.buildings),
+               default=0.0)
+
+
+def _near_building_reach(b: Building) -> float:
+    from .art_table import INK
+    w, h = INK.get(b.kind, (256.0, 256.0))
+    return 0.5 * min(w, h) * b.scale
 
 
 def lift_vegetation(plan: SitePlan,

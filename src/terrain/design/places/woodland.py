@@ -16,7 +16,7 @@ import random
 from ...plan.site_plan import SitePlan
 from ...plan.water import Water
 from ...plan.wood import Wood
-from ..footprint import _near_building, _shore_clear
+from ..footprint import _near_building, _shore_clear, _tree_clearance
 from ..geometry import (
     _in_strip,
 )
@@ -86,7 +86,9 @@ def build_woodland(plan: SitePlan, site: _Site, ps: PlaceSpec,
                 continue
             if plan.relief_at(x, y) > 0.72:
                 continue
-            if _near_building(plan, x, y, 70.0) or plan.near_road(x, y, 30.0):
+            if _near_building(plan, x, y,
+                              _tree_clearance(plan, x, y, sc)) \
+                    or plan.near_road(x, y, 30.0):
                 continue
             items.append((x, y, sc))
         if len(items) >= 4:
