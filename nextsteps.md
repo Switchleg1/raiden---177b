@@ -39,8 +39,11 @@ does the same for one theme.
   660 of the 1 038, so a block that looks empty at zoom-out is mostly a car park, and
   `city_table.BLOCK_MIX` (towers 4 of 13 in the core) plus `TOWER` scale 0.56-0.72 are
   the knobs. Raising them fills the ground the player flies over, which is why it needs
-  an opt-in. Also worth a look: the blocks at the strip's ends are refused for standing
-  off the map (`_rect_free`'s edge test) - the row walk should stop at the boundary.
+  an opt-in. The 233 refused footprints at the strip's ends are candidates whose
+  ART hangs past the boundary: they cost planning time and paint nothing.
+  Pushing the outer blocks 140 px inboard was tried and is wrong - it moves the
+  blocks off the map, buildings drop from 1 038 to 965 and edge refusals rise
+  from 233 to 871. The row walk has to stop asking; the grid must not move.
 - Trees may still stand in the channel in one clump per sector (`_shore_clear` asks the
   reach, not the wet mask), and are drawn over roads and each other; only roofs are
   protected.
