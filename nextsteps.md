@@ -33,13 +33,21 @@ does the same for one theme.
 ## Still open
 
 - **User playtest** of neighbourhoods, woods, lakes, tree density, bridges.
-- The city reads as a grid of blocks with a few towers: `city_table.BLOCK_MIX` is the
-  knob. Downtown could be denser and taller (TOWER scale 0.56-0.72).
+- **City density is a gameplay decision, so it is the user's.** Measured on a full
+  sector: 1 992 building probes, 1 038 placed; of the refusals 720 are parked cars that
+  did not fit a lot and 233 are footprints hanging past the end of the strip. Cars are
+  660 of the 1 038, so a block that looks empty at zoom-out is mostly a car park, and
+  `city_table.BLOCK_MIX` (towers 4 of 13 in the core) plus `TOWER` scale 0.56-0.72 are
+  the knobs. Raising them fills the ground the player flies over, which is why it needs
+  an opt-in. Also worth a look: the blocks at the strip's ends are refused for standing
+  off the map (`_rect_free`'s edge test) - the row walk should stop at the boundary.
+- Trees may still stand in the channel in one clump per sector (`_shore_clear` asks the
+  reach, not the wet mask), and are drawn over roads and each other; only roofs are
+  protected.
 - Highway interchanges (ramps onto the city grid) are not built; no traffic on the
   highway yet (car/truck props exist, only parked ones are used).
 - Long dry sectors still show 2-3 washes side by side where a theme asks for several
   (`WATER_RATE`), and mountain ranges are modest (`mountain_table.RANGES`).
-- Trees are still drawn over roads and each other freely; only roofs are protected.
 
 ## Tooling notes
 

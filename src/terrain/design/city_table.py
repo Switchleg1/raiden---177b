@@ -43,6 +43,7 @@ SIDE_FACING: dict[str, tuple[float, float]] = {
     "n": (0.0, -1.0), "s": (0.0, 1.0), "w": (-1.0, 0.0), "e": (1.0, 0.0),
 }
 
-__all__ = ["SIDE_FACING", "APARTMENT", "BLOCK_MIX", "CARS", "HOUSES", "MAT_PARK", "MAT_PARKING",
+__all__ = ["SIDE_FACING", "APARTMENT", "BLOCK_MIX", "CARS", "HOUSES",
+           "MAT_PARK", "MAT_PARKING",
            "MAT_PLAZA", "MAT_SIDEWALK", "MAT_YARD", "OCCUPANCY", "SHOPS",
            "SIDEWALK", "TOWER"]
