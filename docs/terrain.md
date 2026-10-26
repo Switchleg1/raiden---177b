@@ -786,6 +786,33 @@ A dispatch table that names *functions* (`builders_table`, `crest_table.CRESTS`)
 is the accepted exception to "tables hold literals": the alternative is a chain
 that has to be edited in step with the module that defines each builder.
 
+## Not built: highway interchanges
+
+A diamond interchange (ramps from the highway to two cross-streets) was designed,
+painted and taken out again, and the reason is worth keeping. A ramp has to agree
+with BOTH roads it joins, at the same y, and the plan's roads do not offer that for
+free:
+
+- the highway's x at a motorway's y must be **interpolated off the path**
+  (segment crossing), not read off the nearest path vertices - a route sampled
+  every 60 px wanders 100+ px between them, and vertex-read ramps landed 100 px
+  off the carriageway;
+- a ramp's length is the distance to the NEXT motorway (`min(m for m in motors if
+  m > hy)`), not a multiple of the block's size: a guessed length stopped in
+  mid-air between two streets, and a control point that does not lie along the
+  motorway lands the ramp as a T-junction or a hairpin;
+- `main` roads that "span the strip" are a looser predicate than it sounds - three
+  highways in one sector, and motorways that qualify by their bounding box - so
+  the candidate sets need to be intersected with the road the ramps actually
+  touch, and `main`'s own `dy` tolerance (40 px) admits more than the eye calls a
+  motorway;
+- ramps must NOT claim `built` cells: the encounter planner reads that grid to
+  choose a rooftop, and a claimed corridor put a gunner over empty sky.
+
+`Road.kind == "ramp"` stays documented (the painter already handles one:
+`road_table.SOILED_KINDS` excludes it), and `tests/test_places.py` is the place
+for a test that every ramp end lands within a carriageway of a road.
+
 ## Closed: painting a slice is not fully order-independent
 
 The first slice's window is clamped at the world start, and it disagreed with a
