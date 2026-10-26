@@ -1,13 +1,13 @@
 """Water: where it runs, and the ground it makes wet."""
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING
 
 from ..plan.geom import CELL
 from ..plan.water import Water
 from .geometry import (
     _cell_box,
-    _crossings,
     _dist_path,
     _hpath,
     _in_poly,
@@ -133,15 +133,24 @@ def _drainage_strip(g: Geom, spec: SiteSpec, relief: list[list[float]],
                       step=32)
         if out:
             main = out[0]
-            hits = _crossings(path, main.path)
-            if hits:
-                hx = hits[0][0]
+            # CUT AT THE CONFLUENCE, the first point of the stream that reaches
+            # the main channel, and keep the stream up to there. Filtering on x
+            # ("keep the points left of the crossing") kept every meander of a
+            # stream that crossed early and lay far right too: the leftovers ran
+            # the length of the strip beside the main wash, which is what the
+            # dry themes showed as two or three parallel washes, and the river
+            # themes as a stream with a piece missing in the middle.
+            hit = next((i for i, (px, py) in enumerate(path)
+                        if min(math.hypot(px - mx, py - my)
+                               for mx, my in main.path) < main.half + 24.0),
+                       None)
+            if hit is not None:
                 # run in from whichever edge is further from the confluence, so
                 # the stream has a length worth drawing
-                if hx > g.w * 0.5:
-                    path = [pt for pt in path if pt[0] <= hx + 8.0]
-                else:
-                    path = [pt for pt in path if pt[0] >= hx - 8.0]
+                if path[hit][0] > g.w * 0.5:
+                    path = path[:hit + 1]
+                elif hit < len(path) - 1:
+                    path = path[hit:]
         if len(path) < 6:
             continue
         # a stream should not drop into the same reach as the last one

@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ..plan.wood import Wood
+from .cover_table import TREELINE_BANDS
 from .footprint import _near_building, _shore_clear, _tree_clearance
 from .geometry import _in_strip
 
@@ -93,29 +94,30 @@ def _cover(spec: SiteSpec, plan: SitePlan, rng: random.Random) -> None:
         # treeline where the hillside turns: contour-following, so it reads as
         # the top of the trees rather than a random band of them
         if spec.treeline:
+            # A BELT, not a line: one contour of trees reads as a hedge drawn on
+            # the hill, and the note on the mountain sectors was that the trees
+            # stopped where the ground turned. Three contour-parallel lines, the
+            # high ones thinner and smaller (a crown cannot stand on a cliff),
+            # is the slope-parallel band real treelines are.
             for ridge in plan.ridges:
                 items = []
-                for i in range(len(ridge.spine) - 1):
-                    (ax, ay), (bx, by) = ridge.spine[i], ridge.spine[i + 1]
-                    if rng.random() < 0.55:
-                        continue
-                    ang = math.atan2(by - ay, bx - ax) + math.pi / 2
-                    d = ridge.width * rng.uniform(0.55, 0.8)
-                    x = ax + math.cos(ang) * d
-                    sc = rng.uniform(0.6, 1.0)
-                    if 12 < x < g.w - 12:
+                for band, keep, small in TREELINE_BANDS:
+                    for i in range(len(ridge.spine) - 1):
+                        (ax, ay), (bx, by) = ridge.spine[i], ridge.spine[i + 1]
+                        if rng.random() < keep:
+                            continue
+                        ang = math.atan2(by - ay, bx - ax) + math.pi / 2
+                        d = ridge.width * (band + rng.uniform(-0.06, 0.06))
+                        x = ax + math.cos(ang) * d
+                        sc = rng.uniform(*small)
+                        if not (12 < x < g.w - 12):
+                            continue
                         y = ay + math.sin(ang) * d
-                        # a treeline follows the hillside, and the hillside goes on
-                        # underneath a lake: relief was laid before the water and has
-                        # no idea the water exists. Measured, this planted a lattice of
-                        # crowns at ~40 px spacing straight across three lakes, which
-                        # is what "dry ground with lines through the middle" looked
-                        # like after the fill itself was fixed.
                         if (_in_strip(g, y) and not plan.is_wet(x, y)
                                 and _shore_clear(plan, x, y, sc)
                                 and not _near_building(
-                                            plan, x, y,
-                                            _tree_clearance(plan, x, y, sc, 8.0))):
+                                    plan, x, y,
+                                    _tree_clearance(plan, x, y, sc, 8.0))):
                             items.append((x, y, sc))
                 if len(items) >= 6:
                     plan.woods.append(Wood(kind="treeline", items=items))

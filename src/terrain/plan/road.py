@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 
 @dataclass
 class Road:
-    kind: str                     # "main" | "highway" | "spur" | "track"
+    kind: str                     # "main" | "highway" | "ramp" | "spur" | "track"
     path: list[Point]
     width: float
     bridges: list[Point] = field(default_factory=list)

@@ -758,6 +758,34 @@ window in every slice and the bug hides below the crop.
 the material that used to live there, so which ground appeared depended on what had
 been painted earlier in the run. Keyed by `(name, pitch, fade, patch)` now.
 
+## The planner's tables
+
+Every choice the planner makes that a person might want to argue about is a
+number in a `*_table.py` beside the code that reads it, not inside an `if`.
+
+| module | what it decides |
+|---|---|
+| `design/spec_table.py` | `SPEC`: one landscape per theme - relief gain, meander, ridge shapes, water kinds, tree props, places, woods per screen. |
+| `design/water_table.py` | `WATER_HALF` (channel width by kind), `WATER_RATE` (screens per main river / per tributary: a valley has ONE river). |
+| `design/mountain_table.py` | `RANGES` (screens per range, breadth, crest height by kind), `SNOWLINE` (relief above which a theme lies snow). |
+| `design/crest_table.py` | `CRESTS` (the profile function per ridge shape), `RIDGE_ARMS` (spurs per shape), `SHAPES`. The profiles themselves are in `design/crests.py`. |
+| `design/art_table.py` | `INK` (measured art extents - every spacing rule derives from these), `PROP_OF`, `ART_FRONT`. |
+| `design/city_table.py` | `BLOCK_MIX` (what a core/edge block holds), building kinds and scales, the surfaces, `SIDEWALK`, `SIDE_FACING`, car occupancy. |
+| `design/cover_table.py` | `TREELINE_BANDS`: the treeline as contour-parallel lines (distance up the flank, how sparse, how big). |
+| `design/field_table.py` | `LIFTABLE_FIELDS`, `SOFT_FIELDS`. |
+| `design/footprint_table.py` | `TREE_CROWN_REACH`: a crown's radius at scale 1 - the number a tree's clearance is built from. |
+| `design/war_table.py` | crater and burn densities, what a burn turns a house into, which woods burn. |
+| `design/places/vocabulary_table.py`, `builders_table.py` | each place's siting rules (per screens, water, relief) and its builder function. |
+| `plan/reach.py` | `BASE_REACH`, `REACH_OF`: how far beyond its own extent a feature DRAWS, which is what makes a window paint a feature whole or not at all. |
+| `theme_table.py` | per-theme ground: backdrop and near materials, water/road/field materials, rock ramp, target brightness. |
+| `paint/relief_table.py` | `HILL` (relief height, erosion detail, shading bite), `RELIEF_LOOK`, the light direction. |
+| `paint/road_table.py` | `SOILING`, `SOILED_KINDS`: which roads throw dirt on their verges, by theme. |
+| `paint/cover_table.py` | `COVER_PROPS`: the prop vocabulary per kind of cover. |
+
+A dispatch table that names *functions* (`builders_table`, `crest_table.CRESTS`)
+is the accepted exception to "tables hold literals": the alternative is a chain
+that has to be edited in step with the module that defines each builder.
+
 ## Closed: painting a slice is not fully order-independent
 
 The first slice's window is clamped at the world start, and it disagreed with a

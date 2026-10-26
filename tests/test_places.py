@@ -372,3 +372,4 @@ def test_a_neighborhood_lane_holds_houses_on_both_sides():
     assert with_estates >= sectors // 2, (
         f"only {with_estates} of {sectors} countryside sectors have a neighborhood "
         "at all - the blueprint is not reaching the ground it wants")
+

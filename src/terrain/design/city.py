@@ -176,6 +176,12 @@ def _row(plan: SitePlan, r: Rect, kind: str, scale: tuple[float, float],
     """Buildings shoulder to shoulder along a block's street edges, each facing
     the street it stands on."""
     x0, y0, x1, y1 = r
+    # Stay on the map: the outer columns and rows of blocks run to the strip's edge
+    # and the art is ~250 px wide, so their last footprint (and, for the vertical
+    # sides, everything past the last row) hangs off the end. Asked for, refused by
+    # the boundary test, and it painted nothing - 233 refused footprints in one city
+    # sector. The row must stop asking; moving the grid was tried and moves the
+    # blocks off the map instead (1 038 buildings -> 965).
     n = 0
     kinds = kind if isinstance(kind, tuple) else (kind,)
     for side in sides:
@@ -199,6 +205,12 @@ def _row(plan: SitePlan, r: Rect, kind: str, scale: tuple[float, float],
                 x, y = mid, (y0 + depth / 2) if side == "n" else (y1 - depth / 2)
             else:
                 x, y = (x0 + depth / 2) if side == "w" else (x1 - depth / 2), mid
+            # this candidate's OWN art, measured, against the edge of the strip:
+            # 233 footprints in one city sector were asked for ground that is not
+            # on the map (a blanket margin refused legal ones and was reverted)
+            if not _on_map(plan, x, y, w, h):
+                a += along + air
+                continue
             if place_building(plan, k, x, y, (x + face[0] * 200.0,
                                               y + face[1] * 200.0),
                               sc, group, air=air):
@@ -207,11 +219,30 @@ def _row(plan: SitePlan, r: Rect, kind: str, scale: tuple[float, float],
     return n
 
 
+def _on_map(plan: SitePlan, x: float, y: float, w: float, h: float) -> bool:
+    """Does this footprint's art lie wholly on the map? The 10 px is the margin
+    `_rect_free` keeps from the edge; a one-screen map loops in y and is exempt,
+    which is why the row walk tests each candidate's OWN measured art rather
+    than a blanket margin (a blanket 130 px refused legal houses on the seam)."""
+    g = plan.geom
+    if x - w / 2.0 < 10.0 or x + w / 2.0 > g.w - 10.0:
+        return False
+    if g.cyclic:                  # a one-screen map loops in y; its seam is joined
+        return True
+    return not (y - h / 2.0 < 10.0 or y + h / 2.0 > g.h - 10.0)
+
+
 def _cars(plan: SitePlan, lot: Rect, rng: random.Random) -> int:
     """Parked cars in stalls across a lot, nose to the aisle."""
     kinds, sc = CARS
     cw, ch = ink_size(kinds[0], sc)            # a car is long in y as drawn
     x0, y0, x1, y1 = lot
+    g = plan.geom
+    x1 = min(x1, g.w - 10.0 - cw)
+    if not g.cyclic:
+        y1 = min(y1, g.h - 10.0 - ch)
+    x0 = max(x0, 10.0 + cw)
+    y0 = max(y0, 10.0 + ch)
     n = 0
     row_h = ch + 4.0
     aisle = ch * 0.9
