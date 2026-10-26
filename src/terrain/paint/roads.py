@@ -48,29 +48,48 @@ def _deck_run(plan: SitePlan, road: Any, x: float, y: float):
     degrees (pygame rotates counter-clockwise, the plan's y runs down), and a
     rectangle cannot follow a road that bends on the bridge anyway.
     """
-    body = min(plan.water, key=lambda w: _seg_dist(x, y, w.path), default=None)
-    if body is None:
-        return None
     pts = _densify(road.path, 4.0)
-    i = min(range(len(pts)),
-            key=lambda k: math.hypot(pts[k][0] - x, pts[k][1] - y))
+    i0 = min(range(len(pts)),
+             key=lambda k: math.hypot(pts[k][0] - x, pts[k][1] - y))
+    # the nearest body the road is actually OVER here, not the nearest body: a
+    # deck by one bank of a river can be closer to a tributary beside it, and
+    # asking that one found no water under the road and drew no bridge
+    for body in sorted(plan.water, key=lambda w: _seg_dist(x, y, w.path)):
+        def wet(k: int, body=body) -> bool:
+            # a lake is a region: its `half` is the minor radius, and a deck more
+            # than that from the shore - the middle of a causeway - is still on it
+            if body.closed:
+                return _in_poly(pts[k][0], pts[k][1], body.path)
+            return _seg_dist(pts[k][0], pts[k][1], body.path) < body.half + 2.0
 
-    def wet(k: int) -> bool:
-        return _seg_dist(pts[k][0], pts[k][1], body.path) < body.half + 2.0
-
-    if not wet(i):
-        near = [k for k in range(max(0, i - 20), min(len(pts), i + 21)) if wet(k)]
-        if not near:
-            return None
-        i = min(near, key=lambda k: abs(k - i))
+        near = [k for k in range(max(0, i0 - 20), min(len(pts), i0 + 21))
+                if wet(k)]
+        if near:
+            i = min(near, key=lambda k: abs(k - i0))
+            break
+    else:
+        return None
+    # the WHOLE wet stretch, uncapped: the run must be the same whichever of a
+    # causeway's deck points a window starts from, or two windows draw two
+    # different decks and the seam between them shows
     lo = hi = i
-    while lo > 0 and wet(lo - 1) and i - lo < 120:
+    while lo > 0 and wet(lo - 1):
         lo -= 1
-    while hi < len(pts) - 1 and wet(hi + 1) and hi - i < 120:
+    while hi < len(pts) - 1 and wet(hi + 1):
         hi += 1
     land = BRIDGE["landing"] // 4
     a, b = max(0, lo - land), min(len(pts), hi + land + 1)
     return pts[a:b], lo - a, hi - a
+
+
+def _in_window(canvas: Any, y: float, reach: float) -> bool:
+    """Could something at plan row `y`, drawing `reach` px around it, touch this
+    window? A looping one-screen map is always yes."""
+    from .plane import Plane
+    if not isinstance(canvas, Plane) or canvas.wrap:
+        return True
+    top = canvas.y0
+    return top - reach <= y <= top + canvas.h * canvas.scale + reach
 
 
 def _offset(pts: list, d: float) -> list:
@@ -108,6 +127,7 @@ def paint_roads(canvas: Any, kit: TileKit, plan: SitePlan,
                 rng: random.Random) -> None:
     from ..theme_table import ROAD_MAT
     np = _numpy()
+    wet = None            # the channels under this window, built once if needed
     for ri in _band(canvas, plan, "roads"):
         r = plan.roads[ri]
         frng = _frand(plan, ri, 29)
@@ -146,11 +166,22 @@ def paint_roads(canvas: Any, kit: TileKit, plan: SitePlan,
         # the water out of the road mask, then put the deck back at each
         # crossing so the bridge still spans its gap.
         runs = []
-        if plan.water and r.bridges:
-            wet = _wet_mask(canvas, plan)
+        # EVERY road stops at the water, bridged or not: a road that grazes a bank
+        # has its kerb in the channel band and no bridge, and painting it through
+        # the edge of the river is the "road fords the river" look. (This used to
+        # happen only for roads with bridges, so the planner recorded decks on
+        # grazes - bridges on dry land - to get the cut.)
+        if plan.water:
+            if wet is None:
+                wet = _wet_mask(canvas, plan)
             deck = np.zeros((canvas.w, canvas.h), dtype=np.float32)
             seen = set()
             for bx, by in r.bridges:
+                # only the crossings this window can show: every deck run is a walk
+                # over the whole route, and a road down the strip has decks a
+                # screen away from any one window
+                if not _in_window(canvas, by, r.width + 120.0):
+                    continue
                 run = _deck_run(plan, r, bx, by)
                 if run is None or (run[0][run[1]], run[0][run[2]]) in seen:
                     continue

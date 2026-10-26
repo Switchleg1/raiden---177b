@@ -59,11 +59,19 @@ def _bridge_spans(g: Geom, path: list[Point],
     river" artefact. So: any contiguous run of the route standing inside the
     channel band earns one deck at its middle.
     """
+    from .geometry import _in_poly
     out: list[Point] = []
     for w in water:
         run: list[Point] = []
         for pt in path:
-            if _near_path(g, pt[0], pt[1], w.path, w.half + 14.0):
+            # A lake is a region: on it means INSIDE its outline. Its `half` is the
+            # minor radius, and "within half of the outline" took a road running
+            # along the shore - outside the water - for one crossing it, which gave
+            # bridges on dry land (13 across nine sectors, one of them the bridge a
+            # hamlet then put its green on).
+            on = (_in_poly(pt[0], pt[1], w.path) if w.closed
+                  else _near_path(g, pt[0], pt[1], w.path, w.half + 14.0))
+            if on:
                 run.append(pt)
             elif run:
                 out.extend(_decks(run))
@@ -128,6 +136,38 @@ def _dry_ends(g: Geom, road: Road, water: list[Water],
         road.path = path
         road.bridges[:] = [(x, y) for x, y in road.bridges
                            if _near_path(g, x, y, road.path, road.width + 8.0)]
+
+
+def _true_decks(g: Geom, road: Road, water: list[Water]) -> None:
+    """Keep the decks that stand where the road is OVER water.
+
+    A deck is where the road's centreline crosses a channel. The planner's own
+    band (half + 14 px) also caught a road that only grazed a bank - its kerb in
+    the shore band, its line on land - and a bridge recorded there is one the
+    painter has no water to draw it over: a deck on a field, and a hamlet's green
+    sited by it. The test is the painter's (`paint.roads._deck_run`).
+    """
+    from .geometry import _in_poly
+
+    def over(x: float, y: float) -> bool:
+        return any((w.closed and _in_poly(x, y, w.path))
+                   or (not w.closed and _near_path(g, x, y, w.path, w.half))
+                   for w in water)
+
+    def on_water(bx: float, by: float) -> bool:
+        # the road's own points around the deck, stepped finely: a deck point is
+        # interpolated between route vertices ~30 px apart
+        path = road.path
+        for i in range(len(path) - 1):
+            (ax, ay), (cx, cy) = path[i], path[i + 1]
+            n = max(1, int(math.hypot(cx - ax, cy - ay) / 4.0))
+            for k in range(n + 1):
+                x, y = ax + (cx - ax) * k / n, ay + (cy - ay) * k / n
+                if math.hypot(x - bx, y - by) <= road.width + 40.0 and over(x, y):
+                    return True
+        return False
+
+    road.bridges[:] = [(x, y) for x, y in road.bridges if on_water(x, y)]
 
 
 def _add_decks(road: Road, spans: list[Point]) -> None:
@@ -201,9 +241,11 @@ def _circulation(g: Geom, spec: SiteSpec, relief: list[list[float]],
                         width=rng.uniform(15.0, 21.0))
     if best is None:
         return []
-    decks: list[Point] = []
-    for w in water:
-        decks.extend(_crossings(best.path, w.path))
+    # rivers by where the route crosses their line; a lake (closed) by the run
+    # of the route inside it, in `_bridge_spans` - its outline is its SHORE, and
+    # crossing that is where a bridge would start, not where it stands
+    decks: list[Point] = [pt for w in water if not w.closed
+                          for pt in _crossings(best.path, w.path)]
     decks.extend(_bridge_spans(g, best.path, water))
     _add_decks(best, decks)
     roads = [best]
@@ -230,8 +272,8 @@ def _circulation(g: Geom, spec: SiteSpec, relief: list[list[float]],
                 break
             pts.append((px, py))
         spur = Road(kind="spur", path=pts, width=rng.uniform(10.0, 13.0))
-        for w in water:
-            decks = [pt for w in water for pt in _crossings(spur.path, w.path)]
+        decks = [pt for w in water if not w.closed
+                 for pt in _crossings(spur.path, w.path)]
         _add_decks(spur, decks + _bridge_spans(g, spur.path, water))
         roads.append(spur)
     return roads
@@ -343,7 +385,7 @@ def _city_grid(g: Geom, water: list[Water], rng: random.Random) -> list[Road]:
                 else:
                     r.path = [(x + off, y) for x, y in r.path]
     for r in roads:
-        for w in water:
-            decks = [pt for w in water for pt in _crossings(r.path, w.path)]
+        decks = [pt for w in water if not w.closed
+                 for pt in _crossings(r.path, w.path)]
         _add_decks(r, decks + _bridge_spans(g, r.path, water))
     return roads

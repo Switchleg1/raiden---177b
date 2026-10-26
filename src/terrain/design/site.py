@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 from ..plan.geom import SCREEN
 from ..plan.site_plan import SitePlan
-from .circulation import _add_decks, _bridge_spans, _circulation, _dry_ends
+from .circulation import _add_decks, _bridge_spans, _circulation, _dry_ends, _true_decks
 from .cover import _cover
 from .drainage import _drainage, _water_mark
 from .fields import _fields
@@ -113,6 +113,7 @@ def plan_site(theme: str, seed: int, geom: Geom | None = None,
             break
     for r in plan.roads:
         _add_decks(r, _bridge_spans(g, r.path, plan.water))
+        _true_decks(g, r, plan.water)
     if built:
         _LOG.debug("places for %s: %s", theme,
                    ", ".join(f"{k}={v}" for k, v in sorted(built.items())))

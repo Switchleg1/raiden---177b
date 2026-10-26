@@ -153,11 +153,14 @@ def test_roads_cross_water_on_a_bridge(theme, seed):
     p = _plan(theme, seed)
     for r in p.roads:
         for x, y in r.path:
-            # the carriageway itself, not the wet bank: a road may run beside a
-            # channel, it just may not run through one
+            # the road's LINE in the water, which is what a ford is. A road whose
+            # kerb only grazes a bank is not crossing anything: the painter stops
+            # every carriageway at the water, and counting a graze here is what made
+            # the planner record bridges on dry land to satisfy it.
             wet = [w for w in p.water
-                   if min(math.hypot(x - wx, y - wy)
-                          for wx, wy in w.path) < w.half + r.width * 0.5]
+                   if (_in_poly(x, y, w.path) if w.closed else
+                       min(_seg_dist(x, y, w.path[i], w.path[i + 1])
+                           for i in range(len(w.path) - 1)) < w.half)]
             if not wet:
                 continue
             assert any(math.hypot(x - bx, y - by) < 110.0
@@ -532,3 +535,32 @@ def test_roads_and_greens_meet_water_only_on_a_bridge(theme):
                 assert not inside(gr.x, gr.y, w), (
                     f"seed {seed}: the green at ({gr.x:.0f},{gr.y:.0f}) is in "
                     f"the {w.kind}")
+
+
+@pytest.mark.parametrize("theme", ["countryside", "farmland", "canyon", "city"])
+def test_every_bridge_has_water_under_it(theme):
+    """A bridge is recorded where the road's line is over water, and nowhere
+    else. The planner's band also caught roads that only grazed a bank (13 such
+    "bridges" across nine sectors) and roads passing a lake's shore; the painter
+    finds no water under those and draws nothing, but the plan still sited a
+    hamlet's green by one."""
+    def over(x: float, y: float, p) -> bool:
+        return any((_in_poly(x, y, w.path) if w.closed else
+                    min(_seg_dist(x, y, w.path[i], w.path[i + 1])
+                        for i in range(len(w.path) - 1)) < w.half)
+                   for w in p.water)
+
+    for seed in (2, 3, 4, 5):
+        p = plan_site(theme, seed, Geom(h=1120 * 10, cell=CELL, cyclic=False))
+        for r in p.roads:
+            pts = []
+            for (ax, ay), (bx, by) in zip(r.path, r.path[1:], strict=False):
+                n = max(1, int(math.hypot(bx - ax, by - ay) / 4.0))
+                pts += [(ax + (bx - ax) * k / n, ay + (by - ay) * k / n)
+                        for k in range(n + 1)]
+            for bx, by in r.bridges:
+                near = [q for q in pts
+                        if math.hypot(q[0] - bx, q[1] - by) <= r.width + 40.0]
+                assert any(over(x, y, p) for x, y in near), (
+                    f"seed {seed}: a bridge on the {r.kind} road at "
+                    f"({bx:.0f},{by:.0f}) has no water under it")
