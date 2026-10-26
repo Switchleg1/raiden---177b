@@ -325,3 +325,70 @@ def test_terrain_without_baked_art_falls_back():
     canvas2 = pygame.Surface((C.LOGICAL_W, C.LOGICAL_H))
     b.draw(canvas2)
     assert px_a == pygame.surfarray.array3d(canvas2).tobytes()
+
+
+def test_a_bridge_deck_lies_along_its_road():
+    """The deck is the road over the water, so it is where the road is and
+    nowhere else: on the road's centreline the water is covered, and beside the
+    road - just past the parapets - the river still shows.
+
+    The old deck was a plank rectangle rotated to "the road's heading" with
+    pygame's counter-clockwise rotation in a y-down plan, so any crossing that
+    was not square lay across the river at the mirrored angle: the second half
+    of this test is what that looked like. Colour, not alpha: water is teal
+    (green over red), a deck is grey.
+    """
+    import math
+    import random
+
+    from terrain.compose import kit_available
+    from terrain.design.site import plan_site
+    from terrain.paint.plane import Plane
+    from terrain.paint.road_table import BRIDGE
+    from terrain.paint.roads import _deck_run, _offset
+    from terrain.paint.site import paint_site
+    from terrain.plan.geom import CELL, Geom
+    from terrain.tilekit import kit
+
+    if not kit_available():
+        pytest.skip("no generated tileset")
+    plan = plan_site("countryside", 2, Geom(h=1120 * 8, cell=CELL, cyclic=False))
+
+    def teal(c) -> float:
+        return c[1] - c[0]
+
+    checked = 0
+    for r in plan.roads:
+        for b in r.bridges[:2]:
+            run = _deck_run(plan, r, *b)
+            if run is None:
+                continue
+            pts, lo, hi = run
+            body = min(plan.water, key=lambda w: min(
+                math.hypot(x - b[0], y - b[1]) for x, y in w.path))
+            y0 = int(b[1] - 200)
+            pl = Plane(1600, 400, x0=0, y0=y0)
+            paint_site(pl, kit(), plan, random.Random(1))
+            surf = pl.surface()
+
+            def at(x, y, surf=surf, y0=y0):
+                return surf.get_at((int(x), int(y - y0)))[:3]
+
+            def deep(x, y, body=body):
+                return min(math.hypot(x - a, y - c) for a, c in body.path) \
+                    < body.half - 6.0
+            span = pts[lo + 1:hi]
+            on = [at(x, y) for x, y in span]
+            assert on and sum(map(teal, on)) / len(on) < 4.0, (
+                f"the {r.kind} road at ({b[0]:.0f},{b[1]:.0f}) has no deck "
+                "over the water")
+            past = r.width * 0.85 + BRIDGE["kerb"] + 14.0
+            beside = [at(x, y) for side in (-1.0, 1.0)
+                      for x, y in _offset(span, side * past)
+                      if deep(x, y) and 0 <= y - y0 < 400]
+            if beside:
+                assert sum(map(teal, beside)) / len(beside) > 8.0, (
+                    f"the deck at ({b[0]:.0f},{b[1]:.0f}) covers the river beside "
+                    f"the {r.kind} road: it does not lie along it")
+            checked += 1
+    assert checked >= 4, f"only {checked} bridges to check"

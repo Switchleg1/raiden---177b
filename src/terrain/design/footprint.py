@@ -112,9 +112,17 @@ def reconcile_foliage(plan: SitePlan) -> None:
     crown either misses the roof art or the tree goes; a crown over a roof is the
     ugliest thing a planned map does.
     """
+    from .footprint_table import CROWN_OVER_ROAD, TREE_CROWN_REACH, TREE_KINDS
     for wd in plan.woods:
         wd.items = [(x, y, s) for x, y, s in wd.items
                     if tree_clear_of_buildings(plan, x, y, s) == s]
+        # Nor on a road. A riverside tree was planted against the bank and the
+        # road that bridges that river was never asked, so the crossings got a
+        # crown sitting on the deck.
+        if wd.kind in TREE_KINDS:
+            wd.items = [(x, y, s) for x, y, s in wd.items
+                        if not plan.in_road_corridor(
+                            x, y, TREE_CROWN_REACH * s * (1.0 - CROWN_OVER_ROAD))]
     plan.woods[:] = [wd for wd in plan.woods if wd.items]
 
 

@@ -491,3 +491,44 @@ def test_a_bridged_road_keeps_running_under_its_deck():
         for bx, by in r.bridges:
             assert _near_path(p.geom, bx, by, r.path, r.width * 1.6 + 30.0), (
                 f"deck at ({bx:.0f},{by:.0f}) is off the {r.kind} road")
+
+
+@pytest.mark.parametrize("theme", ["countryside", "farmland"])
+def test_roads_and_greens_meet_water_only_on_a_bridge(theme):
+    """A road crosses a river on a bridge and stands on land at both ends.
+
+    Three ways this failed, each one a bridge that looked wrong: a spur left the
+    main road AT its bridge - mid-river - so two decks forked over the channel; a
+    spur aimed across a river stopped in it, so its deck ran out into the water
+    and ended; and the village green was centred on the bridge, which put a disc
+    of cobbles and a stand of trees on top of the deck.
+    """
+    def inside(x: float, y: float, w) -> bool:
+        if w.closed and _in_poly(x, y, w.path):
+            return True
+        return min(_seg_dist(x, y, w.path[i], w.path[i + 1])
+                   for i in range(len(w.path) - 1)) < w.half
+
+    for seed in (2, 3, 5, 21):
+        p = plan_site(theme, seed, Geom(h=1120 * 8, cell=CELL, cyclic=False))
+        for r in p.roads:
+            for end in (r.path[0], r.path[-1]):
+                if not 0.0 < end[1] < p.geom.h:
+                    continue           # runs on into the next sector
+                on = [o for o in p.roads if o is not r and min(
+                    _seg_dist(end[0], end[1], o.path[i], o.path[i + 1])
+                    for i in range(len(o.path) - 1)) < (o.width + r.width) * 0.5 + 4.0]
+                # a dead end, or a fork off the main road: both must be on land.
+                # Two pieces of one route meeting end to end over a river are a
+                # crossing, and their decks are one bridge.
+                forks = any(o.kind == "main" for o in on)
+                if not on or forks:
+                    for w in p.water:
+                        assert not inside(end[0], end[1], w), (
+                            f"seed {seed}: a {r.kind} road ends at "
+                            f"({end[0]:.0f},{end[1]:.0f}), in the {w.kind}")
+        for gr in p.greens:
+            for w in p.water:
+                assert not inside(gr.x, gr.y, w), (
+                    f"seed {seed}: the green at ({gr.x:.0f},{gr.y:.0f}) is in "
+                    f"the {w.kind}")

@@ -29,9 +29,12 @@ from .city_table import (
     MAT_SIDEWALK,
     MAT_YARD,
     OCCUPANCY,
+    ROW_AIR,
+    ROW_SLIDE,
     SHOPS,
     SIDE_FACING,
     SIDEWALK,
+    STEP_DOWN,
     TOWER,
 )
 from .footprint import place_building, tree_clear_of_buildings
@@ -109,6 +112,73 @@ def _usable(plan: SitePlan, r: Rect) -> bool:
             x += step
         y += step
     return True
+
+
+def _clean_part(plan: SitePlan, r: Rect, sides: frozenset[str]
+                ) -> tuple[Rect, frozenset[str]] | None:
+    """The widest clear part of a block a river or a highway runs through.
+
+    `_usable` refuses the whole block, which is right for its parcels (a yard laid
+    over a river paints the river out) and wrong for the block: a highway that
+    wanders through the corner of a 200 px block took all of it, and 170 of 760
+    blocks in one sector stood empty. The obstacles run along the strip or across
+    it, so the clear part is a band of whole columns or whole rows; the side that
+    now faces the obstacle is not a street.
+    """
+    x0, y0, x1, y1 = _inset(r, 10.0)
+    step = 15.0
+    nx = max(1, int((x1 - x0) / step)) + 1
+    ny = max(1, int((y1 - y0) / step)) + 1
+    xs = [x0 + (x1 - x0) * i / (nx - 1) if nx > 1 else x0 for i in range(nx)]
+    ys = [y0 + (y1 - y0) * j / (ny - 1) if ny > 1 else y0 for j in range(ny)]
+    bad = [[plan.is_wet(x, y) or plan.in_road_corridor(x, y, margin=4.0)
+            for x in xs] for y in ys]
+    best: tuple[float, Rect, frozenset[str]] | None = None
+
+    def run(flags: list[bool]) -> tuple[int, int]:
+        lo = hi = -1
+        k = 0
+        while k < len(flags):
+            if flags[k]:
+                k += 1
+                continue
+            a = k
+            while k < len(flags) and not flags[k]:
+                k += 1
+            if k - a > hi - lo:
+                lo, hi = a, k
+        return lo, hi
+
+    cols = [any(bad[j][i] for j in range(ny)) for i in range(nx)]
+    lo, hi = run(cols)
+    if lo >= 0:
+        # to the last clear sample: the wet grid already carries the shore margin
+        # a building keeps, and a second margin on top of it left every block
+        # beside the river 75 px wide - too narrow to stand a house
+        ax = r[0] if lo == 0 else xs[lo]
+        bx = r[2] if hi == nx else xs[hi - 1]
+        keep = frozenset(k for k in sides
+                         if (k != "w" or lo == 0) and (k != "e" or hi == nx))
+        part = (ax, r[1], bx, r[3])
+        best = ((bx - ax) * (r[3] - r[1]), part, keep)
+    rows = [any(bad[j]) for j in range(ny)]
+    lo, hi = run(rows)
+    if lo >= 0:
+        ay = r[1] if lo == 0 else ys[lo]
+        by = r[3] if hi == ny else ys[hi - 1]
+        keep = frozenset(k for k in sides
+                         if (k != "n" or lo == 0) and (k != "s" or hi == ny))
+        part = (r[0], ay, r[2], by)
+        area = (r[2] - r[0]) * (by - ay)
+        if best is None or area > best[0]:
+            best = (area, part, keep)
+    if best is None:
+        return None
+    _area, part, keep = best
+    if (part[2] - part[0] < 90.0 or part[3] - part[1] < 90.0 or not keep
+            or not _usable(plan, part)):
+        return None
+    return part, keep
 
 
 def _rect_poly(r: Rect) -> list[Point]:
@@ -209,13 +279,23 @@ def _row(plan: SitePlan, r: Rect, kind: str, scale: tuple[float, float],
             # 233 footprints in one city sector were asked for ground that is not
             # on the map (a blanket margin refused legal ones and was reverted)
             if not _on_map(plan, x, y, w, h):
-                a += along + air
+                # slide, like any refusal: a whole width on from a block at the map
+                # edge was past the end of a 200 px front, and the block stood empty
+                a += ROW_SLIDE
                 continue
             if place_building(plan, k, x, y, (x + face[0] * 200.0,
                                               y + face[1] * 200.0),
                               sc, group, air=air):
                 n += 1
-            a += along + air
+                a += along + air
+            else:
+                # Refused - most often by the neighbour just placed, whose ground
+                # is padded by `air` on every side and rounded out to whole planning
+                # cells, so `along + air` on is still inside it. Jumping a whole
+                # house on from a refusal is how a 200 px block front held one
+                # house: measured, 891 refusals to 489 buildings in one sector.
+                # Slide on by a cell and ask again.
+                a += ROW_SLIDE
     return n
 
 
@@ -295,30 +375,73 @@ def _parking(plan: SitePlan, r: Rect, rng: random.Random,
 
 def _shops(plan: SitePlan, r: Rect, rng: random.Random,
            sides: frozenset[str]) -> int:
-    """A row of shops on the block's street front, their car park behind."""
+    """A row of shops on the block's street front, their car park behind.
+
+    The front is the block's longest street, not "north if there is one": a shop
+    row is 146 px long and a 100 px block front could not hold one, which left 49
+    of 86 shop blocks in a sector with nothing on them at all.
+    """
     kind, scale = SHOPS
-    x0, y0, x1, y1 = r
-    front = "n" if "n" in sides else "s" if "s" in sides else None
-    if front is None:
+    fronts = _fronts(r, sides)
+    if not fronts:
         return _parking(plan, r, rng)
-    n = _row(plan, r, kind, scale, rng, "downtown", sides=(front,), air=4.0)
-    _w, h = ink_size(kind, scale[1])
-    depth = h + 14.0
-    if front == "n":
-        lot, strip = (x0, y0 + depth, x1, y1), (x0, y0, x1, y0 + depth)
-    else:
-        lot, strip = (x0, y0, x1, y1 - depth), (x0, y1 - depth, x1, y1)
-    if lot[3] - lot[1] > 60.0:
+    front = fronts[0]
+    n = _row(plan, r, kind, scale, rng, "downtown", sides=(front,),
+             air=ROW_AIR["shops"])
+    _along, depth = _extent(kind, scale[1], front)
+    depth += 14.0
+    x0, y0, x1, y1 = r
+    lot, strip = {
+        "n": ((x0, y0 + depth, x1, y1), (x0, y0, x1, y0 + depth)),
+        "s": ((x0, y0, x1, y1 - depth), (x0, y1 - depth, x1, y1)),
+        "w": ((x0 + depth, y0, x1, y1), (x0, y0, x0 + depth, y1)),
+        "e": ((x0, y0, x1 - depth, y1), (x1 - depth, y0, x1, y1)),
+    }[front]
+    if min(lot[2] - lot[0], lot[3] - lot[1]) > 60.0:
         n += _parking(plan, lot, rng)
     _parcel(plan, strip, MAT_SIDEWALK, "lot")
     return n
+
+
+def _extent(kind: str, sc: float, side: str) -> tuple[float, float]:
+    """(along the street, back from it) of a building standing on `side`."""
+    face = SIDE_FACING[side]
+    w, h = ink_size(kind, sc, _face(0.0, 0.0, face[0], face[1]))
+    return (w, h) if side in ("n", "s") else (h, w)
+
+
+def _holds(kind: str, sc: float, r: Rect, sides: frozenset[str]) -> bool:
+    """Can this block stand one of these buildings on any of its streets?"""
+    x0, y0, x1, y1 = r
+    for side in _fronts(r, sides):
+        along, depth = _extent(kind, sc, side)
+        room, deep = ((x1 - x0, y1 - y0) if side in ("n", "s")
+                      else (y1 - y0, x1 - x0))
+        if along <= room and depth <= deep:
+            return True
+    return False
+
+
+def _fronts(r: Rect, sides: frozenset[str]) -> tuple[str, ...]:
+    """Every street a block has, LONG fronts first.
+
+    A row was walked along the north and south streets only, and a city block is
+    tall - about 200 px across and 460 down - so each one got a house at each
+    short end and two empty long fronts: one roof per block, the "where are the
+    buildings?" city. The long sides go first because they hold the most, and
+    the short ends then fill whatever the corners leave.
+    """
+    x0, y0, x1, y1 = r
+    tall = (y1 - y0) >= (x1 - x0)
+    order = ("w", "e", "n", "s") if tall else ("n", "s", "w", "e")
+    return tuple(k for k in order if k in sides)
 
 
 def _apartments(plan: SitePlan, r: Rect, rng: random.Random,
                 sides: frozenset[str]) -> int:
     kind, scale = APARTMENT
     n = _row(plan, r, kind, scale, rng, "downtown",
-             sides=tuple(k for k in ("n", "s") if k in sides), air=14.0)
+             sides=_fronts(r, sides), air=ROW_AIR["apartments"])
     _parcel(plan, r, MAT_YARD, "yard")
     return n
 
@@ -345,7 +468,7 @@ def _residential(plan: SitePlan, r: Rect, rng: random.Random,
     kinds, scale = HOUSES
     palette = tuple(rng.sample(kinds, 2))
     n = _row(plan, r, palette, scale, rng, "residential",
-             sides=tuple(k for k in ("n", "s") if k in sides), air=18.0)
+             sides=_fronts(r, sides), air=ROW_AIR["residential"])
     _parcel(plan, r, MAT_YARD, "yard")
     # a couple of garden trees in the middle of the block, where the back
     # gardens meet - not between the houses, which is where the street is read
@@ -363,6 +486,9 @@ def _residential(plan: SitePlan, r: Rect, rng: random.Random,
     return n
 
 
+#: The art each built-up block type stands, for the fit test.
+ART_OF = {"towers": TOWER, "apartments": APARTMENT, "shops": SHOPS}
+
 BUILD = {"towers": _towers, "apartments": _apartments, "shops": _shops,
          "parking": _parking, "park": _park, "residential": _residential}
 
@@ -377,14 +503,21 @@ def build_city(plan: SitePlan, rng: random.Random) -> dict[str, int]:
     for r, sides in _blocks(plan):
         # a block no street touches is ground, not a block: nothing on it could be
         # reached (the plan's rule is that every building is)
-        if not sides or not _usable(plan, r):
+        if not sides:
             continue
+        if not _usable(plan, r):
+            part = _clean_part(plan, r, sides)
+            if part is None:
+                continue
+            r, sides = part
         cy = (r[1] + r[3]) / 2
         zone = _zone(plan, cy, core)
         kind = _pick(rng, BLOCK_MIX[zone])
-        # a block too small for a tower holds something smaller
-        if kind == "towers" and min(r[2] - r[0], r[3] - r[1]) < 150.0:
-            kind = "apartments"
+        # a block too small for what it drew holds the next thing down: a tower
+        # block on a 100 px block was a plaza with nothing on it
+        while kind in STEP_DOWN and not _holds(ART_OF[kind][0], ART_OF[kind][1][0],
+                                               r, sides):
+            kind = STEP_DOWN[kind]
         at = len(plan.fields)
         BUILD[kind](plan, r, rng, sides)
         # the pavement: a paved base under the whole block, laid BEFORE the block's

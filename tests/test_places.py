@@ -21,9 +21,10 @@ import pygame
 import config as C
 from terrain.design.art import _ink_rect, ink_size, prop_art
 from terrain.design.art_table import INK
+from terrain.design.geometry import _in_poly
 from terrain.design.site import plan_site
 from terrain.design.spec_table import SPEC
-from terrain.plan.geom import Geom
+from terrain.plan.geom import CELL, Geom
 
 STRIP = Geom(h=C.STRIP_ROWS, cyclic=False) if hasattr(C, "STRIP_ROWS") \
     else Geom(h=1120 * 6, cyclic=False)
@@ -373,3 +374,46 @@ def test_a_neighborhood_lane_holds_houses_on_both_sides():
         f"only {with_estates} of {sectors} countryside sectors have a neighborhood "
         "at all - the blueprint is not reaching the ground it wants")
 
+
+def test_a_city_block_with_ground_to_build_on_is_built_on():
+    """A city's block is built on: a street front with room for a building has
+    one. Parks are open on purpose and a block a river runs through is built
+    only on the dry part of it.
+
+    The blocks stood empty for four reasons, each measured: a row walked the
+    north and south fronts only (and a city block is as tall as it is wide), the
+    row's step was smaller than the ground the gate claims for each neighbour so
+    every second ask was refused and then skipped a whole house, a shop row was
+    longer than the front it was put on, and a block a river touched anywhere was
+    thrown away whole. That was 425 buildings on 760 blocks.
+    """
+    from terrain.design import city as cy
+
+    for seed in (4, 7):
+        p = plan_site("city", seed, Geom(h=1120 * 10, cell=CELL, cyclic=False))
+        parks = [f.poly for f in p.fields if f.kind == "park"]
+        open_, built, standing = 0, 0, 0
+        for r, sides in cy._blocks(p):
+            if not sides:
+                continue
+            if not cy._usable(p, r):
+                part = cy._clean_part(p, r, sides)
+                if part is None:
+                    continue
+                r = part[0]
+            cx, cy_ = (r[0] + r[2]) / 2, (r[1] + r[3]) / 2
+            if any(_in_poly(cx, cy_, poly) for poly in parks):
+                continue
+            open_ += 1
+            on = [b for b in p.buildings
+                  if r[0] - 4 <= b.x <= r[2] + 4 and r[1] - 4 <= b.y <= r[3] + 4]
+            built += bool(on)
+            standing += sum(1 for b in on if not b.kind.startswith("car"))
+        assert built >= 0.9 * open_, (
+            f"seed {seed}: {open_ - built} of {open_} city blocks with ground to "
+            "build on hold nothing")
+        # and a block is more than one roof: measured 0.97 and 1.27 buildings a
+        # block (parked cars not counted) when every block was one house
+        assert standing >= 1.5 * open_, (
+            f"seed {seed}: {standing} buildings on {open_} blocks - "
+            f"{standing / open_:.2f} a block is a house per block, not a city")

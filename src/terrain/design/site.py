@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 from ..plan.geom import SCREEN
 from ..plan.site_plan import SitePlan
-from .circulation import _add_decks, _bridge_spans, _circulation
+from .circulation import _add_decks, _bridge_spans, _circulation, _dry_ends
 from .cover import _cover
 from .drainage import _drainage, _water_mark
 from .fields import _fields
@@ -103,6 +103,14 @@ def plan_site(theme: str, seed: int, geom: Geom | None = None,
     # lane laid before a lake can cross it, and a road standing in water with no
     # deck is the "road fords the river" artifact this project has already been
     # told about twice.
+    # until nothing moves: trimming one road can leave a road that met it there
+    # with an end in the water, and that end is only loose once the first is cut
+    for _ in range(3):
+        ends = [(r.path[0], r.path[-1]) for r in plan.roads]
+        for r in plan.roads:
+            _dry_ends(g, r, plan.water, plan.roads)
+        if ends == [(r.path[0], r.path[-1]) for r in plan.roads]:
+            break
     for r in plan.roads:
         _add_decks(r, _bridge_spans(g, r.path, plan.water))
     if built:

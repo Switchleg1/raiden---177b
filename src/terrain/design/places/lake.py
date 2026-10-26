@@ -18,9 +18,6 @@ import random
 from ...plan.site_plan import SitePlan
 from ...plan.water import Water
 from ..footprint import place_building
-from ..geometry import (
-    _along,
-)
 
 
 def build_lake(plan: SitePlan, site: _Site, ps: PlaceSpec,
@@ -65,11 +62,19 @@ def build_lake(plan: SitePlan, site: _Site, ps: PlaceSpec,
     sx, sy = site.x + math.cos(a) * (rx + 34.0), site.y + math.sin(a) * (ry + 34.0)
     hit = _nearest_road(plan, sx, sy)
     if hit is not None and hit[3] < 520.0:
-        (_rx, _ry), tang = _along(hit[0].path, 0.5)
-        add_road(plan, "track", [(sx, sy), (_rx, _ry)], 10.0)
-        if place_building(plan, "shed", sx, sy, (site.x, site.y),
-                          rng.uniform(0.16, 0.22), "lake", air=AIR):
-            built += 1
+        # to the NEAREST point of that road, which `_nearest_road` measured: the
+        # road's midpoint (what this used) can be a screen away, across a river,
+        # and the track ran through the water to get there
+        _rx, _ry = hit[1]
+        sc = rng.uniform(0.16, 0.22)
+        # the shed first, as a question: a track laid before it was refused (it
+        # stood in a channel) was a track from the road into the water, to nothing
+        if place_building(plan, "shed", sx, sy, (site.x, site.y), sc, "lake",
+                          air=AIR, commit=False) is not None:
+            add_road(plan, "track", [(sx, sy), (_rx, _ry)], 10.0)
+            if place_building(plan, "shed", sx, sy, (site.x, site.y), sc,
+                              "lake", air=AIR):
+                built += 1
     # the water is the place; the shed is a bonus. Returning only the shed made a
     # lake without one read as "nothing built", and the sector got another lake.
     return 1 + built

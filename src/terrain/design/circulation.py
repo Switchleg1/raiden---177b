@@ -72,6 +72,64 @@ def _bridge_spans(g: Geom, path: list[Point],
     return out
 
 
+def _dry_ends(g: Geom, road: Road, water: list[Water],
+              roads: list[Road] = ()) -> None:
+    """A road ends on land: trim an end that stops in the water back to the bank.
+
+    A spur aimed at a farm across a river, or a lane to a lake, could stop with its
+    last point in the channel; the crossing pass then gave it a deck, and the map
+    had a bridge running out into the river and ending there.
+
+    IN the water, measured at the centreline: a cul-de-sac that ends AT a lake
+    shore is a road end like any other (a slipway, a turning circle), and
+    trimming it orphaned the drives of the houses along it.
+    """
+    def wet(x: float, y: float) -> bool:
+        from .geometry import _in_poly
+        return any((w.closed and _in_poly(x, y, w.path))
+                   or _near_path(g, x, y, w.path, w.half)
+                   for w in water)
+
+    def joined(pt: Point) -> bool:
+        # an end on another road is a junction, not a dead end: a spur leaves the
+        # main road where it bridges the river, and cutting that end back to the
+        # bank left the whole estate on it unconnected
+        return any(o is not road and _near_path(g, pt[0], pt[1], o.path,
+                                                (o.width + road.width) * 0.5 + 4.0)
+                   for o in roads)
+
+    def loose(pt: Point) -> bool:
+        # an end past the strip's edge is not an end: the road runs on into the
+        # next sector, and a river crossing there is a crossing
+        return ((g.cyclic or 0.0 < pt[1] < g.h) and wet(*pt)
+                and not joined(pt))
+
+    # a NEW list, never the old one shortened: `_near_path` indexes a route by
+    # the list it was given, and an index over a list that has since lost its
+    # tail reads past the end of it
+    def to_shore(path: list[Point]) -> list[Point]:
+        # back along the route from its last point to the first dry ground, cut
+        # THERE - not at a vertex: a two-point track has no vertex to drop, and
+        # one that started in a lake kept its whole length in it
+        if not loose(path[-1]):
+            return path
+        for i in range(len(path) - 1, 0, -1):
+            (ax, ay), (bx, by) = path[i - 1], path[i]
+            n = max(1, int(math.hypot(bx - ax, by - ay) / 4.0))
+            for k in range(1, n + 1):
+                t = k / n
+                px, py = bx + (ax - bx) * t, by + (ay - by) * t
+                if not wet(px, py):
+                    return path[:i] + [(px, py)]
+        return path                   # all of it is water: not this pass's to fix
+
+    path = to_shore(to_shore(list(road.path))[::-1])[::-1]
+    if path != road.path:
+        road.path = path
+        road.bridges[:] = [(x, y) for x, y in road.bridges
+                           if _near_path(g, x, y, road.path, road.width + 8.0)]
+
+
 def _add_decks(road: Road, spans: list[Point]) -> None:
     """Append bridge decks, ignoring only ones landing on top of a deck that is
     already there.
@@ -153,7 +211,8 @@ def _circulation(g: Geom, spec: SiteSpec, relief: list[list[float]],
     # col through the ridge, or out to a farm. A road that goes nowhere is the
     # tell of generated art.
     for _ in range(rng.randint(1, 2)):
-        s = rng.uniform(0.15, 0.85) if not best.bridges else _near_hit(best)
+        s = (rng.uniform(0.15, 0.85) if not best.bridges
+             else _bridge_end(g, best, water))
         (bx, by), tang = _along(best.path, s)
         ang = tang + (1.0 if rng.random() < 0.5 else -1.0) * rng.uniform(0.5, 1.1)
         ln = rng.uniform(160.0, 340.0)
@@ -176,6 +235,31 @@ def _circulation(g: Geom, spec: SiteSpec, relief: list[list[float]],
         _add_decks(spur, decks + _bridge_spans(g, spur.path, water))
         roads.append(spur)
     return roads
+
+
+def _bridge_end(g: Geom, road: Road, water: list[Water]) -> float:
+    """Fraction along the road where its first bridge LANDS: the nearer bank,
+    the first point on it clear of the water.
+
+    The spur used to leave from the bridge itself, which is the middle of the
+    river: two decks forked over the channel and the spur's first stretch ran
+    along the water inside the river's own banks. (No random draw here: the
+    nearer bank is the answer, and a draw would re-roll every plan after it.)
+    """
+    s0 = _near_hit(road)
+    step = 1.0 / max(200, len(road.path) * 4)
+    best: float | None = None
+    for direction in (1.0, -1.0):
+        s = s0
+        while 0.0 <= s + direction * step <= 1.0:
+            s += direction * step
+            (px, py), _ = _along(road.path, s)
+            if not any(_near_path(g, px, py, w.path,
+                                  w.half + road.width + 30.0) for w in water):
+                if best is None or abs(s - s0) < abs(best - s0):
+                    best = s
+                break
+    return s0 if best is None else best
 
 
 def _near_hit(road: Road) -> float:

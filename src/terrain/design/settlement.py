@@ -16,6 +16,42 @@ import math
 import random
 
 
+def _beside_landing(plan: SitePlan, road, bridge: tuple[float, float],
+                    radius: float) -> tuple[float, float] | None:
+    """Where a village green goes at a bridge: beside the road, on the bank.
+
+    The green used to be centred ON the bridge point, which is the middle of the
+    river - so the crossing got a disc of cobbles and a stand of trees painted
+    over its deck, the "tree on the bridge" that made every bridge look wrong.
+    Walk the road away from the crossing until the ground is dry, then step off
+    the carriageway by the green's own radius.
+    """
+    bx, by = bridge
+    path = road.path
+    k0 = min(range(len(path)),
+             key=lambda k: math.hypot(path[k][0] - bx, path[k][1] - by))
+    off = road.width * 0.5 + radius + 12.0
+    for direction in (1, -1):
+        k = k0
+        while 0 <= k + direction < len(path):
+            k += direction
+            x, y = path[k]
+            if math.hypot(x - bx, y - by) > 600.0:
+                break
+            if plan.near_water(x, y, radius + 40.0):
+                continue
+            a, b = path[max(0, k - 1)], path[min(len(path) - 1, k + 1)]
+            ln = math.hypot(b[0] - a[0], b[1] - a[1]) or 1.0
+            nx, ny = -(b[1] - a[1]) / ln, (b[0] - a[0]) / ln
+            for side in (1.0, -1.0):
+                gx, gy = x + nx * off * side, y + ny * off * side
+                if (radius < gx < plan.geom.w - radius
+                        and not plan.near_water(gx, gy, radius + 20.0)
+                        and not plan.in_road_corridor(gx, gy, radius)):
+                    return gx, gy
+    return None
+
+
 def _along_extent(kind: str, scale: float, angle: float, tang: float) -> float:
     """How much ROOM a building takes along a road running at `tang`.
 
@@ -53,12 +89,15 @@ def _settlement(spec: SiteSpec, plan: SitePlan, rng: random.Random) -> None:
     # the green: where a bridge lands, or where the spur leaves the main road.
     # That is where a village actually forms.
     if spec.hamlet:
-        at = plan.roads[0].bridges[0] if plan.roads[0].bridges else None
+        radius = rng.uniform(34.0, 58.0)
+        at = None
+        if plan.roads[0].bridges:
+            at = _beside_landing(plan, plan.roads[0], plan.roads[0].bridges[0],
+                                 radius)
         if at is None:
             (_gx, _gy), _ = _along(main.path, rng.uniform(0.3, 0.7))
             at = (_gx, _gy)
         gx, gy = at
-        radius = rng.uniform(34.0, 58.0)
         green = Green(x=gx, y=gy, radius=radius,
                       mat="cobble_moss" if plan.theme in ("countryside",
                                                           "ruins",

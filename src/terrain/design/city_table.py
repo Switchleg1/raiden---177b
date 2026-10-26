@@ -9,12 +9,17 @@ BLOCK_MIX: dict[str, tuple[tuple[str, int], ...]] = {
     "edge": (("residential", 7), ("apartments", 1), ("shops", 1), ("park", 1)),
 }
 
+#: What a block holds instead when it is too small for what it drew: the next
+#: building down, ending at houses (which fit any block the grid makes).
+STEP_DOWN: dict[str, str] = {"towers": "apartments", "apartments": "shops",
+                             "shops": "residential"}
+
 #: Building kinds per role, and the scale range each is drawn at.
 TOWER = ("office_tower", (0.56, 0.72))
 APARTMENT = ("apartment_block", (0.58, 0.74))
 SHOPS = ("shop_row", (0.58, 0.72))
 HOUSES = (("house_suburb", "house_suburb_tan", "house_suburb_brown",
-           "house_suburb_slate", "house"), (0.34, 0.4))
+           "house_suburb_slate", "house"), (0.30, 0.35))
 CARS = (("car_red", "car_white", "car_blue", "car_grey", "car_grey", "car_white"),
         0.15)
 
@@ -35,6 +40,17 @@ MAT_YARD = "cobble_moss"
 #: beyond half the carriageway: the kerb and the pavement.
 SIDEWALK = 12.0
 
+#: The gap a row keeps between neighbours, by block type (bake px, padded on
+#: every side of each footprint and rounded out to planning cells - so the gap
+#: actually kept is about twice this plus a cell). At 18 px a house claimed
+#: 124x127 px of a 200 px block and every block front held ONE house; a city
+#: street is a terrace, not a row of detached villas.
+ROW_AIR: dict[str, float] = {"residential": 6.0, "apartments": 8.0, "shops": 4.0}
+
+#: How far a row of buildings slides along its street to try again when a
+#: footprint is refused: one planning cell, the resolution the refusal was made at.
+ROW_SLIDE = 20.0
+
 #: Share of a parking lot's stalls that hold a car.
 OCCUPANCY = 0.7
 
@@ -46,5 +62,5 @@ SIDE_FACING: dict[str, tuple[float, float]] = {
 __all__ = ["SIDE_FACING", "APARTMENT", "BLOCK_MIX", "CARS",
            "HOUSES",
            "MAT_PARK", "MAT_PARKING",
-           "MAT_PLAZA", "MAT_SIDEWALK", "MAT_YARD", "OCCUPANCY", "SHOPS",
-           "SIDEWALK", "TOWER"]
+           "MAT_PLAZA", "MAT_SIDEWALK", "MAT_YARD", "OCCUPANCY", "ROW_AIR", "ROW_SLIDE", "SHOPS",
+           "SIDEWALK", "STEP_DOWN", "TOWER"]
