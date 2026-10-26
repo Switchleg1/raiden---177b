@@ -5,31 +5,41 @@ modules", and everything up to it is committed with the full suite green.
 
 ## Done since the first hand-off (all committed, suite green, maps re-baked)
 
-- Trees were scattered per screen twice (`design/cover.py`). Countryside went from 208
-  to 74 items per screen, wasteland from 526 to 43.
-- City cross streets run the full length of the sector.
-- `paint/road_table.py`: city and airbase streets, and all highways, no longer throw
+- Trees were scattered per screen twice (`design/cover.py`): countryside 208 -> 74
+  items/screen, wasteland 526 -> 43.
+- City cross streets run the full length of the city.
+- `paint/road_table.py`: city and airbase streets, and all highways, stopped throwing
   dirt splats onto their verges.
-- One main river per sector on river themes (`water_table.WATER_RATE`). Before, every
-  real sector had two parallel full-length rivers.
+- One main river (and one wash/channel) per sector: `water_table.WATER_RATE`.
+- **Bridges**: the deck's angle came from "the first path vertex within 60 px" and
+  defaulted to along-the-road; it is now the route's heading at the crossing
+  (`paint/roads._heading_at`), its length is the channel it spans (`_wet_span`), and
+  its alpha is multiplied by the water mask so it exists over water and nowhere else.
+- **Trees and houses**: `_tree_clearance` (crown reach + the building's art reach, asked
+  per building), `tree_clear_of_buildings` (shrinks a tree beside a house instead of
+  refusing it) and `reconcile_foliage` (run once at the end of planning, because a
+  place's trees are planted before the houses exist). Highway pylons step over houses.
+- City yards are the city's own ground (`cobble_moss`), not `grass_lush`.
+- Volcanic ground rebalanced over crust/obsidian/ash/gravel with a cooler rock ramp.
+- New tests: `test_no_crown_lies_over_a_roof`, `test_a_bridged_road_keeps_running_under_
+its_deck`.
 
-Whole-sector overviews: `screenshots/terrain/_overview_c.png` (countryside 1, city 3,
-wasteland 9). Regenerate with a script like the one in the session: plan with
+Whole-sector renders: `scripts/..//tmp` style one-pager - plan with
 `Geom(h=strip_length(spec), cyclic=False)`, paint with
-`TerrainStrip(plan, "near", slice_h=rows).paint(0)`, then flip vertically.
+`TerrainStrip(plan, "near", slice_h=rows, margin=STRIP_MARGIN).paint(0)`, flip
+vertically (band row == plan y). `scripts/dump_sector.py <theme> --seed N --slices 0`
+does the same for one theme.
 
 ## Still open
 
-- Wasteland, canyon and airbase sectors of 30+ screens get 2–3 washes that run side
-  by side for their whole length. Consider one long wash plus short side washes, like
-  the river tributaries.
-- City: many grass/yard blocks (`city_table.BLOCK_MIX`). Fewer would read as denser
-  downtown.
-- Highway interchanges (ramps onto the city grid) are not built.
-- Mountain ranges are modest. Possible next steps: amplitude (`mountain_table.RANGES`)
-  and pines on the flanks of alpine ranges.
-- A playtest by the user of neighbourhoods, woods, lakes and tree density is still
-  pending.
+- **User playtest** of neighbourhoods, woods, lakes, tree density, bridges.
+- The city reads as a grid of blocks with a few towers: `city_table.BLOCK_MIX` is the
+  knob. Downtown could be denser and taller (TOWER scale 0.56-0.72).
+- Highway interchanges (ramps onto the city grid) are not built; no traffic on the
+  highway yet (car/truck props exist, only parked ones are used).
+- Long dry sectors still show 2-3 washes side by side where a theme asks for several
+  (`WATER_RATE`), and mountain ranges are modest (`mountain_table.RANGES`).
+- Trees are still drawn over roads and each other freely; only roofs are protected.
 
 ## Tooling notes
 
