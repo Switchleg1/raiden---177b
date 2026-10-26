@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from ..footprint import tree_clear_of_buildings
 from .ground import _claim_cells
 from .shapes import _shore
 
@@ -51,7 +52,10 @@ def build_plains(plan: SitePlan, site: _Site, ps: PlaceSpec,
                     or plan.near_road(x, y, 40.0)
                     or any(math.hypot(x - ix, y - iy) < 150.0 for ix, iy, _s in items)):
                 continue
-            items.append((x, y, rng.uniform(0.55, 0.75)))
+            sc = tree_clear_of_buildings(plan, x, y, rng.uniform(0.55, 0.75))
+            if sc is None:
+                continue
+            items.append((x, y, sc))
             break
     if items:
         plan.woods.append(Wood(kind="copse", items=items))

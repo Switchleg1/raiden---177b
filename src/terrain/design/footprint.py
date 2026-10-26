@@ -1,6 +1,7 @@
 """The one way a building enters the plan, and the ground it takes."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from ..plan.building import Building
@@ -49,7 +50,9 @@ def _shore_clear(plan: SitePlan, x: float, y: float, scale: float) -> bool:
     return True
 
 
-def _near_building(plan: SitePlan, x: float, y: float, dist: float) -> bool:
+def _near_building(plan: SitePlan, x: float, y: float,
+                   dist: float | Callable[[Building, float, float], float]
+                   ) -> bool:
     """Foliage within arm's reach of a house reads as scrub swallowing the
     village, which is exactly what the old maps did.
 
@@ -59,16 +62,60 @@ def _near_building(plan: SitePlan, x: float, y: float, dist: float) -> bool:
     which every tree cleared while its crown still covered the roof. That is the
     tree-on-the-house in the city view. Use `_tree_clearance` for foliage.
     """
+    if callable(dist):
+        return any(math.hypot(b.x - x, b.y - y) < dist(b, x, y)
+                   for b in plan.buildings)
     return any(math.hypot(b.x - x, b.y - y) < dist for b in plan.buildings)
 
 
 def _tree_clearance(plan: SitePlan, x: float, y: float, scale: float,
-                    extra: float = 8.0) -> float:
-    """How far a tree of this scale must stand from the nearest building: its
-    crown cannot be allowed to lie over a roof, and the biggest building wins."""
-    crown = TREE_CROWN_REACH * scale
-    return min((_near_building_reach(b) + crown + extra for b in plan.buildings),
-               default=0.0)
+                    extra: float = 8.0):
+    """The clearance test for a tree of this scale, as a CALLABLE taking (x, y).
+
+    It cannot be a number. The reach that matters is the reach of the building
+    being compared against, and `min(reach) + crown` - the obvious scalar - is
+    the reach of the SMALLEST building in the sector: a village barn 400 px away
+    set a clearance of 48 px and every house in the sector failed its own test,
+    while the tree 139 px from that house still overhung its roof. Pass this to
+    `_near_building`, which asks each building in turn.
+    """
+    return lambda b, qx, qy: (_near_building_reach(b)
+                              + TREE_CROWN_REACH * scale + extra)
+
+
+def tree_clear_of_buildings(plan: SitePlan, x: float, y: float,
+                            scale: float, extra: float = 8.0) -> float | None:
+    """The tree's scale, lowered until its crown misses every roof, or None when
+    even a shrub would overhang one.
+
+    A garden tree beside a house is what a village is supposed to look like, and
+    the answer is NOT to refuse it: a crown is 254 px of art at scale 1 and 76 px
+    at 0.3, and the second is a suburban garden tree. Refusing instead left every
+    estate street treeless.
+    """
+    s = scale
+    for _ in range(4):
+        if not _near_building(plan, x, y,
+                              _tree_clearance(plan, x, y, s, extra)):
+            return s
+        s *= 0.6
+    return None
+
+
+def reconcile_foliage(plan: SitePlan) -> None:
+    """Last word on trees and houses, for the crowns a planter could not see.
+
+    A place lays its trees before the settlement that will stand beside them - a
+    meadow is sited on open ground and the frontage houses arrive after - so the
+    clearance each planter asks was asked against an EMPTY map, and no amount of
+    care there can answer a question about a house that does not exist yet. The
+    crown either misses the roof art or the tree goes; a crown over a roof is the
+    ugliest thing a planned map does.
+    """
+    for wd in plan.woods:
+        wd.items = [(x, y, s) for x, y, s in wd.items
+                    if tree_clear_of_buildings(plan, x, y, s) == s]
+    plan.woods[:] = [wd for wd in plan.woods if wd.items]
 
 
 def _near_building_reach(b: Building) -> float:

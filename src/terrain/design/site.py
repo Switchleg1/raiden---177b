@@ -111,6 +111,10 @@ def plan_site(theme: str, seed: int, geom: Geom | None = None,
     _settlement(spec, plan, rng)
     _fields(spec, plan, rng)
     _cover(spec, plan, rng)
+    # Foliage and buildings reconciled once every one of both exists: a place's
+    # trees were planted against a map with no houses in it.
+    from .footprint import reconcile_foliage
+    reconcile_foliage(plan)
     # the war, last: the same ground, broken (a no-op at scars 0)
     from .war import scar
     scar(plan, scars)

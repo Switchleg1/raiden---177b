@@ -449,3 +449,45 @@ def test_the_segment_index_agrees_with_brute_force():
     assert mismatches == 0, (
         f"{mismatches} of {probes} probes disagree with brute force - a plan "
         "sits things on ground it believes is free")
+
+
+def _crown_reach(scale: float) -> float:
+    from terrain.design.footprint_table import TREE_CROWN_REACH
+    return TREE_CROWN_REACH * scale
+
+
+def _building_reach(b) -> float:
+    from terrain.design.art_table import INK
+    w, h = INK.get(b.kind, (256.0, 256.0))
+    return 0.5 * min(w, h) * b.scale
+
+
+@pytest.mark.parametrize("theme", ["countryside", "forest", "city", "farmland"])
+def test_no_crown_lies_over_a_roof(theme):
+    """A tree and a house are clear of each other when the CROWNTOP misses the
+    art, which is the sum of the two reaches - not 34 px of centre-to-centre
+    slack against objects 250 px across. A crown over a roof is the single
+    ugliest thing a planned map can do, and the old test could not see it."""
+    p = _plan(theme, 1)
+    for b in p.buildings:
+        for wd in p.woods:
+            for x, y, s in wd.items:
+                need = _building_reach(b) + _crown_reach(s)
+                assert math.hypot(x - b.x, y - b.y) >= need, (
+                    f"{wd.kind} crown at scale {s:.2f} covers the {b.kind} at "
+                    f"({b.x:.0f},{b.y:.0f}): {math.hypot(x - b.x, y - b.y):.0f} "
+                    f"px of the {need:.0f} needed")
+
+
+def test_a_bridged_road_keeps_running_under_its_deck():
+    """A deck is drawn at the crossing. If the carriageway does not actually
+    pass that way - the old bug, an angle taken from the wrong vertex - the
+    player sees a plank in a field and a river with no ford."""
+    from terrain.design.geometry import _near_path
+    p = plan_site("city", 4, Geom(h=1120 * 8, cell=CELL, cyclic=False))
+    roads = [r for r in p.roads if r.bridges]
+    assert roads, "no bridges on this plan"
+    for r in roads:
+        for bx, by in r.bridges:
+            assert _near_path(p.geom, bx, by, r.path, r.width * 1.6 + 30.0), (
+                f"deck at ({bx:.0f},{by:.0f}) is off the {r.kind} road")

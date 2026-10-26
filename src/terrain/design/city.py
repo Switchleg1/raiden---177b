@@ -34,7 +34,7 @@ from .city_table import (
     SIDEWALK,
     TOWER,
 )
-from .footprint import place_building
+from .footprint import place_building, tree_clear_of_buildings
 
 Rect = tuple[float, float, float, float]
 
@@ -301,8 +301,11 @@ def _park(plan: SitePlan, r: Rect, rng: random.Random,
     items = []
     for _ in range(rng.randint(5, 10)):
         x, y = rng.uniform(x0 + 45, x1 - 45), rng.uniform(y0 + 45, y1 - 45)
-        items.append((x, y, rng.uniform(0.32, 0.48)))
-    plan.woods.append(Wood(kind="copse", items=items))
+        sc = tree_clear_of_buildings(plan, x, y, rng.uniform(0.32, 0.48))
+        if sc is not None:
+            items.append((x, y, sc))
+    if items:
+        plan.woods.append(Wood(kind="copse", items=items))
     return 1
 
 
@@ -320,6 +323,10 @@ def _residential(plan: SitePlan, r: Rect, rng: random.Random,
     items = [(rng.uniform(x0 + 20, x1 - 20), cy + rng.uniform(-12, 12),
               rng.uniform(0.3, 0.42)) for _ in range(rng.randint(1, 3))]
     items = [it for it in items if not plan.is_built(it[0], it[1])]
+    # a garden tree, not a wood: the crown has to miss the roof it is planted over
+    items = [it[:2] + (tree_clear_of_buildings(plan, it[0], it[1], it[2]),)
+             for it in items]
+    items = [it for it in items if it[2] is not None]
     if items:
         plan.woods.append(Wood(kind="copse", items=items))
     return n

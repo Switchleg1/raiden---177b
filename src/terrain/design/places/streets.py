@@ -10,7 +10,7 @@ from ...plan.road import Road
 from ...plan.site_plan import SitePlan
 from ...plan.wood import Wood
 from ..art import _face, ink_size
-from ..footprint import _shore_clear, place_building
+from ..footprint import _shore_clear, place_building, tree_clear_of_buildings
 from ..geometry import (
     _along,
     _clip_poly,
@@ -174,11 +174,11 @@ def _row_place(plan: SitePlan, rng: random.Random, sp: Road, lane: list[Point],
             # the lot, and a lot whose house is near the strip's edge puts that
             # corner off the map (`a_strip_is_designed_not_stretched` measured one
             # at x = -53). A tree that is not on the map is not on the map.
+            sc = tree_clear_of_buildings(plan, tx, ty, rng.uniform(0.34, 0.5))
             if (12.0 < tx < plan.geom.w - 12.0 and _in_strip(plan.geom, ty)
                     and not plan.is_wet(tx, ty)
-                    and _shore_clear(plan, tx, ty, 0.5)):
-                plan.woods.append(Wood(kind="wood",
-                                       items=[(tx, ty, rng.uniform(0.34, 0.5))]))
+                    and _shore_clear(plan, tx, ty, 0.5) and sc is not None):
+                plan.woods.append(Wood(kind="wood", items=[(tx, ty, sc)]))
     return built
 
 
@@ -302,8 +302,8 @@ def _estate_trees(plan: SitePlan, streets: list[list[Point]], rng: random.Random
             x, y = sx + math.cos(a) * d, sy + math.sin(a) * d
             if not (14.0 < x < plan.geom.w - 14.0) or not _in_strip(plan.geom, y):
                 continue
-            sc = rng.uniform(0.42, 0.62)
-            if plan.is_built(x, y) or plan.is_wet(x, y):
+            sc = tree_clear_of_buildings(plan, x, y, rng.uniform(0.42, 0.62))
+            if sc is None or plan.is_built(x, y) or plan.is_wet(x, y):
                 continue
             if not _shore_clear(plan, x, y, sc):
                 continue

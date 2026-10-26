@@ -18,7 +18,7 @@ from ...plan.road import Road
 from ...plan.site_plan import SitePlan
 from ...plan.wood import Wood
 from ..art import ink_size
-from ..footprint import place_building
+from ..footprint import _near_building, place_building
 from ..geometry import (
     _along,
     _vpath,
@@ -71,7 +71,11 @@ def build_highway(plan: SitePlan, site: _Site, ps: PlaceSpec,
         (px, py), tang = _along(path, s / arc)
         nx_, ny_ = math.cos(tang - math.pi / 2), math.sin(tang - math.pi / 2)
         mx, my = px + nx_ * (width * 0.5 + 52.0), py + ny_ * (width * 0.5 + 52.0)
-        if 12.0 < mx < g.w - 12.0 and not plan.is_wet(mx, my):
+        if 12.0 < mx < g.w - 12.0 and not plan.is_wet(mx, my) \
+                and not _near_building(plan, mx, my, 110.0):
+            # a pylon is 254 px of steel lattice at the anchor and the row is
+            # planted every 250 px along a road that runs THROUGH the country: it
+            # has to step over the houses it would otherwise stand in
             masts.append((mx, my, rng.uniform(0.24, 0.32)))
         s += rng.uniform(210.0, 300.0)
     if len(masts) >= 3:
